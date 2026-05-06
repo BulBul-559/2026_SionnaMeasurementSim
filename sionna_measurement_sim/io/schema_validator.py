@@ -72,6 +72,12 @@ REQUIRED_OBSERVATION_GROUPS = (
     "evaluation",
 )
 
+REQUIRED_CALIBRATION_DATASETS = (
+    "calibration/profile_id",
+    "calibration/fitted_parameters",
+    "calibration/validation_metrics",
+)
+
 REQUIRED_OBSERVATION_DATASETS = (
     "waveform/standard",
     "waveform/fft_size",
@@ -111,6 +117,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
             _require_present(h5, REQUIRED_OBSERVATION_DATASETS, kind=h5py.Dataset)
             _validate_observation_shapes(h5)
+            if "calibration" in h5:
+                _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
         _validate_units(h5)
         _validate_values(h5)
 

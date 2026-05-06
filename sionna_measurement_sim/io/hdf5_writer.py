@@ -39,6 +39,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_impairments(h5, result)
         _write_receiver(h5, result)
         _write_evaluation(h5, result)
+        _write_calibration(h5, result)
         _write_motion(h5, result)
         _write_runtime(h5, result)
 
@@ -271,6 +272,16 @@ def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> Non
         "estimation_failure_rate",
         np.float32(evaluation.estimation_failure_rate),
     )
+
+
+def _write_calibration(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    calibration = result.calibration
+    if calibration is None:
+        return
+    group = h5.require_group("calibration")
+    _write_scalar(group, "profile_id", calibration.profile_id)
+    _write_scalar(group, "fitted_parameters", calibration.fitted_parameters)
+    _write_scalar(group, "validation_metrics", calibration.validation_metrics)
 
 
 def _write_motion(h5: h5py.File, result: MeasurementSimulationResult) -> None:

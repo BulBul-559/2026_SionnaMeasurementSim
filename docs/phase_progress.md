@@ -339,3 +339,52 @@ Known issues or blockers:
 
 - No Phase 6 blockers.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 7
+
+Current completed phase: Phase 7.
+
+This round completed:
+
+- Added `CalibrationResult` domain model with synthetic default profile.
+- Added `DiagnosticsReport` domain model with per-link aggregate statistics (median NMSE, SNR, phase error, detection/failure rates, worst-link).
+- Added `/calibration` HDF5 group writer (profile_id, fitted_parameters, validation_metrics).
+- Updated schema validator for calibration datasets.
+- Updated `ReceiverSpec.calibration_profile_id` default from "none" to "synthetic_default".
+- Wired diagnostics into manifest.json.
+
+Commands and results:
+
+- `uv run pytest tests/unit tests/integration -k "calibration or diagnostics"`: passed, 9 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-observation --output-dir outputs/phase7_calibration --snr-db 40`: passed.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 65 tests.
+
+Key files generated:
+
+- `tests/unit/test_diagnostics.py`
+- `tests/integration/test_calibration.py`
+- `artifacts/phase_reports/phase_7_acceptance.md`
+- `outputs/phase7_calibration/results.h5` (ignored)
+
+Acceptance items passed:
+
+- `/calibration/profile_id` = "synthetic_default" in HDF5.
+- `/calibration/fitted_parameters` and `/calibration/validation_metrics` contain valid JSON.
+- `ReceiverSpec.calibration_profile_id` = "synthetic_default" (actionable).
+- `DiagnosticsReport.from_evaluation()` computes median NMSE, SNR, phase error, detection/estimation failure rates, worst-link index.
+- Diagnostics summary written to manifest.json.
+- Schema validator checks `/calibration` datasets when group present.
+
+Current git commit hash:
+
+- Before this Phase 7 commit: `91582b0`.
+
+Next step:
+
+- Continue from Phase 8: batch processing and performance.
+
+Known issues or blockers:
+
+- No Phase 7 blockers.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.

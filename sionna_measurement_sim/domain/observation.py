@@ -130,7 +130,7 @@ class ReceiverSpec:
     interpolation_method: str = "none"
     packet_detection_threshold: float = 0.0
     failure_policy: str = "mark_invalid"
-    calibration_profile_id: str = "none"
+    calibration_profile_id: str = "synthetic_default"
 
 
 @dataclass(frozen=True)
@@ -163,3 +163,84 @@ class EvaluationResult:
         object.__setattr__(self, "amplitude_error_db", amplitude_error_db)
         object.__setattr__(self, "phase_error_rad", phase_error_rad)
         object.__setattr__(self, "correlation", correlation)
+
+
+@dataclass(frozen=True)
+class CalibrationResult:
+    """Calibration profile and fitted parameters."""
+
+    profile_id: str
+    fitted_parameters: str  # JSON
+    validation_metrics: str  # JSON
+
+    @classmethod
+    def synthetic_default(cls) -> CalibrationResult:
+        import json
+        from datetime import UTC, datetime
+
+        return cls(
+            profile_id="synthetic_default",
+            fitted_parameters=json.dumps({"correction_mode": "none"}),
+            validation_metrics=json.dumps(
+                {
+                    "applied_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+                    "method": "synthetic_identity",
+                }
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class DiagnosticsReport:
+    """Aggregate diagnostics summary across all links."""
+
+    median_nmse_db: float
+    median_snr_db: float
+    median_phase_error_rad: float
+    detection_rate: float
+    estimation_failure_rate: float
+    worst_link_nmse_db: float
+    worst_link_index: tuple[int, int, int]  # (snapshot, tx, rx)
+    num_links: int
+    num_failed_links: int
+
+    def to_summary_dict(self) -> dict:
+        return {
+            "median_nmse_db": self.median_nmse_db,
+            "median_snr_db": self.median_snr_db,
+            "median_phase_error_rad": self.median_phase_error_rad,
+            "detection_rate": self.detection_rate,
+            "estimation_failure_rate": self.estimation_failure_rate,
+            "worst_link_nmse_db": self.worst_link_nmse_db,
+            "worst_link_index": list(self.worst_link_index),
+            "num_links": self.num_links,
+            "num_failed_links": self.num_failed_links,
+        }
+
+    @classmethod
+    def from_evaluation(
+        cls,
+        evaluation: EvaluationResult,
+        observation: ObservationResult,
+    ) -> DiagnosticsReport:
+        import numpy as np
+
+        nmse = evaluation.nmse_db.ravel()
+        valid = observation.valid_mask.ravel()
+        snr = observation.snr_db.ravel()
+        phase = evaluation.phase_error_rad.ravel()
+        num_links = int(np.prod(evaluation.nmse_db.shape))
+        num_failed = int(np.sum(~observation.estimation_success))
+        worst_idx_flat = int(np.argmax(nmse))
+        worst_idx = np.unravel_index(worst_idx_flat, evaluation.nmse_db.shape)
+        return cls(
+            median_nmse_db=float(np.median(nmse[valid])) if np.any(valid) else 0.0,
+            median_snr_db=float(np.median(snr[valid])) if np.any(valid) else 0.0,
+            median_phase_error_rad=float(np.median(np.abs(phase[valid]))) if np.any(valid) else 0.0,
+            detection_rate=float(evaluation.detection_rate),
+            estimation_failure_rate=float(evaluation.estimation_failure_rate),
+            worst_link_nmse_db=float(nmse[worst_idx_flat]),
+            worst_link_index=tuple(int(i) for i in worst_idx),
+            num_links=num_links,
+            num_failed_links=num_failed,
+        )

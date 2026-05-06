@@ -23,6 +23,8 @@ from sionna_measurement_sim.domain.constants import (
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
+    CalibrationResult,
+    DiagnosticsReport,
     EvaluationResult,
     ImpairmentSpec,
     ObservationResult,
@@ -148,6 +150,8 @@ class MeasurementSimulationResult:
     receiver: ReceiverSpec | None = None
     evaluation: EvaluationResult | None = None
     motion: MotionSpec | None = None
+    calibration: CalibrationResult | None = None
+    diagnostics: DiagnosticsReport | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr

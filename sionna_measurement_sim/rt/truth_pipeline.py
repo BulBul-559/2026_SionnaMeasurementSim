@@ -14,6 +14,10 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.motion import MotionSpec
+from sionna_measurement_sim.domain.observation import (
+    CalibrationResult,
+    DiagnosticsReport,
+)
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -147,26 +151,36 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         impairments=observation_bundle.impairments if observation_bundle else None,
         receiver=observation_bundle.receiver if observation_bundle else None,
         evaluation=observation_bundle.evaluation if observation_bundle else None,
+        calibration=(
+            CalibrationResult.synthetic_default() if observation_bundle else None
+        ),
+        diagnostics=(
+            DiagnosticsReport.from_evaluation(
+                observation_bundle.evaluation, observation_bundle.observation
+            )
+            if observation_bundle
+            else None
+        ),
     )
 
     results_path = write_measurement_result(output_dir / "results.h5", result)
     validate_hdf5_contract(results_path)
-    manifest_path = write_manifest(
-        output_dir / "manifest.json",
-        {
-            "phase": phase,
-            "results_h5": results_path.as_posix(),
-            "label_file": config.label_file.as_posix(),
-            "scene_file": config.scene_file.as_posix(),
-            "config_snapshot": _config_snapshot(config),
-            "software_versions": adapter_result.runtime_versions,
-            "raw_cfr_shape": adapter_result.raw_cfr_shape,
-            "internal_cfr_shape": adapter_result.internal_cfr_shape,
-            "path_count": int(adapter_result.path_samples.path_count.sum()),
-            "observation_snr_db": config.observation_snr_db,
-            "elapsed_seconds": elapsed_seconds,
-        },
-    )
+    manifest_data = {
+        "phase": phase,
+        "results_h5": results_path.as_posix(),
+        "label_file": config.label_file.as_posix(),
+        "scene_file": config.scene_file.as_posix(),
+        "config_snapshot": _config_snapshot(config),
+        "software_versions": adapter_result.runtime_versions,
+        "raw_cfr_shape": adapter_result.raw_cfr_shape,
+        "internal_cfr_shape": adapter_result.internal_cfr_shape,
+        "path_count": int(adapter_result.path_samples.path_count.sum()),
+        "observation_snr_db": config.observation_snr_db,
+        "elapsed_seconds": elapsed_seconds,
+    }
+    if result.diagnostics is not None:
+        manifest_data["diagnostics"] = result.diagnostics.to_summary_dict()
+    manifest_path = write_manifest(output_dir / "manifest.json", manifest_data)
     (logs_dir / "run.log").write_text(
         "\n".join(
             [
