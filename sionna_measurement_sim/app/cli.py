@@ -263,6 +263,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rx_num_cols=cfg.antenna.rx_array.num_cols,
                 tx_polarization=cfg.antenna.tx_array.polarization,
                 rx_polarization=cfg.antenna.rx_array.polarization,
+                hdf5_filename=cfg.output.hdf5_filename,
+                save_full_paths=cfg.output.save_full_paths,
+                calibration_enabled=cfg.calibration.enabled,
                 tx_velocity_mps=(
                     cfg.motion.tx_velocity_mps[0],
                     cfg.motion.tx_velocity_mps[1],

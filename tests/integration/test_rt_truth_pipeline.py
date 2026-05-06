@@ -57,6 +57,7 @@ def test_path_pipeline_writes_samples_full_paths_and_plot(tmp_path: Path):
             seed=1,
             max_depth=1,
             specular_reflection=True,
+            save_full_paths=True,
         )
     )
 

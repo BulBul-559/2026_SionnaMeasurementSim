@@ -73,6 +73,9 @@ class RTTruthRunConfig:
     rx_num_cols: int = 1
     tx_polarization: str = "V"
     rx_polarization: str = "V"
+    hdf5_filename: str = "results.h5"
+    save_full_paths: bool = False
+    calibration_enabled: bool = True
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -175,14 +178,16 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             command_line="run-rt-truth",
             elapsed_seconds=elapsed_seconds,
         ),
-        path_table=adapter_result.path_table,
+        path_table=adapter_result.path_table if config.save_full_paths else None,
         waveform=observation_bundle.waveform if observation_bundle else None,
         observation=observation_bundle.observation if observation_bundle else None,
         impairments=observation_bundle.impairments if observation_bundle else None,
         receiver=observation_bundle.receiver if observation_bundle else None,
         evaluation=observation_bundle.evaluation if observation_bundle else None,
         calibration=(
-            CalibrationResult.synthetic_default() if observation_bundle else None
+            CalibrationResult.synthetic_default()
+            if (observation_bundle and config.calibration_enabled)
+            else None
         ),
         diagnostics=(
             DiagnosticsReport.from_evaluation(
@@ -193,7 +198,9 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         ),
     )
 
-    results_path = write_measurement_result(output_dir / "results.h5", result)
+    results_path = write_measurement_result(
+        output_dir / config.hdf5_filename, result,
+    )
     validate_hdf5_contract(results_path)
     manifest_data = {
         "phase": phase,
