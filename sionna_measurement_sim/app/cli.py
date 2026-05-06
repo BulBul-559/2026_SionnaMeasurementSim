@@ -62,6 +62,18 @@ def build_parser() -> argparse.ArgumentParser:
     observation.add_argument("--clipping-threshold", type=float, default=None)
     observation.add_argument("--impairment-seed", type=int, default=11)
 
+    batch = subparsers.add_parser(
+        "run-batch",
+        help="Run Phase 8 batch experiment across multiple seeds/SNRs.",
+    )
+    batch.add_argument("--label-file", default="data/scenes/test/test5.json")
+    batch.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    batch.add_argument("--output-dir", default="outputs/phase8_batch")
+    batch.add_argument("--num-subcarriers", type=int, default=8)
+    batch.add_argument("--seed", type=int, default=1)
+    batch.add_argument("--snr-db", type=float, default=40.0)
+    batch.add_argument("--batch-count", type=int, default=2)
+
     return parser
 
 
@@ -150,6 +162,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(output_path)
         return 0
+
+    if args.command == "run-batch":
+        from pathlib import Path
+
+        from sionna_measurement_sim.app.batch_runner import run_batch_experiment
+        from sionna_measurement_sim.domain.batch import BatchConfig
+        from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig
+
+        batch_config = BatchConfig(
+            enabled=True,
+            total_batches=args.batch_count,
+            completed_batches=0,
+            failed_batches=0,
+        )
+        base_config = RTTruthRunConfig(
+            label_file=Path(args.label_file),
+            scene_file=Path(args.scene_file),
+            output_dir=Path(args.output_dir),
+            num_subcarriers=args.num_subcarriers,
+            seed=args.seed,
+            max_depth=1,
+            specular_reflection=True,
+            observation_snr_db=args.snr_db,
+        )
+        result = run_batch_experiment(base_config, batch_config)
+        print(
+            f"Batch experiment complete: {result.succeeded}/{result.batch_config.total_batches}"
+            f" succeeded, {result.failed} failed"
+        )
+        print(f"Manifest: {result.base_output_dir / 'batch_manifest.json'}")
+        return 0 if result.failed == 0 else 1
 
     parser.print_help()
     return 0

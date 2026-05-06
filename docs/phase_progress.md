@@ -389,3 +389,55 @@ Known issues or blockers:
 
 - No Phase 7 blockers.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 8
+
+Current completed phase: Phase 8 (final).
+
+This round completed:
+
+- Added `BatchConfig`, `BatchManifestEntry`, and `BatchExperimentResult` domain models.
+- Created `app/batch_runner.py` orchestrator with per-batch HDF5 output, failed batch isolation, and GPU memory cleanup.
+- Added `run-batch` CLI command with `--batch-count` flag.
+- Batch manifest records `batching.enabled`, `total_batches`, `completed_batches`, `failed_batches`, and per-batch entries.
+
+Commands and results:
+
+- `uv run pytest tests/integration -k "batch"`: passed, 8 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-batch --output-dir outputs/phase8_batch --batch-count 2 --snr-db 40`: 2/2 succeeded.
+- Each batch HDF5 passes schema validation.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 73 tests.
+
+Key files generated:
+
+- `sionna_measurement_sim/domain/batch.py`
+- `sionna_measurement_sim/app/batch_runner.py`
+- `tests/integration/test_batch.py`
+- `artifacts/phase_reports/phase_8_acceptance.md`
+- `outputs/phase8_batch/batch_manifest.json` (ignored)
+- `outputs/phase8_batch/batch_000/results.h5` (ignored)
+- `outputs/phase8_batch/batch_001/results.h5` (ignored)
+
+Acceptance items passed:
+
+- `batching.enabled` = true, `total_batches` = 2, `completed_batches` = 2, `failed_batches` = 0 in batch manifest.
+- Each batch HDF5 passes full schema validation.
+- Per-batch entries record batch_id, batch_index, status, and results_h5 path.
+- Failed batch isolation: failed batch records error_message, does not prevent other batches.
+- `outputs/` directory not in git.
+- GPU memory cleanup between batches.
+
+Current git commit hash:
+
+- Before this Phase 8 commit: `1143aa3`.
+
+Next step:
+
+- All 8 phases complete. Final acceptance checklist review.
+
+Known issues or blockers:
+
+- No Phase 8 blockers.
+- All phases (0-8) now complete with 73 passing tests.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
