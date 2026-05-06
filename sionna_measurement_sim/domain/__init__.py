@@ -1,0 +1,34 @@
+"""Domain models for SionnaMeasurementSim.
+
+The domain layer is intentionally free of Sionna imports. Adapter code converts
+external simulator objects into these stable data structures before IO or app
+layers consume them.
+"""
+
+from sionna_measurement_sim.domain.antenna import AntennaSpec
+from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.path import PathSamples
+from sionna_measurement_sim.domain.results import (
+    DeviceState,
+    InputSpec,
+    MeasurementSimulationResult,
+    Metadata,
+    RuntimeInfo,
+    SceneSpec,
+)
+from sionna_measurement_sim.domain.topology import Topology
+
+__all__ = [
+    "AntennaSpec",
+    "DeviceState",
+    "FrequencyGrid",
+    "InputSpec",
+    "MeasurementSimulationResult",
+    "Metadata",
+    "PathSamples",
+    "RTTruthResult",
+    "RuntimeInfo",
+    "SceneSpec",
+    "Topology",
+]
