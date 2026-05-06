@@ -16,8 +16,14 @@ INTERACTION_REFRACTION = 4
 INTERACTION_DIFFRACTION = 8
 
 
-def paths_to_table(paths: Any) -> PathTable:
-    """Convert Sionna paths to the project TX-first PathTable contract."""
+def paths_to_table(paths: Any) -> tuple[PathTable, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert Sionna paths to the project TX-first PathTable contract.
+
+    Returns (path_table, geometric_path_count, los_exists, nlos_exists).
+    geometric_path_count: int32 [tx, rx] — number of valid geometric paths per link.
+    los_exists: bool [tx, rx] — at least one LoS path exists.
+    nlos_exists: bool [tx, rx] — at least one NLoS path exists.
+    """
 
     valid = _path_scalar_to_tx_first(_to_numpy(paths.valid), "valid").astype(np.bool_)
     a = _complex_path_coefficients(_to_numpy(paths.a))
@@ -35,7 +41,7 @@ def paths_to_table(paths: Any) -> PathTable:
     path_depth = np.count_nonzero(interaction_type != INTERACTION_NONE, axis=-1).astype(np.int32)
     path_type = _classify_path_types(interaction_type)
 
-    return PathTable(
+    path_table = PathTable(
         valid=valid,
         a=a,
         tau_s=tau_s,
@@ -51,6 +57,20 @@ def paths_to_table(paths: Any) -> PathTable:
         path_type=path_type,
         path_depth=path_depth,
     )
+
+    # valid has shape [tx, rx, rx_ant, tx_ant, path_count]; squeeze antenna dims
+    tx, rx, rx_ant, tx_ant, path_count = valid.shape
+    ant_valid = np.any(valid.reshape(tx, rx, rx_ant * tx_ant, path_count), axis=2)
+
+    geometric_path_count = np.count_nonzero(ant_valid, axis=-1).astype(np.int32)  # [tx, rx]
+    los_exists = np.any(
+        ant_valid & (path_type.reshape(tx, rx, path_count) == "los"), axis=-1
+    )  # [tx, rx]
+    nlos_exists = np.any(
+        ant_valid & (path_type.reshape(tx, rx, path_count) != "los"), axis=-1
+    )  # [tx, rx]
+
+    return path_table, geometric_path_count, los_exists, nlos_exists
 
 
 def path_table_to_samples(

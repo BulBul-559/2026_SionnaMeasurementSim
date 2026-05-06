@@ -64,3 +64,28 @@ def plot_delay_doppler(hdf5_path: str | Path, output_path: str | Path) -> Path:
     plt.close(figure)
     return output_path
 
+
+def plot_topology(hdf5_path: str | Path, output_path: str | Path) -> Path:
+    """2D top-down topology plot of TX (red triangles) and RX (blue circles)."""
+
+    hdf5_path = Path(hdf5_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(hdf5_path, "r") as h5:
+        tx_pos = h5["/topology/tx_positions_m"][()]
+        rx_pos = h5["/topology/rx_positions_m"][()]
+
+    figure, axis = plt.subplots(figsize=(7, 5))
+    axis.scatter(tx_pos[:, 0], tx_pos[:, 1], marker="^", color="red", s=60, label="TX")
+    axis.scatter(rx_pos[:, 0], rx_pos[:, 1], marker="o", color="blue", s=30, label="RX")
+    axis.set_xlabel("x [m]")
+    axis.set_ylabel("y [m]")
+    axis.set_title("Topology")
+    axis.legend()
+    axis.set_aspect("equal")
+    figure.tight_layout()
+    figure.savefig(output_path)
+    plt.close(figure)
+    return output_path
+

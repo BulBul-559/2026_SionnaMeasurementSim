@@ -86,7 +86,7 @@ def run_sionna_rt_truth(
     else:
         has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
         path_power_db = _path_power_db(cfr)
-    path_table = paths_to_table(paths)
+    path_table, geometric_path_count, los_exists, nlos_exists = paths_to_table(paths)
     path_samples = path_table_to_samples(path_table, topology)
 
     return SionnaRTTruthAdapterResult(
@@ -94,6 +94,9 @@ def run_sionna_rt_truth(
             cfr=cfr.astype(np.complex64, copy=False),
             path_power_db=path_power_db,
             has_geometric_signal=has_signal,
+            geometric_path_count=geometric_path_count,
+            los_exists=los_exists,
+            nlos_exists=nlos_exists,
         ),
         path_table=path_table,
         path_samples=path_samples,

@@ -123,7 +123,7 @@ def run_awgn_ls_observation(
         obs_timing_offset = impairment_sample.timing_offset_samples.numpy().astype(np.float32)
         obs_agc_gain_db = impairment_sample.agc_gain_db.numpy().astype(np.float32)
         obs_clipping_flag = impairment_sample.clipping_flag.numpy()
-        impairments_spec = _build_impairment_spec(config.impairment)
+        impairments_spec = _build_impairment_spec(config.impairment, config.snr_db)
     else:
         obs_cfo_hz = np.zeros(link_shape, dtype=np.float32)
         obs_sfo_ppm = np.zeros(link_shape, dtype=np.float32)
@@ -169,7 +169,7 @@ def run_awgn_ls_observation(
     )
 
 
-def _build_impairment_spec(config: ImpairmentConfig) -> ImpairmentSpec:
+def _build_impairment_spec(config: ImpairmentConfig, snr_db: float) -> ImpairmentSpec:
     cfo = {} if config.cfo_hz is None else {"cfo_hz": config.cfo_hz}
     sfo = {} if config.sfo_ppm is None else {"sfo_ppm": config.sfo_ppm}
     timing = (
@@ -184,7 +184,7 @@ def _build_impairment_spec(config: ImpairmentConfig) -> ImpairmentSpec:
     return ImpairmentSpec(
         model_version="phase5_base_impairments_v1",
         random_seed=config.random_seed,
-        awgn_config=json.dumps({}, sort_keys=True),
+        awgn_config=json.dumps({"snr_db": snr_db}, sort_keys=True),
         cfo_sfo_config=json.dumps({**cfo, **sfo, **timing}, sort_keys=True),
         phase_noise_config=json.dumps(phase, sort_keys=True),
         iq_imbalance_config=json.dumps({}, sort_keys=True),

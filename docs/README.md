@@ -52,6 +52,9 @@ SionnaMeasurementSim/old/SimpleSionna/
 11. [11_calibration_and_diagnostics.md](11_calibration_and_diagnostics.md)  
     定义实测标定、诊断指标、分布对齐和 profile 管理。
 
+12. [12_final_acceptance_checklist.md](12_final_acceptance_checklist.md)  
+    定义系统开发完成后的最终总验收清单，可逐项对照检查。
+
 ## 全局约束
 
 - 新系统使用 Sionna 2.x，不在新核心链路中继续依赖 TensorFlow。

@@ -1,0 +1,116 @@
+# SionnaMeasurementSim – Measurement MVP default config
+# All physical quantities are in SI units unless stated otherwise.
+
+runtime:
+  seed: 42
+  device: "cpu"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
+
+input:
+  label_file: "data/scenes/test/test5.json"
+  scene_file: "data/scenes/test/scene.xml"
+  label_schema: "simplesionna_v1"
+  coordinate_system: "scene_local_xyz_m"
+  max_tx: 6
+  max_rx: 100
+
+output:
+  root_dir: "outputs"
+  run_id_format: "{label_stem}_{timestamp}"
+  hdf5_filename: "results.h5"
+  compression: "gzip"
+  save_full_paths: false
+  save_sampled_paths: true
+  save_raw_waveform: false
+
+carrier:
+  center_frequency_hz: 3500000000.0   # 3.5 GHz
+  bandwidth_hz: 20000000.0            # 20 MHz
+  num_subcarriers: 64
+  subcarrier_spacing_hz: 0            # derived: bandwidth/num_subcarriers
+
+antenna:
+  tx_array:
+    type: "planar"
+    num_rows: 1
+    num_cols: 1
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    pattern: "iso"
+    polarization: "V"
+  rx_array:
+    type: "planar"
+    num_rows: 1
+    num_cols: 1
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    pattern: "iso"
+    polarization: "V"
+
+rt:
+  enabled: true
+  engine: "sionna_rt"
+  max_depth: 1
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: false
+  diffraction: false
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+
+phy:
+  enabled: true
+  standard: "custom_ofdm"
+  snr_db: 30.0
+  fft_size: 64
+  cp_length: 0
+  num_ofdm_symbols: 1
+  pilot_pattern: "all_active_subcarriers"
+  channel_estimator: "ls"
+  interpolation: "none"
+  tx_power_dbm: 0.0
+
+impairments:
+  awgn:
+    enabled: true
+  cfo:
+    enabled: true
+    cfo_hz: 100.0
+  sfo:
+    enabled: true
+    sfo_ppm: 5.0
+  phase_noise:
+    enabled: true
+    phase_offset_rad: 0.5
+  timing_offset:
+    enabled: true
+    timing_offset_samples: 2.0
+  agc_adc:
+    enabled: true
+    agc_gain_db: 0.0
+    clipping_threshold: 3.0
+  impairment_seed: 142
+
+receiver:
+  estimator_type: "ls"
+  sync_method: "ideal"
+  interpolation_method: "none"
+  packet_detection_threshold: 0.0
+  failure_policy: "mark_invalid"
+  calibration_profile_id: "synthetic_default"
+
+motion:
+  enabled: true
+  mobility_mode: "static"
+  num_time_steps: 3
+  sampling_frequency_hz: 100.0
+  tx_velocity_mps: [0.0, 0.0, 0.0]
+  rx_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: true
+  profile_id: "synthetic_default"

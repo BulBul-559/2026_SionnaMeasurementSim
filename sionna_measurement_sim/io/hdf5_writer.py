@@ -143,6 +143,9 @@ def _write_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     )
     _write_dataset(group, "path_power_db", truth.path_power_db, unit="dB")
     _write_dataset(group, "has_geometric_signal", truth.has_geometric_signal)
+    _write_dataset(group, "geometric_path_count", truth.geometric_path_count)
+    _write_dataset(group, "los_exists", truth.los_exists)
+    _write_dataset(group, "nlos_exists", truth.nlos_exists)
 
 
 def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> None:

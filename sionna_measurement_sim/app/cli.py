@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="SionnaMeasurementSim command line interface.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--config", default=None, help="YAML config file path")
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
@@ -195,16 +196,53 @@ def main(argv: Sequence[str] | None = None) -> int:
         from sionna_measurement_sim.phy.impairments import ImpairmentConfig
         from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 
-        impairment = ImpairmentConfig(
-            random_seed=args.seed + _SEED_OFFSET_IMPAIRMENT,
-            cfo_hz=args.cfo_hz,
-            sfo_ppm=args.sfo_ppm,
-            phase_offset_rad=args.phase_offset_rad,
-            timing_offset_samples=args.timing_offset_samples,
-            clipping_threshold=args.clipping_threshold,
-        )
-        output_path = run_rt_truth_pipeline(
-            RTTruthRunConfig(
+        if args.config:
+            from sionna_measurement_sim.config.loader import load_config_or_exit
+
+            cfg = load_config_or_exit(args.config)
+            impairment = ImpairmentConfig(
+                random_seed=cfg.impairments.impairment_seed,
+                cfo_hz=cfg.impairments.cfo.cfo_hz,
+                sfo_ppm=cfg.impairments.sfo.sfo_ppm,
+                phase_offset_rad=cfg.impairments.phase_noise.phase_offset_rad,
+                timing_offset_samples=cfg.impairments.timing_offset.timing_offset_samples,
+                clipping_threshold=cfg.impairments.agc_adc.clipping_threshold,
+            )
+            run_config = RTTruthRunConfig(
+                label_file=Path(cfg.input.label_file),
+                scene_file=Path(cfg.input.scene_file),
+                output_dir=Path(cfg.output.root_dir),
+                num_subcarriers=cfg.carrier.num_subcarriers,
+                seed=cfg.runtime.seed,
+                max_depth=cfg.rt.max_depth,
+                specular_reflection=cfg.rt.specular_reflection,
+                observation_snr_db=cfg.phy.snr_db,
+                impairment_config=impairment,
+                num_time_steps=cfg.motion.num_time_steps,
+                sampling_frequency_hz=cfg.motion.sampling_frequency_hz,
+                max_tx=cfg.input.max_tx,
+                max_rx=cfg.input.max_rx,
+                tx_velocity_mps=(
+                    cfg.motion.tx_velocity_mps[0],
+                    cfg.motion.tx_velocity_mps[1],
+                    cfg.motion.tx_velocity_mps[2],
+                ),
+                rx_velocity_mps=(
+                    cfg.motion.rx_velocity_mps[0],
+                    cfg.motion.rx_velocity_mps[1],
+                    cfg.motion.rx_velocity_mps[2],
+                ),
+            )
+        else:
+            impairment = ImpairmentConfig(
+                random_seed=args.seed + _SEED_OFFSET_IMPAIRMENT,
+                cfo_hz=args.cfo_hz,
+                sfo_ppm=args.sfo_ppm,
+                phase_offset_rad=args.phase_offset_rad,
+                timing_offset_samples=args.timing_offset_samples,
+                clipping_threshold=args.clipping_threshold,
+            )
+            run_config = RTTruthRunConfig(
                 label_file=Path(args.label_file),
                 scene_file=Path(args.scene_file),
                 output_dir=Path(args.output_dir),
@@ -220,7 +258,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_tx=args.max_tx,
                 max_rx=args.max_rx,
             )
-        )
+        output_path = run_rt_truth_pipeline(run_config)
         print(output_path)
         return 0
 
