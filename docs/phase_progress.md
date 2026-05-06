@@ -218,7 +218,7 @@ Acceptance items passed:
 Current git commit hash:
 
 - Before this Phase 4 commit: `7d24a0c`.
-- Phase 4 implementation commit: created immediately after this progress entry.
+- Phase 4 implementation commit: `9ee53da`.
 
 Next step:
 
