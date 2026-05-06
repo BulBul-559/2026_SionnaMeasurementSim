@@ -228,3 +228,58 @@ Known issues or blockers:
 
 - No Phase 4 blockers.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 5
+
+Current completed phase: Phase 5.
+
+This round completed:
+
+- Added `sionna_measurement_sim/phy/impairments.py` with CFO, SFO, phase offset, timing offset, AGC gain, and ADC clipping models.
+- Added `ImpairmentConfig` and `ImpairmentSample` dataclasses.
+- Integrated impairments into the observation pipeline (applied before AWGN + LS estimation).
+- Added CLI flags for impairment parameters: `--cfo-hz`, `--sfo-ppm`, `--phase-offset-rad`, `--timing-offset-samples`, `--clipping-threshold`, `--impairment-seed`.
+- Extended schema validator with impairment-related required datasets.
+- Updated `ImpairmentSpec` with proper config JSON for CFO/SFO, phase noise, and AGC/ADC.
+
+Commands and results:
+
+- `uv run pytest tests/unit tests/statistical -k "cfo or sfo or clipping or impairment"`: passed, 25 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-observation --output-dir outputs/phase5_impairments --snr-db 40 --cfo-hz 100 --sfo-ppm 5 --timing-offset-samples 2 --clipping-threshold 3 --phase-offset-rad 0.5`: passed.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 47 tests.
+- `git status --short --ignored`: reviewed; outputs, caches, `.venv/`, `old`, and large scene OBJ are ignored.
+
+Key files generated:
+
+- `sionna_measurement_sim/phy/impairments.py`
+- `tests/unit/test_impairments.py`
+- `tests/statistical/test_impairments_statistical.py`
+- `artifacts/phase_reports/phase_5_acceptance.md`
+- `outputs/phase5_impairments/results.h5` (ignored runtime artifact)
+- `outputs/phase5_impairments/manifest.json` (ignored runtime artifact)
+- `outputs/phase5_impairments/logs/run.log` (ignored runtime artifact)
+
+Acceptance items passed:
+
+- Fixed seed impairment sampling is reproducible.
+- `/observation/cfo_hz`, `/observation/sfo_ppm`, `/observation/timing_offset_samples`, `/observation/phase_offset_rad`, `/observation/agc_gain_db`, `/observation/clipping_flag` all exist and have correct shapes.
+- `/impairments/model_version` = `"phase5_base_impairments_v1"` and `/impairments/random_seed` exist.
+- CFO disabled → impairment fields are zero.
+- Lower clipping threshold produces higher or equal clipping flag ratio.
+- All impairment config JSON written to HDF5 (`cfo_sfo_config`, `phase_noise_config`, `agc_adc_config`).
+- Schema validator checks all new impairment datasets.
+- CLI flags for all impairment parameters work.
+
+Current git commit hash:
+
+- Before this Phase 5 commit: `c5ccc82`.
+
+Next step:
+
+- Continue from Phase 6: motion and Doppler.
+
+Known issues or blockers:
+
+- No Phase 5 blockers.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.

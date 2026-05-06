@@ -25,6 +25,7 @@ from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.label_parser import load_topology_from_label
 from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
+from sionna_measurement_sim.phy.impairments import ImpairmentConfig
 from sionna_measurement_sim.phy.observation_pipeline import (
     AWGNObservationConfig,
     run_awgn_ls_observation,
@@ -48,6 +49,7 @@ class RTTruthRunConfig:
     specular_reflection: bool = True
     observation_snr_db: float | None = None
     observation_seed: int = 11
+    impairment_config: ImpairmentConfig | None = None
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -90,6 +92,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 random_seed=config.observation_seed,
                 sample_rate_hz=config.bandwidth_hz,
                 fft_size=config.num_subcarriers,
+                impairment=config.impairment_config,
             ),
         )
     phase = 4 if observation_bundle is not None else 3 if config.max_depth > 0 else 2

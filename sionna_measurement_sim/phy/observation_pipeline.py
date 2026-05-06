@@ -1,4 +1,4 @@
-"""Minimal AWGN + LS observation pipeline."""
+"""Minimal AWGN + LS observation pipeline with base impairments."""
 
 from __future__ import annotations
 
@@ -15,11 +15,15 @@ from sionna_measurement_sim.domain.observation import (
     ReceiverSpec,
     WaveformSpec,
 )
+from sionna_measurement_sim.phy.impairments import (
+    ImpairmentConfig,
+    apply_base_impairments,
+)
 
 
 @dataclass(frozen=True)
 class AWGNObservationConfig:
-    """Configuration for the Phase 4 AWGN-only observation."""
+    """Configuration for the observation pipeline."""
 
     snr_db: float
     random_seed: int
@@ -28,6 +32,7 @@ class AWGNObservationConfig:
     cp_length: int = 0
     num_ofdm_symbols: int = 1
     tx_power_dbm: float = 0.0
+    impairment: ImpairmentConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -45,11 +50,18 @@ def run_awgn_ls_observation(
     h_true: np.ndarray,
     config: AWGNObservationConfig,
 ) -> PHYObservationBundle:
-    """Estimate CFR from all-pilot observations over an AWGN channel."""
+    """Estimate CFR from pilot observations with optional impairments + AWGN + LS."""
 
     torch.manual_seed(config.random_seed)
     h = torch.as_tensor(h_true, dtype=torch.complex64)
     snapshot_h = h.unsqueeze(0)
+
+    impairment_sample = None
+    if config.impairment is not None:
+        snapshot_h, impairment_sample = apply_base_impairments(
+            snapshot_h, config.fft_size, config.sample_rate_hz, config.impairment
+        )
+
     signal_power = torch.mean(torch.abs(snapshot_h) ** 2, dim=(3, 4, 5), keepdim=True)
     noise_power = signal_power / (10.0 ** (config.snr_db / 10.0))
     noise = torch.sqrt(noise_power / 2.0) * (
@@ -88,6 +100,28 @@ def run_awgn_ls_observation(
         pilot_symbols=np.ones((config.fft_size,), dtype=np.complex64),
         tx_power_dbm=config.tx_power_dbm,
     )
+
+    if impairment_sample is not None:
+        obs_cfo_hz = impairment_sample.cfo_hz.numpy().astype(np.float32)
+        obs_sfo_ppm = impairment_sample.sfo_ppm.numpy().astype(np.float32)
+        obs_phase_offset_rad = impairment_sample.phase_offset_rad.numpy().astype(np.float32)
+        obs_timing_offset = impairment_sample.timing_offset_samples.numpy().astype(np.float32)
+        obs_agc_gain_db = impairment_sample.agc_gain_db.numpy().astype(np.float32)
+        obs_clipping_flag = impairment_sample.clipping_flag.numpy()
+        impairments_spec = _build_impairment_spec(config.impairment)
+    else:
+        obs_cfo_hz = np.zeros(link_shape, dtype=np.float32)
+        obs_sfo_ppm = np.zeros(link_shape, dtype=np.float32)
+        obs_phase_offset_rad = np.zeros(link_shape, dtype=np.float32)
+        obs_timing_offset = np.zeros(link_shape, dtype=np.float32)
+        obs_agc_gain_db = np.zeros((link_shape[0], link_shape[2]), dtype=np.float32)
+        obs_clipping_flag = np.zeros(link_shape, dtype=np.bool_)
+        impairments_spec = ImpairmentSpec(
+            model_version="phase4_awgn_v1",
+            random_seed=config.random_seed,
+            awgn_config=json.dumps({"snr_db": config.snr_db}, sort_keys=True),
+        )
+
     observation = ObservationResult(
         cfr_est=cfr_est.numpy(),
         valid_mask=np.ones(link_shape, dtype=np.bool_),
@@ -96,17 +130,12 @@ def run_awgn_ls_observation(
         snr_db=snr.numpy(),
         rssi_dbm=rssi_dbm.numpy().astype(np.float32),
         noise_power_dbm=noise_power_dbm.numpy().astype(np.float32),
-        cfo_hz=np.zeros(link_shape, dtype=np.float32),
-        sfo_ppm=np.zeros(link_shape, dtype=np.float32),
-        timing_offset_samples=np.zeros(link_shape, dtype=np.float32),
-        phase_offset_rad=np.zeros(link_shape, dtype=np.float32),
-        agc_gain_db=np.zeros((link_shape[0], link_shape[2]), dtype=np.float32),
-        clipping_flag=np.zeros(link_shape, dtype=np.bool_),
-    )
-    impairments = ImpairmentSpec(
-        model_version="phase4_awgn_v1",
-        random_seed=config.random_seed,
-        awgn_config=json.dumps({"snr_db": config.snr_db}, sort_keys=True),
+        cfo_hz=obs_cfo_hz,
+        sfo_ppm=obs_sfo_ppm,
+        timing_offset_samples=obs_timing_offset,
+        phase_offset_rad=obs_phase_offset_rad,
+        agc_gain_db=obs_agc_gain_db,
+        clipping_flag=obs_clipping_flag,
     )
     evaluation = EvaluationResult(
         nmse_db=nmse_db.numpy().astype(np.float32),
@@ -119,9 +148,32 @@ def run_awgn_ls_observation(
     return PHYObservationBundle(
         waveform=waveform,
         observation=observation,
-        impairments=impairments,
+        impairments=impairments_spec,
         receiver=ReceiverSpec(),
         evaluation=evaluation,
+    )
+
+
+def _build_impairment_spec(config: ImpairmentConfig) -> ImpairmentSpec:
+    cfo = {} if config.cfo_hz is None else {"cfo_hz": config.cfo_hz}
+    sfo = {} if config.sfo_ppm is None else {"sfo_ppm": config.sfo_ppm}
+    timing = (
+        {}
+        if config.timing_offset_samples is None
+        else {"timing_offset_samples": config.timing_offset_samples}
+    )
+    phase = {} if config.phase_offset_rad is None else {"phase_offset_rad": config.phase_offset_rad}
+    agc_adc = {"agc_gain_db": config.agc_gain_db}
+    if config.clipping_threshold is not None:
+        agc_adc["clipping_threshold"] = config.clipping_threshold
+    return ImpairmentSpec(
+        model_version="phase5_base_impairments_v1",
+        random_seed=config.random_seed,
+        awgn_config=json.dumps({}, sort_keys=True),
+        cfo_sfo_config=json.dumps({**cfo, **sfo, **timing}, sort_keys=True),
+        phase_noise_config=json.dumps(phase, sort_keys=True),
+        iq_imbalance_config=json.dumps({}, sort_keys=True),
+        agc_adc_config=json.dumps(agc_adc, sort_keys=True),
     )
 
 

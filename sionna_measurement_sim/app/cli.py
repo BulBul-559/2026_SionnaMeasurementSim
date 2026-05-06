@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     observation.add_argument("--num-subcarriers", type=int, default=8)
     observation.add_argument("--seed", type=int, default=1)
     observation.add_argument("--snr-db", type=float, default=40.0)
+    observation.add_argument("--cfo-hz", type=float, default=None)
+    observation.add_argument("--sfo-ppm", type=float, default=None)
+    observation.add_argument("--phase-offset-rad", type=float, default=None)
+    observation.add_argument("--timing-offset-samples", type=float, default=None)
+    observation.add_argument("--clipping-threshold", type=float, default=None)
+    observation.add_argument("--impairment-seed", type=int, default=11)
 
     return parser
 
@@ -77,8 +83,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run-observation":
         from pathlib import Path
 
+        from sionna_measurement_sim.phy.impairments import ImpairmentConfig
         from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 
+        impairment = None
+        if any(
+            v is not None
+            for v in (args.cfo_hz, args.sfo_ppm, args.phase_offset_rad, args.timing_offset_samples, args.clipping_threshold)  # noqa: E501
+        ):
+            impairment = ImpairmentConfig(
+                random_seed=args.impairment_seed,
+                cfo_hz=args.cfo_hz,
+                sfo_ppm=args.sfo_ppm,
+                phase_offset_rad=args.phase_offset_rad,
+                timing_offset_samples=args.timing_offset_samples,
+                clipping_threshold=args.clipping_threshold,
+            )
         output_path = run_rt_truth_pipeline(
             RTTruthRunConfig(
                 label_file=Path(args.label_file),
@@ -89,6 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_depth=1,
                 specular_reflection=True,
                 observation_snr_db=args.snr_db,
+                impairment_config=impairment,
             )
         )
         print(output_path)

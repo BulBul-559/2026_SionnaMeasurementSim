@@ -83,6 +83,14 @@ REQUIRED_OBSERVATION_DATASETS = (
     "observation/detection_success",
     "observation/estimation_success",
     "observation/snr_db",
+    "observation/cfo_hz",
+    "observation/sfo_ppm",
+    "observation/timing_offset_samples",
+    "observation/phase_offset_rad",
+    "observation/agc_gain_db",
+    "observation/clipping_flag",
+    "impairments/model_version",
+    "impairments/random_seed",
     "evaluation/nmse_db",
 )
 
