@@ -108,22 +108,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 fft_size=config.num_subcarriers,
                 impairment=config.impairment_config,
             ),
+            has_signal=adapter_result.truth.has_geometric_signal,
+            cfr_snapshots=adapter_result.truth.cfr_snapshots,
         )
-        # Mark dead links as invalid
-        # Mark dead links as invalid
-        import numpy as _np
-
-        has_sig = adapter_result.truth.has_geometric_signal
-        link_mask = _np.broadcast_to(
-            has_sig, observation_bundle.observation.valid_mask.shape
-        )
-        vm = _np.asarray(observation_bundle.observation.valid_mask, dtype=_np.bool_)
-        ds = _np.asarray(observation_bundle.observation.detection_success, dtype=_np.bool_)
-        es = _np.asarray(observation_bundle.observation.estimation_success, dtype=_np.bool_)
-        object.__setattr__(observation_bundle.observation, "valid_mask", vm & link_mask)
-        object.__setattr__(observation_bundle.observation, "detection_success", ds & link_mask)
-        object.__setattr__(observation_bundle.observation, "estimation_success", es & link_mask)
-    phase = 4 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
+    phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     result = MeasurementSimulationResult(
         metadata=Metadata(
@@ -200,7 +188,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     (logs_dir / "run.log").write_text(
         "\n".join(
             [
-                "phase=2",
+                f"phase={phase}",
                 f"results_h5={results_path.as_posix()}",
                 f"manifest={manifest_path.as_posix()}",
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",

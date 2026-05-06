@@ -58,17 +58,20 @@ def paths_to_table(paths: Any) -> tuple[PathTable, np.ndarray, np.ndarray, np.nd
         path_depth=path_depth,
     )
 
-    # valid has shape [tx, rx, rx_ant, tx_ant, path_count]; squeeze antenna dims
+    # Collapse antenna dims: any antenna pair with a valid path means the link is active
     tx, rx, rx_ant, tx_ant, path_count = valid.shape
-    ant_valid = np.any(valid.reshape(tx, rx, rx_ant * tx_ant, path_count), axis=2)
+    ant_flat = valid.reshape(tx, rx, rx_ant * tx_ant, path_count)
+    link_valid = np.any(ant_flat, axis=2)  # [tx, rx, path_count]
 
-    geometric_path_count = np.count_nonzero(ant_valid, axis=-1).astype(np.int32)  # [tx, rx]
+    geometric_path_count = np.count_nonzero(link_valid, axis=-1).astype(np.int32)
     los_exists = np.any(
-        ant_valid & (path_type.reshape(tx, rx, path_count) == "los"), axis=-1
-    )  # [tx, rx]
+        link_valid & (path_type.reshape(tx, rx, rx_ant * tx_ant, path_count)[:, :, 0, :] == "los"),
+        axis=-1,
+    )
     nlos_exists = np.any(
-        ant_valid & (path_type.reshape(tx, rx, path_count) != "los"), axis=-1
-    )  # [tx, rx]
+        link_valid & (path_type.reshape(tx, rx, rx_ant * tx_ant, path_count)[:, :, 0, :] != "los"),
+        axis=-1,
+    )
 
     return path_table, geometric_path_count, los_exists, nlos_exists
 
@@ -81,9 +84,9 @@ def path_table_to_samples(
 ) -> PathSamples:
     """Build lightweight path samples with TX/interactions/RX vertices."""
 
-    tx_count, rx_count, _, _, path_count = table.valid.shape
+    tx_count, rx_count, rx_ant_count, tx_ant_count, path_count = table.valid.shape
     depth = table.interaction_type.shape[-1]
-    sample_count = tx_count * rx_count
+    sample_count = tx_count * rx_count * rx_ant_count * tx_ant_count
     max_vertices = depth + 2
     selected_paths = max_paths_per_link or path_count
 
@@ -104,29 +107,35 @@ def path_table_to_samples(
     sample = 0
     for tx in range(tx_count):
         for rx in range(rx_count):
-            sampled_link_indices[sample] = [tx, rx]
-            valid_indices = np.flatnonzero(table.valid[tx, rx, 0, 0])[:selected_paths]
-            sample_path_count[sample] = len(valid_indices)
-            for out_index, path_index in enumerate(valid_indices):
-                sampled_path_indices[sample, out_index] = path_index
-                path_gain_db[sample, out_index] = _path_gain_db(table.a[tx, rx, 0, 0, path_index])
-                path_type[sample, out_index] = table.path_type[tx, rx, 0, 0, path_index]
-                interaction_count = int(table.path_depth[tx, rx, 0, 0, path_index])
-                vertex_count[sample, out_index] = interaction_count + 2
-                vertices_m[sample, out_index, 0] = topology.tx_positions_m[tx]
-                if interaction_count:
-                    vertices_m[sample, out_index, 1 : 1 + interaction_count] = table.vertices_m[
-                        tx, rx, 0, 0, path_index, :interaction_count
-                    ]
-                vertices_m[sample, out_index, interaction_count + 1] = topology.rx_positions_m[rx]
-                interaction_type[sample, out_index] = table.interaction_type[
-                    tx, rx, 0, 0, path_index
-                ]
-                object_id[sample, out_index] = table.object_id[tx, rx, 0, 0, path_index]
-                primitive_id[sample, out_index] = table.primitive_id[tx, rx, 0, 0, path_index]
-                doppler_hz[sample, out_index] = table.doppler_hz[tx, rx, 0, 0, path_index]
-                tau_s[sample, out_index] = table.tau_s[tx, rx, 0, 0, path_index]
-            sample += 1
+            for rx_ant in range(rx_ant_count):
+                for tx_ant in range(tx_ant_count):
+                    sampled_link_indices[sample] = [tx, rx]
+                    v = np.flatnonzero(
+                        table.valid[tx, rx, rx_ant, tx_ant]
+                    )[:selected_paths]
+                    sample_path_count[sample] = len(v)
+                    for oi, pi in enumerate(v):
+                        sampled_path_indices[sample, oi] = pi
+                        a = table.a[tx, rx, rx_ant, tx_ant, pi]
+                        path_gain_db[sample, oi] = _path_gain_db(a)
+                        path_type[sample, oi] = table.path_type[tx, rx, rx_ant, tx_ant, pi]
+                        ic = int(table.path_depth[tx, rx, rx_ant, tx_ant, pi])
+                        vc = ic + 2
+                        vertex_count[sample, oi] = vc
+                        vertices_m[sample, oi, 0] = topology.tx_positions_m[tx]
+                        if ic:
+                            vertices_m[sample, oi, 1:1 + ic] = table.vertices_m[
+                                tx, rx, rx_ant, tx_ant, pi, :ic
+                            ]
+                        vertices_m[sample, oi, ic + 1] = topology.rx_positions_m[rx]
+                        interaction_type[sample, oi] = table.interaction_type[
+                            tx, rx, rx_ant, tx_ant, pi
+                        ]
+                        object_id[sample, oi] = table.object_id[tx, rx, rx_ant, tx_ant, pi]
+                        primitive_id[sample, oi] = table.primitive_id[tx, rx, rx_ant, tx_ant, pi]
+                        doppler_hz[sample, oi] = table.doppler_hz[tx, rx, rx_ant, tx_ant, pi]
+                        tau_s[sample, oi] = table.tau_s[tx, rx, rx_ant, tx_ant, pi]
+                    sample += 1
 
     return PathSamples(
         sampled_link_indices=sampled_link_indices,

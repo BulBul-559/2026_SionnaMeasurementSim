@@ -146,6 +146,14 @@ def _write_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_dataset(group, "geometric_path_count", truth.geometric_path_count)
     _write_dataset(group, "los_exists", truth.los_exists)
     _write_dataset(group, "nlos_exists", truth.nlos_exists)
+    if truth.cfr_snapshots is not None:
+        _write_dataset(
+            group,
+            "cfr_snapshots",
+            truth.cfr_snapshots,
+            unit="linear_complex",
+            index_order="snapshot,tx,rx,rx_ant,tx_ant,subcarrier",
+        )
 
 
 def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> None:

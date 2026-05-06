@@ -81,13 +81,9 @@ def run_sionna_rt_truth(
         sampling_frequency=config.sampling_frequency_hz or None,
         out_type="numpy",
     )
-    cfr = _to_tx_first_cfr(raw_cfr, config.num_time_steps)
-    if cfr.ndim == 6:
-        has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(3, 4, 5))
-        path_power_db = _path_power_db_multi(cfr)
-    else:
-        has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
-        path_power_db = _path_power_db(cfr)
+    cfr, cfr_snapshots = _to_tx_first_cfr(raw_cfr, config.num_time_steps)
+    has_signal = _compute_has_signal(cfr)
+    path_power_db = _path_power_db(cfr)
     path_table, geometric_path_count, los_exists, nlos_exists = paths_to_table(paths)
     path_samples = path_table_to_samples(path_table, topology)
 
@@ -99,6 +95,8 @@ def run_sionna_rt_truth(
             geometric_path_count=geometric_path_count,
             los_exists=los_exists,
             nlos_exists=nlos_exists,
+            cfr_snapshots=cfr_snapshots.astype(np.complex64, copy=False)
+            if cfr_snapshots is not None else None,
         ),
         path_table=path_table,
         path_samples=path_samples,
@@ -165,11 +163,14 @@ def _sionna_polarization(polarization: str) -> str:
     return polarization
 
 
-def _to_tx_first_cfr(raw_cfr: np.ndarray, num_time_steps: int = 1) -> np.ndarray:
-    """Convert Sionna CFR [rx, rx_ant, tx, tx_ant, time, subcarrier] to TX-first.
+def _to_tx_first_cfr(
+    raw_cfr: np.ndarray, num_time_steps: int = 1,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Convert Sionna CFR to TX-first 5D, plus optional 6D snapshots.
 
-    Returns 5D [tx, rx, rx_ant, tx_ant, subcarrier] for single time step,
-    or 6D [time, tx, rx, rx_ant, tx_ant, subcarrier] for multi-snapshot.
+    Returns (cfr_5d, cfr_snapshots) where:
+      - cfr_5d: [tx, rx, rx_ant, tx_ant, subcarrier]
+      - cfr_snapshots: [time, tx, rx, rx_ant, tx_ant, subcarrier] or None
     """
 
     cfr = np.asarray(raw_cfr)
@@ -181,20 +182,21 @@ def _to_tx_first_cfr(raw_cfr: np.ndarray, num_time_steps: int = 1) -> np.ndarray
         raise ValueError(msg)
     # [rx, rx_ant, tx, tx_ant, time, subcarrier] → [tx, rx, rx_ant, tx_ant, time, subcarrier]
     cfr_tx_first = np.transpose(cfr, (2, 0, 1, 3, 4, 5))
+    cfr_5d = cfr_tx_first[..., 0, :]  # first time step → 5D
     if num_time_steps == 1:
-        return np.squeeze(cfr_tx_first, axis=4)
-    # Move time axis to front: [time, tx, rx, rx_ant, tx_ant, subcarrier]
-    return np.transpose(cfr_tx_first, (4, 0, 1, 2, 3, 5))
+        return cfr_5d, None
+    # 6D snapshots: [time, tx, rx, rx_ant, tx_ant, subcarrier]
+    snapshots = np.transpose(cfr_tx_first, (4, 0, 1, 2, 3, 5))
+    return cfr_5d, snapshots
 
 
-def _path_power_db(cfr: np.ndarray, signal_axes: tuple[int, ...] = (2, 3, 4)) -> np.ndarray:
-    power = np.mean(np.abs(cfr) ** 2, axis=signal_axes)
+def _compute_has_signal(cfr: np.ndarray) -> np.ndarray:
+    return np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
+
+
+def _path_power_db(cfr: np.ndarray) -> np.ndarray:
+    power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
     return (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
-
-
-def _path_power_db_multi(cfr: np.ndarray) -> np.ndarray:
-    """Path power for 6D CFR [snapshot, tx, rx, rx_ant, tx_ant, subcarrier]."""
-    return _path_power_db(cfr, signal_axes=(3, 4, 5))
 
 
 def _runtime_versions() -> dict[str, str]:

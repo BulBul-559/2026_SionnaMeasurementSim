@@ -155,14 +155,10 @@ class MeasurementSimulationResult:
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr
-        ndim = cfr.ndim
-        if ndim == 5:
-            tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
-        elif ndim == 6:
-            _, tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
-        else:
-            msg = f"truth cfr must have rank 5 or 6, got {cfr.shape}"
+        if cfr.ndim != 5:
+            msg = f"truth cfr must be rank 5, got {cfr.shape}"
             raise ValueError(msg)
+        tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
         if tx != self.topology.num_tx or rx != self.topology.num_rx:
             msg = "truth cfr tx/rx dimensions must match topology"
             raise ValueError(msg)
@@ -178,9 +174,9 @@ class MeasurementSimulationResult:
         if self.devices.rx_velocity_mps.shape[1] != rx:
             msg = "device rx state dimension must match topology"
             raise ValueError(msg)
-        if self.motion is not None:
-            if cfr.ndim == 6 and cfr.shape[0] != self.motion.num_time_steps:
-                msg = "truth cfr snapshots must match motion num_time_steps"
+        if self.motion is not None and self.truth.cfr_snapshots is not None:
+            if self.truth.cfr_snapshots.shape[0] != self.motion.num_time_steps:
+                msg = "cfr_snapshots must match motion num_time_steps"
                 raise ValueError(msg)
         if self.observation is not None:
             if self.observation.cfr_est.shape[1:] != cfr.shape[-5:]:

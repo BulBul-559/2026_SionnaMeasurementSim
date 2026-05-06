@@ -49,19 +49,22 @@ class PHYObservationBundle:
 def run_awgn_ls_observation(
     h_true: np.ndarray,
     config: AWGNObservationConfig,
+    *,
+    has_signal: np.ndarray | None = None,
+    cfr_snapshots: np.ndarray | None = None,
 ) -> PHYObservationBundle:
-    """Estimate CFR from pilot observations with optional impairments + AWGN + LS.
+    """Estimate CFR with impairments + AWGN + LS.
 
-    h_true may be 5D (tx, rx, rx_ant, tx_ant, sub) or 6D (snapshot, tx, rx, ...).
+    h_true: 5D [tx, rx, rx_ant, tx_ant, subcarrier].
+    cfr_snapshots: optional 6D for multi-time-step runs.
+    has_signal: optional [tx, rx] bool to mark dead links.
     """
 
     torch.manual_seed(config.random_seed)
-    h = torch.as_tensor(h_true, dtype=torch.complex64)
-    if h.ndim == 5:
-        h = h.unsqueeze(0)  # add snapshot dim
-    elif h.ndim != 6:
-        msg = f"h_true must be 5D or 6D, got {h.shape}"
-        raise ValueError(msg)
+    if cfr_snapshots is not None:
+        h = torch.as_tensor(cfr_snapshots, dtype=torch.complex64)
+    else:
+        h = torch.as_tensor(h_true, dtype=torch.complex64).unsqueeze(0)
     snapshot_h = h
 
     impairment_sample = None
@@ -137,11 +140,25 @@ def run_awgn_ls_observation(
             awgn_config=json.dumps({"snr_db": config.snr_db}, sort_keys=True),
         )
 
+    # Build masks: if has_signal provided, dead links are marked invalid
+    valid_mask = np.ones(link_shape, dtype=np.bool_)
+    detection_success = np.ones(link_shape, dtype=np.bool_)
+    estimation_success = np.ones(link_shape, dtype=np.bool_)
+    if has_signal is not None:
+        link_mask = np.broadcast_to(has_signal, link_shape)
+        valid_mask = valid_mask & link_mask
+        detection_success = detection_success & link_mask
+        estimation_success = estimation_success & link_mask
+    fail_count = int(np.sum(~estimation_success))
+    total_links = int(np.prod(link_shape))
+    detection_rate = float(np.mean(detection_success))
+    failure_rate = fail_count / max(total_links, 1)
+
     observation = ObservationResult(
         cfr_est=cfr_est.numpy(),
-        valid_mask=np.ones(link_shape, dtype=np.bool_),
-        detection_success=np.ones(link_shape, dtype=np.bool_),
-        estimation_success=np.ones(link_shape, dtype=np.bool_),
+        valid_mask=valid_mask,
+        detection_success=detection_success,
+        estimation_success=estimation_success,
         snr_db=snr.numpy(),
         rssi_dbm=rssi_dbm.numpy().astype(np.float32),
         noise_power_dbm=noise_power_dbm.numpy().astype(np.float32),
@@ -157,8 +174,8 @@ def run_awgn_ls_observation(
         amplitude_error_db=amplitude_error_db.numpy().astype(np.float32),
         phase_error_rad=phase_error_rad.numpy().astype(np.float32),
         correlation=correlation.numpy().astype(np.float32),
-        detection_rate=1.0,
-        estimation_failure_rate=0.0,
+        detection_rate=detection_rate,
+        estimation_failure_rate=failure_rate,
     )
     return PHYObservationBundle(
         waveform=waveform,
