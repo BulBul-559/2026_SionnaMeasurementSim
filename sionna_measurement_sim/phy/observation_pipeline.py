@@ -50,11 +50,19 @@ def run_awgn_ls_observation(
     h_true: np.ndarray,
     config: AWGNObservationConfig,
 ) -> PHYObservationBundle:
-    """Estimate CFR from pilot observations with optional impairments + AWGN + LS."""
+    """Estimate CFR from pilot observations with optional impairments + AWGN + LS.
+
+    h_true may be 5D (tx, rx, rx_ant, tx_ant, sub) or 6D (snapshot, tx, rx, ...).
+    """
 
     torch.manual_seed(config.random_seed)
     h = torch.as_tensor(h_true, dtype=torch.complex64)
-    snapshot_h = h.unsqueeze(0)
+    if h.ndim == 5:
+        h = h.unsqueeze(0)  # add snapshot dim
+    elif h.ndim != 6:
+        msg = f"h_true must be 5D or 6D, got {h.shape}"
+        raise ValueError(msg)
+    snapshot_h = h
 
     impairment_sample = None
     if config.impairment is not None:
@@ -62,7 +70,8 @@ def run_awgn_ls_observation(
             snapshot_h, config.fft_size, config.sample_rate_hz, config.impairment
         )
 
-    signal_power = torch.mean(torch.abs(snapshot_h) ** 2, dim=(3, 4, 5), keepdim=True)
+    signal_dims = tuple(range(3, snapshot_h.ndim))
+    signal_power = torch.mean(torch.abs(snapshot_h) ** 2, dim=signal_dims, keepdim=True)
     noise_power = signal_power / (10.0 ** (config.snr_db / 10.0))
     noise = torch.sqrt(noise_power / 2.0) * (
         torch.randn_like(snapshot_h.real) + 1j * torch.randn_like(snapshot_h.real)
@@ -70,24 +79,30 @@ def run_awgn_ls_observation(
     cfr_est = snapshot_h + noise.to(torch.complex64)
 
     error = cfr_est - snapshot_h
-    nmse_linear = torch.sum(torch.abs(error) ** 2, dim=(3, 4, 5)) / torch.clamp(
-        torch.sum(torch.abs(snapshot_h) ** 2, dim=(3, 4, 5)),
+    nmse_linear = torch.sum(torch.abs(error) ** 2, dim=signal_dims) / torch.clamp(
+        torch.sum(torch.abs(snapshot_h) ** 2, dim=signal_dims),
         min=1e-30,
     )
     nmse_db = 10.0 * torch.log10(torch.clamp(nmse_linear, min=1e-30))
     amplitude_error_db = 20.0 * torch.log10(
-        torch.clamp(torch.mean(torch.abs(error), dim=(3, 4, 5)), min=1e-30)
+        torch.clamp(torch.mean(torch.abs(error), dim=signal_dims), min=1e-30)
     )
-    phase_error_rad = torch.mean(torch.angle(cfr_est * torch.conj(snapshot_h)), dim=(3, 4, 5))
-    correlation = _correlation(snapshot_h, cfr_est)
+    phase_error_rad = torch.mean(
+        torch.angle(cfr_est * torch.conj(snapshot_h)), dim=signal_dims,
+    )
+    correlation = _correlation(snapshot_h, cfr_est, signal_dims)
 
     link_shape = cfr_est.shape[:3]
     snr = torch.full(link_shape, config.snr_db, dtype=torch.float32)
-    signal_power_link = signal_power.squeeze(-1).squeeze(-1).squeeze(-1)
+    squeeze_count = snapshot_h.ndim - 3
+    signal_power_link = signal_power
+    for _ in range(squeeze_count):
+        signal_power_link = signal_power_link.squeeze(-1)
     rssi_dbm = 10.0 * torch.log10(torch.clamp(signal_power_link, min=1e-30))
-    noise_power_dbm = 10.0 * torch.log10(
-        torch.clamp(noise_power.squeeze(-1).squeeze(-1).squeeze(-1), min=1e-30)
-    )
+    noise_link = noise_power
+    for _ in range(squeeze_count):
+        noise_link = noise_link.squeeze(-1)
+    noise_power_dbm = 10.0 * torch.log10(torch.clamp(noise_link, min=1e-30))
 
     waveform = WaveformSpec(
         standard="custom_ofdm",
@@ -177,8 +192,10 @@ def _build_impairment_spec(config: ImpairmentConfig) -> ImpairmentSpec:
     )
 
 
-def _correlation(h_true: torch.Tensor, h_obs: torch.Tensor) -> torch.Tensor:
-    numerator = torch.abs(torch.sum(torch.conj(h_true) * h_obs, dim=(3, 4, 5)))
-    truth_norm = torch.sqrt(torch.sum(torch.abs(h_true) ** 2, dim=(3, 4, 5)))
-    obs_norm = torch.sqrt(torch.sum(torch.abs(h_obs) ** 2, dim=(3, 4, 5)))
+def _correlation(
+    h_true: torch.Tensor, h_obs: torch.Tensor, signal_dims: tuple[int, ...] = (3, 4, 5)
+) -> torch.Tensor:
+    numerator = torch.abs(torch.sum(torch.conj(h_true) * h_obs, dim=signal_dims))
+    truth_norm = torch.sqrt(torch.sum(torch.abs(h_true) ** 2, dim=signal_dims))
+    obs_norm = torch.sqrt(torch.sum(torch.abs(h_obs) ** 2, dim=signal_dims))
     return numerator / torch.clamp(truth_norm * obs_norm, min=1e-30)

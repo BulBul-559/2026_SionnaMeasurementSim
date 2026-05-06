@@ -44,31 +44,31 @@ def apply_base_impairments(
     Returns (impaired_cfr, sampled_impairments).
     """
     device = cfr.device
-    generator = torch.Generator(device=device).manual_seed(config.random_seed)
     snapshot, tx, rx = cfr.shape[:3]
     link_shape = (snapshot, tx, rx)
 
     td = torch.fft.ifft(cfr, n=fft_size, dim=-1, norm="backward")
 
-    cfo_hz = _sample_cfo(link_shape, config.cfo_hz, generator, device)
+    cfo_hz = _sample_constant_or_zero(link_shape, config.cfo_hz, device)
     td = _apply_cfo_time_domain(td, cfo_hz, sample_rate_hz)
 
     cfr_impaired = torch.fft.fft(td, n=fft_size, dim=-1, norm="backward")
 
-    sfo_ppm = _sample_sfo(link_shape, config.sfo_ppm, generator, device)
+    sfo_ppm = _sample_constant_or_zero(link_shape, config.sfo_ppm, device)
     cfr_impaired = _apply_sfo(cfr_impaired, sfo_ppm)
 
-    phase_offset_rad = _sample_phase_offset(link_shape, config.phase_offset_rad, generator, device)
+    phase_offset_rad = _sample_constant_or_zero(link_shape, config.phase_offset_rad, device)
     cfr_impaired = cfr_impaired * torch.exp(
-        1j * phase_offset_rad[..., None, None, None]
+        1j * _broadcast_to_cfr(phase_offset_rad, cfr_impaired)
     )
 
-    timing_offset_samples = _sample_timing_offset(
-        link_shape, config.timing_offset_samples, generator, device
+    timing_offset_samples = _sample_constant_or_zero(
+        link_shape, config.timing_offset_samples, device,
     )
     cfr_impaired = _apply_timing_offset(cfr_impaired, timing_offset_samples, fft_size)
 
-    agc_gain_db = _sample_agc_gain((snapshot, rx), config.agc_gain_db, generator, device)
+    agc_shape = (snapshot, rx)
+    agc_gain_db = _sample_constant_or_zero(agc_shape, config.agc_gain_db, device)
     cfr_impaired, clipping_flag = _apply_agc_adc(
         cfr_impaired, agc_gain_db, config.clipping_threshold
     )
@@ -83,15 +83,22 @@ def apply_base_impairments(
     )
 
 
-def _sample_cfo(
-    link_shape: tuple[int, int, int],
-    nominal_hz: float | None,
-    generator: torch.Generator,
+def _sample_constant_or_zero(
+    link_shape: tuple[int, ...],
+    nominal: float | None,
     device: torch.device,
 ) -> torch.Tensor:
-    if nominal_hz is None:
+    """Return nominal value tensor or zeros if disabled."""
+    if nominal is None:
         return torch.zeros(link_shape, dtype=torch.float32, device=device)
-    return torch.full(link_shape, float(nominal_hz), dtype=torch.float32, device=device)
+    return torch.full(link_shape, float(nominal), dtype=torch.float32, device=device)
+
+
+def _broadcast_to_cfr(link_tensor: torch.Tensor, cfr: torch.Tensor) -> torch.Tensor:
+    """Broadcast link-shaped tensor [snapshot, tx, rx] to CFR shape by adding trailing dims."""
+    n_extra = cfr.ndim - link_tensor.ndim
+    shape = link_tensor.shape + (1,) * n_extra
+    return link_tensor.reshape(shape)
 
 
 def _apply_cfo_time_domain(
@@ -101,48 +108,15 @@ def _apply_cfo_time_domain(
 ) -> torch.Tensor:
     n_samples = td.shape[-1]
     t = torch.arange(n_samples, dtype=torch.float32, device=td.device) / sample_rate_hz
-    phase = 2.0 * torch.pi * cfo_hz[..., None, None, None] * t
+    phase = 2.0 * torch.pi * _broadcast_to_cfr(cfo_hz, td) * t
     return td * torch.exp(1j * phase)
-
-
-def _sample_sfo(
-    link_shape: tuple[int, int, int],
-    nominal_ppm: float | None,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    if nominal_ppm is None:
-        return torch.zeros(link_shape, dtype=torch.float32, device=device)
-    return torch.full(link_shape, float(nominal_ppm), dtype=torch.float32, device=device)
 
 
 def _apply_sfo(cfr: torch.Tensor, sfo_ppm: torch.Tensor) -> torch.Tensor:
     n_sc = cfr.shape[-1]
     k = torch.arange(n_sc, dtype=torch.float32, device=cfr.device)
-    phase_ramp = 2.0 * torch.pi * k * sfo_ppm[..., None, None, None] * 1e-6
+    phase_ramp = 2.0 * torch.pi * k * _broadcast_to_cfr(sfo_ppm, cfr) * 1e-6
     return cfr * torch.exp(1j * phase_ramp)
-
-
-def _sample_phase_offset(
-    link_shape: tuple[int, int, int],
-    nominal_rad: float | None,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    if nominal_rad is None:
-        return torch.zeros(link_shape, dtype=torch.float32, device=device)
-    return torch.full(link_shape, float(nominal_rad), dtype=torch.float32, device=device)
-
-
-def _sample_timing_offset(
-    link_shape: tuple[int, int, int],
-    nominal_samples: float | None,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    if nominal_samples is None:
-        return torch.zeros(link_shape, dtype=torch.float32, device=device)
-    return torch.full(link_shape, float(nominal_samples), dtype=torch.float32, device=device)
 
 
 def _apply_timing_offset(
@@ -152,17 +126,9 @@ def _apply_timing_offset(
 ) -> torch.Tensor:
     n_sc = cfr.shape[-1]
     k = torch.arange(n_sc, dtype=torch.float32, device=cfr.device)
-    phase_ramp = 2.0 * torch.pi * k * timing_offset_samples[..., None, None, None] / float(fft_size)
+    phase = 2.0 * torch.pi * k * _broadcast_to_cfr(timing_offset_samples, cfr)
+    phase_ramp = phase / float(fft_size)
     return cfr * torch.exp(1j * phase_ramp)
-
-
-def _sample_agc_gain(
-    shape: tuple[int, int],
-    nominal_gain_db: float,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    return torch.full(shape, float(nominal_gain_db), dtype=torch.float32, device=device)
 
 
 def _apply_agc_adc(
@@ -170,8 +136,11 @@ def _apply_agc_adc(
     agc_gain_db: torch.Tensor,
     clipping_threshold: float | None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    # agc_gain_db shape: [snapshot, rx] → broadcast as [snapshot, 1, rx, 1, 1, 1]
-    gain_dims = agc_gain_db.unsqueeze(1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    # agc_gain_db: [snapshot, rx] → broadcast to CFR shape
+    gain_dims = agc_gain_db[:, None, :].reshape(
+        agc_gain_db.shape[0], 1, agc_gain_db.shape[1],
+        *(1 for _ in range(cfr.ndim - 3)),
+    )
     gain_linear = 10.0 ** (gain_dims / 20.0)
     scaled = cfr * gain_linear
 
@@ -181,6 +150,7 @@ def _apply_agc_adc(
     magnitude = torch.abs(scaled)
     clipped = magnitude > clipping_threshold
     scale = torch.where(clipped, clipping_threshold / torch.clamp(magnitude, min=1e-30), 1.0)
+    signal_dims = tuple(range(3, cfr.ndim))
     clipped_cfr = scaled * scale
-    clipping_flag = torch.any(clipped, dim=(3, 4, 5))
+    clipping_flag = torch.any(clipped, dim=signal_dims)
     return clipped_cfr, clipping_flag

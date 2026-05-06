@@ -8,6 +8,12 @@ from collections.abc import Sequence
 from sionna_measurement_sim import __version__
 from sionna_measurement_sim.preflight.system import collect_basic_environment
 
+_DEFAULT_LABEL = "data/scenes/test/test5.json"
+_DEFAULT_SCENE = "data/scenes/test/scene.xml"
+_SEED_OFFSET_IMPAIRMENT = 100
+_SEED_OFFSET_OBSERVATION = 200
+_SEED_OFFSET_BATCH = 1000
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -25,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
         "run-rt-truth",
         help="Run the Phase 2 minimal Sionna RT truth pipeline.",
     )
-    rt_truth.add_argument("--label-file", default="data/scenes/test/test5.json")
-    rt_truth.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    rt_truth.add_argument("--label-file", default=_DEFAULT_LABEL)
+    rt_truth.add_argument("--scene-file", default=_DEFAULT_SCENE)
     rt_truth.add_argument("--output-dir", default="outputs/phase2_rt_truth")
     rt_truth.add_argument("--num-subcarriers", type=int, default=8)
     rt_truth.add_argument("--seed", type=int, default=1)
@@ -38,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
         "run-motion",
         help="Run Phase 6 multi-snapshot RT truth with motion / Doppler.",
     )
-    motion.add_argument("--label-file", default="data/scenes/test/test5.json")
-    motion.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    motion.add_argument("--label-file", default=_DEFAULT_LABEL)
+    motion.add_argument("--scene-file", default=_DEFAULT_SCENE)
     motion.add_argument("--output-dir", default="outputs/phase6_motion")
     motion.add_argument("--num-subcarriers", type=int, default=8)
     motion.add_argument("--seed", type=int, default=1)
@@ -49,8 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
         "run-observation",
         help="Run the Phase 4 minimal RT + AWGN/LS observation pipeline.",
     )
-    observation.add_argument("--label-file", default="data/scenes/test/test5.json")
-    observation.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    observation.add_argument("--label-file", default=_DEFAULT_LABEL)
+    observation.add_argument("--scene-file", default=_DEFAULT_SCENE)
     observation.add_argument("--output-dir", default="outputs/phase4_observation")
     observation.add_argument("--num-subcarriers", type=int, default=8)
     observation.add_argument("--seed", type=int, default=1)
@@ -66,13 +72,31 @@ def build_parser() -> argparse.ArgumentParser:
         "run-batch",
         help="Run Phase 8 batch experiment across multiple seeds/SNRs.",
     )
-    batch.add_argument("--label-file", default="data/scenes/test/test5.json")
-    batch.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    batch.add_argument("--label-file", default=_DEFAULT_LABEL)
+    batch.add_argument("--scene-file", default=_DEFAULT_SCENE)
     batch.add_argument("--output-dir", default="outputs/phase8_batch")
     batch.add_argument("--num-subcarriers", type=int, default=8)
     batch.add_argument("--seed", type=int, default=1)
     batch.add_argument("--snr-db", type=float, default=40.0)
     batch.add_argument("--batch-count", type=int, default=2)
+
+    full = subparsers.add_parser(
+        "run-full",
+        help="Full e2e: RT truth + paths + impairments + observation + motion + calibration.",
+    )
+    full.add_argument("--label-file", default=_DEFAULT_LABEL)
+    full.add_argument("--scene-file", default=_DEFAULT_SCENE)
+    full.add_argument("--output-dir", default="outputs/e2e_full")
+    full.add_argument("--num-subcarriers", type=int, default=64)
+    full.add_argument("--seed", type=int, default=42)
+    full.add_argument("--snr-db", type=float, default=30.0)
+    full.add_argument("--cfo-hz", type=float, default=100.0)
+    full.add_argument("--sfo-ppm", type=float, default=5.0)
+    full.add_argument("--phase-offset-rad", type=float, default=0.5)
+    full.add_argument("--timing-offset-samples", type=float, default=2.0)
+    full.add_argument("--clipping-threshold", type=float, default=3.0)
+    full.add_argument("--num-time-steps", type=int, default=3)
+    full.add_argument("--sampling-frequency-hz", type=float, default=100.0)
 
     return parser
 
@@ -158,6 +182,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 specular_reflection=True,
                 observation_snr_db=args.snr_db,
                 impairment_config=impairment,
+            )
+        )
+        print(output_path)
+        return 0
+
+    if args.command == "run-full":
+        from pathlib import Path
+
+        from sionna_measurement_sim.phy.impairments import ImpairmentConfig
+        from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
+
+        impairment = ImpairmentConfig(
+            random_seed=args.seed + _SEED_OFFSET_IMPAIRMENT,
+            cfo_hz=args.cfo_hz,
+            sfo_ppm=args.sfo_ppm,
+            phase_offset_rad=args.phase_offset_rad,
+            timing_offset_samples=args.timing_offset_samples,
+            clipping_threshold=args.clipping_threshold,
+        )
+        output_path = run_rt_truth_pipeline(
+            RTTruthRunConfig(
+                label_file=Path(args.label_file),
+                scene_file=Path(args.scene_file),
+                output_dir=Path(args.output_dir),
+                num_subcarriers=args.num_subcarriers,
+                seed=args.seed,
+                max_depth=1,
+                specular_reflection=True,
+                observation_snr_db=args.snr_db,
+                observation_seed=args.seed + _SEED_OFFSET_OBSERVATION,
+                impairment_config=impairment,
+                num_time_steps=args.num_time_steps,
+                sampling_frequency_hz=args.sampling_frequency_hz,
             )
         )
         print(output_path)

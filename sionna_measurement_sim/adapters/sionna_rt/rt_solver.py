@@ -179,15 +179,14 @@ def _to_tx_first_cfr(raw_cfr: np.ndarray, num_time_steps: int = 1) -> np.ndarray
     return np.transpose(cfr_tx_first, (4, 0, 1, 2, 3, 5))
 
 
-def _path_power_db(cfr: np.ndarray) -> np.ndarray:
-    power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
+def _path_power_db(cfr: np.ndarray, signal_axes: tuple[int, ...] = (2, 3, 4)) -> np.ndarray:
+    power = np.mean(np.abs(cfr) ** 2, axis=signal_axes)
     return (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
 
 
 def _path_power_db_multi(cfr: np.ndarray) -> np.ndarray:
     """Path power for 6D CFR [snapshot, tx, rx, rx_ant, tx_ant, subcarrier]."""
-    power = np.mean(np.abs(cfr) ** 2, axis=(3, 4, 5))
-    return (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
+    return _path_power_db(cfr, signal_axes=(3, 4, 5))
 
 
 def _runtime_versions() -> dict[str, str]:

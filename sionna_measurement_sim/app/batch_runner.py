@@ -12,6 +12,8 @@ from sionna_measurement_sim.domain.batch import (
 from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 
+_BATCH_SEED_STRIDE = 1000
+
 
 def run_batch_experiment(
     base_config: RTTruthRunConfig,
@@ -27,7 +29,7 @@ def run_batch_experiment(
     for batch_idx in range(batch_config.total_batches):
         batch_id = f"batch_{batch_idx:03d}"
         batch_dir = base_config.output_dir / batch_id
-        batch_seed = base_config.seed + batch_idx * 1000
+        batch_seed = base_config.seed + batch_idx * _BATCH_SEED_STRIDE
 
         batch_run_config = RTTruthRunConfig(
             label_file=base_config.label_file,
@@ -42,7 +44,7 @@ def run_batch_experiment(
             max_depth=base_config.max_depth,
             specular_reflection=base_config.specular_reflection,
             observation_snr_db=base_config.observation_snr_db,
-            observation_seed=base_config.observation_seed + batch_idx * 1000,
+            observation_seed=base_config.observation_seed + batch_idx * _BATCH_SEED_STRIDE,
             impairment_config=base_config.impairment_config,
             num_time_steps=base_config.num_time_steps,
             sampling_frequency_hz=base_config.sampling_frequency_hz,

@@ -203,12 +203,10 @@ def _build_device_state(config: RTTruthRunConfig, topology: Topology) -> DeviceS
     import numpy as np
 
     num_snap = max(config.num_time_steps, 1)
-    tx_v = np.zeros((num_snap, topology.num_tx, 3), dtype=np.float32)
-    rx_v = np.zeros((num_snap, topology.num_rx, 3), dtype=np.float32)
-    for i in range(min(topology.num_tx, 1)):
-        tx_v[:, i, :] = np.array(config.tx_velocity_mps, dtype=np.float32)
-    for i in range(min(topology.num_rx, 1)):
-        rx_v[:, i, :] = np.array(config.rx_velocity_mps, dtype=np.float32)
+    v_tx = np.array(config.tx_velocity_mps, dtype=np.float32)
+    v_rx = np.array(config.rx_velocity_mps, dtype=np.float32)
+    tx_v = np.tile(v_tx.reshape(1, 1, 3), (num_snap, topology.num_tx, 1))
+    rx_v = np.tile(v_rx.reshape(1, 1, 3), (num_snap, topology.num_rx, 1))
     return DeviceState(
         tx_velocity_mps=tx_v,
         rx_velocity_mps=rx_v,
