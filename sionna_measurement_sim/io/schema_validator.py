@@ -52,9 +52,11 @@ REQUIRED_TRUTH_DATASETS = (
 PATH_SAMPLE_DATASETS = (
     "paths/samples/sampled_link_indices",
     "paths/samples/sampled_path_indices",
+    "paths/samples/path_count",
     "paths/samples/path_gain_db",
     "paths/samples/path_type",
     "paths/samples/vertices_m",
+    "paths/samples/vertex_count",
     "paths/samples/interaction_type",
     "paths/samples/object_id",
     "paths/samples/primitive_id",
@@ -126,6 +128,7 @@ def _validate_truth_shapes(h5: h5py.File) -> None:
 def _validate_path_sample_shapes(h5: h5py.File) -> None:
     sampled_links = h5["paths/samples/sampled_link_indices"]
     vertices = h5["paths/samples/vertices_m"]
+    vertex_count = h5["paths/samples/vertex_count"]
     interactions = h5["paths/samples/interaction_type"]
     object_id = h5["paths/samples/object_id"]
     primitive_id = h5["paths/samples/primitive_id"]
@@ -137,6 +140,9 @@ def _validate_path_sample_shapes(h5: h5py.File) -> None:
         raise SchemaValidationError(msg)
     if vertices.ndim != 4 or vertices.shape[-1] != 3:
         msg = "/paths/samples/vertices_m must have shape [sample, sample_path, max_vertices, 3]"
+        raise SchemaValidationError(msg)
+    if vertex_count.shape != vertices.shape[:2]:
+        msg = "/paths/samples/vertex_count must match [sample, sample_path]"
         raise SchemaValidationError(msg)
     if interactions.ndim != 3:
         msg = "/paths/samples/interaction_type must have rank 3"
@@ -151,6 +157,9 @@ def _validate_path_sample_shapes(h5: h5py.File) -> None:
     expected_scalar_shape = vertices.shape[:2]
     if doppler.shape != expected_scalar_shape or tau.shape != expected_scalar_shape:
         msg = "path doppler_hz and tau_s must match [sample, sample_path]"
+        raise SchemaValidationError(msg)
+    if interactions.shape[:2] != expected_scalar_shape:
+        msg = "path interaction_type must match [sample, sample_path, max_depth]"
         raise SchemaValidationError(msg)
 
 
@@ -187,4 +196,13 @@ def _validate_values(h5: h5py.File) -> None:
         values = h5[dataset_path][()]
         if values.size and not np.all(np.isfinite(values)):
             msg = f"/{dataset_path} must contain finite values"
+            raise SchemaValidationError(msg)
+
+    if "paths/samples/vertex_count" in h5:
+        vertex_count = h5["paths/samples/vertex_count"][()]
+        interactions = h5["paths/samples/interaction_type"][()]
+        interaction_count = np.count_nonzero(interactions != 0, axis=-1)
+        active = vertex_count > 0
+        if np.any(vertex_count[active] < interaction_count[active] + 2):
+            msg = "sample path vertex_count must include TX/RX endpoints"
             raise SchemaValidationError(msg)

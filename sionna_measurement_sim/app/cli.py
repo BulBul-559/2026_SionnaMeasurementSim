@@ -30,6 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     rt_truth.add_argument("--output-dir", default="outputs/phase2_rt_truth")
     rt_truth.add_argument("--num-subcarriers", type=int, default=8)
     rt_truth.add_argument("--seed", type=int, default=1)
+    rt_truth.add_argument("--max-depth", type=int, default=1)
+    rt_truth.add_argument("--no-specular-reflection", action="store_true")
 
     return parser
 
@@ -55,6 +57,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_dir=Path(args.output_dir),
                 num_subcarriers=args.num_subcarriers,
                 seed=args.seed,
+                max_depth=args.max_depth,
+                specular_reflection=not args.no_specular_reflection,
             )
         )
         print(output_path)

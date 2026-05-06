@@ -13,7 +13,6 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
-from sionna_measurement_sim.domain.path import PathSamples
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -41,6 +40,8 @@ class RTTruthRunConfig:
     seed: int = 1
     max_tx: int = 1
     max_rx: int = 1
+    max_depth: int = 1
+    specular_reflection: bool = True
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -66,16 +67,22 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         topology=topology,
         antenna=antenna,
         frequency=frequency,
-        config=SionnaRTConfig(scene_file=config.scene_file, seed=config.seed),
+        config=SionnaRTConfig(
+            scene_file=config.scene_file,
+            seed=config.seed,
+            max_depth=config.max_depth,
+            specular_reflection=config.specular_reflection,
+        ),
     )
     elapsed_seconds = time.perf_counter() - start
+    phase = 3 if config.max_depth > 0 else 2
 
     result = MeasurementSimulationResult(
         metadata=Metadata(
             run_id=output_dir.name,
             random_seed=config.seed,
             config_snapshot=json.dumps(_config_snapshot(config), sort_keys=True),
-            measurement_realism_level="phase2_rt_truth",
+            measurement_realism_level=f"phase{phase}_rt_truth",
             software_versions=json.dumps(adapter_result.runtime_versions, sort_keys=True),
         ),
         input_spec=InputSpec(
@@ -94,7 +101,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         ),
         frequency=frequency,
         truth=adapter_result.truth,
-        path_samples=PathSamples.empty(),
+        path_samples=adapter_result.path_samples,
         runtime=RuntimeInfo(
             sionna_version=adapter_result.runtime_versions["sionna"],
             sionna_rt_version=adapter_result.runtime_versions["sionna_rt"],
@@ -104,6 +111,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             command_line="run-rt-truth",
             elapsed_seconds=elapsed_seconds,
         ),
+        path_table=adapter_result.path_table,
     )
 
     results_path = write_measurement_result(output_dir / "results.h5", result)
@@ -111,7 +119,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     manifest_path = write_manifest(
         output_dir / "manifest.json",
         {
-            "phase": 2,
+            "phase": phase,
             "results_h5": results_path.as_posix(),
             "label_file": config.label_file.as_posix(),
             "scene_file": config.scene_file.as_posix(),
@@ -119,6 +127,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "software_versions": adapter_result.runtime_versions,
             "raw_cfr_shape": adapter_result.raw_cfr_shape,
             "internal_cfr_shape": adapter_result.internal_cfr_shape,
+            "path_count": int(adapter_result.path_samples.path_count.sum()),
             "elapsed_seconds": elapsed_seconds,
         },
     )
@@ -130,6 +139,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 f"manifest={manifest_path.as_posix()}",
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
                 f"internal_cfr_shape={adapter_result.internal_cfr_shape}",
+                f"path_count={int(adapter_result.path_samples.path_count.sum())}",
             ]
         )
         + "\n",
@@ -148,4 +158,6 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "seed": config.seed,
         "max_tx": config.max_tx,
         "max_rx": config.max_rx,
+        "max_depth": config.max_depth,
+        "specular_reflection": config.specular_reflection,
     }

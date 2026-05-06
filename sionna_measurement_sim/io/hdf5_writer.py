@@ -33,6 +33,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_frequency(h5, result)
         _write_truth(h5, result)
         _write_path_samples(h5, result)
+        _write_path_full(h5, result)
         _write_runtime(h5, result)
 
     return output_path
@@ -152,6 +153,28 @@ def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> N
     _write_dataset(group, "primitive_id", samples.primitive_id)
     _write_dataset(group, "doppler_hz", samples.doppler_hz, unit="Hz")
     _write_dataset(group, "tau_s", samples.tau_s, unit="s")
+
+
+def _write_path_full(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    table = result.path_table
+    if table is None:
+        return
+
+    group = h5.require_group("paths").require_group("full")
+    _write_dataset(group, "valid", table.valid)
+    _write_dataset(group, "a", table.a, unit="linear_complex")
+    _write_dataset(group, "tau_s", table.tau_s, unit="s")
+    _write_dataset(group, "doppler_hz", table.doppler_hz, unit="Hz")
+    _write_dataset(group, "theta_t_rad", table.theta_t_rad, unit="rad")
+    _write_dataset(group, "phi_t_rad", table.phi_t_rad, unit="rad")
+    _write_dataset(group, "theta_r_rad", table.theta_r_rad, unit="rad")
+    _write_dataset(group, "phi_r_rad", table.phi_r_rad, unit="rad")
+    _write_dataset(group, "interaction_type", table.interaction_type)
+    _write_dataset(group, "object_id", table.object_id)
+    _write_dataset(group, "primitive_id", table.primitive_id)
+    _write_dataset(group, "vertices_m", table.vertices_m, unit="m")
+    _write_string_array(group, "path_type", table.path_type)
+    _write_dataset(group, "path_depth", table.path_depth)
 
 
 def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:

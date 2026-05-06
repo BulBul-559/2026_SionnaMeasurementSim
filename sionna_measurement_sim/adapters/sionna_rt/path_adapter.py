@@ -1,0 +1,194 @@
+"""Convert Sionna RT Paths objects into domain path models."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from sionna_measurement_sim.domain.path import PathSamples, PathTable
+from sionna_measurement_sim.domain.topology import Topology
+
+INTERACTION_NONE = 0
+INTERACTION_SPECULAR = 1
+INTERACTION_DIFFUSE = 2
+INTERACTION_REFRACTION = 4
+INTERACTION_DIFFRACTION = 8
+
+
+def paths_to_table(paths: Any) -> PathTable:
+    """Convert Sionna paths to the project TX-first PathTable contract."""
+
+    valid = _path_scalar_to_tx_first(_to_numpy(paths.valid), "valid").astype(np.bool_)
+    a = _complex_path_coefficients(_to_numpy(paths.a))
+    tau_s = _path_scalar_to_tx_first(_to_numpy(paths.tau), "tau").astype(np.float32)
+    doppler_hz = _path_scalar_to_tx_first(_to_numpy(paths.doppler), "doppler").astype(np.float32)
+    theta_t_rad = _path_scalar_to_tx_first(_to_numpy(paths.theta_t), "theta_t").astype(np.float32)
+    phi_t_rad = _path_scalar_to_tx_first(_to_numpy(paths.phi_t), "phi_t").astype(np.float32)
+    theta_r_rad = _path_scalar_to_tx_first(_to_numpy(paths.theta_r), "theta_r").astype(np.float32)
+    phi_r_rad = _path_scalar_to_tx_first(_to_numpy(paths.phi_r), "phi_r").astype(np.float32)
+
+    interaction_type = _interaction_to_tx_first(_to_numpy(paths.interactions), "interactions")
+    object_id = _interaction_to_tx_first(_to_numpy(paths.objects), "objects")
+    primitive_id = _interaction_to_tx_first(_to_numpy(paths.primitives), "primitives")
+    vertices_m = _vertices_to_tx_first(_to_numpy(paths.vertices))
+    path_depth = np.count_nonzero(interaction_type != INTERACTION_NONE, axis=-1).astype(np.int32)
+    path_type = _classify_path_types(interaction_type)
+
+    return PathTable(
+        valid=valid,
+        a=a,
+        tau_s=tau_s,
+        doppler_hz=doppler_hz,
+        theta_t_rad=theta_t_rad,
+        phi_t_rad=phi_t_rad,
+        theta_r_rad=theta_r_rad,
+        phi_r_rad=phi_r_rad,
+        interaction_type=interaction_type,
+        object_id=object_id,
+        primitive_id=primitive_id,
+        vertices_m=vertices_m,
+        path_type=path_type,
+        path_depth=path_depth,
+    )
+
+
+def path_table_to_samples(
+    table: PathTable,
+    topology: Topology,
+    *,
+    max_paths_per_link: int | None = None,
+) -> PathSamples:
+    """Build lightweight path samples with TX/interactions/RX vertices."""
+
+    tx_count, rx_count, _, _, path_count = table.valid.shape
+    depth = table.interaction_type.shape[-1]
+    sample_count = tx_count * rx_count
+    max_vertices = depth + 2
+    selected_paths = max_paths_per_link or path_count
+
+    sampled_link_indices = np.zeros((sample_count, 2), dtype=np.int32)
+    sampled_path_indices = np.full((sample_count, selected_paths), -1, dtype=np.int32)
+    sample_path_count = np.zeros((sample_count,), dtype=np.int32)
+    path_gain_db = np.zeros((sample_count, selected_paths), dtype=np.float32)
+    path_type = np.empty((sample_count, selected_paths), dtype=object)
+    path_type[:, :] = "invalid"
+    vertices_m = np.zeros((sample_count, selected_paths, max_vertices, 3), dtype=np.float32)
+    vertex_count = np.zeros((sample_count, selected_paths), dtype=np.int32)
+    interaction_type = np.zeros((sample_count, selected_paths, depth), dtype=np.uint32)
+    object_id = np.zeros((sample_count, selected_paths, depth), dtype=np.uint32)
+    primitive_id = np.zeros((sample_count, selected_paths, depth), dtype=np.uint32)
+    doppler_hz = np.zeros((sample_count, selected_paths), dtype=np.float32)
+    tau_s = np.zeros((sample_count, selected_paths), dtype=np.float32)
+
+    sample = 0
+    for tx in range(tx_count):
+        for rx in range(rx_count):
+            sampled_link_indices[sample] = [tx, rx]
+            valid_indices = np.flatnonzero(table.valid[tx, rx, 0, 0])[:selected_paths]
+            sample_path_count[sample] = len(valid_indices)
+            for out_index, path_index in enumerate(valid_indices):
+                sampled_path_indices[sample, out_index] = path_index
+                path_gain_db[sample, out_index] = _path_gain_db(table.a[tx, rx, 0, 0, path_index])
+                path_type[sample, out_index] = table.path_type[tx, rx, 0, 0, path_index]
+                interaction_count = int(table.path_depth[tx, rx, 0, 0, path_index])
+                vertex_count[sample, out_index] = interaction_count + 2
+                vertices_m[sample, out_index, 0] = topology.tx_positions_m[tx]
+                if interaction_count:
+                    vertices_m[sample, out_index, 1 : 1 + interaction_count] = table.vertices_m[
+                        tx, rx, 0, 0, path_index, :interaction_count
+                    ]
+                vertices_m[sample, out_index, interaction_count + 1] = topology.rx_positions_m[rx]
+                interaction_type[sample, out_index] = table.interaction_type[
+                    tx, rx, 0, 0, path_index
+                ]
+                object_id[sample, out_index] = table.object_id[tx, rx, 0, 0, path_index]
+                primitive_id[sample, out_index] = table.primitive_id[tx, rx, 0, 0, path_index]
+                doppler_hz[sample, out_index] = table.doppler_hz[tx, rx, 0, 0, path_index]
+                tau_s[sample, out_index] = table.tau_s[tx, rx, 0, 0, path_index]
+            sample += 1
+
+    return PathSamples(
+        sampled_link_indices=sampled_link_indices,
+        sampled_path_indices=sampled_path_indices,
+        path_count=sample_path_count,
+        path_gain_db=path_gain_db,
+        path_type=path_type,
+        vertices_m=vertices_m,
+        vertex_count=vertex_count,
+        interaction_type=interaction_type,
+        object_id=object_id,
+        primitive_id=primitive_id,
+        doppler_hz=doppler_hz,
+        tau_s=tau_s,
+    )
+
+
+def _to_numpy(value: Any) -> np.ndarray:
+    return np.asarray(value)
+
+
+def _complex_path_coefficients(value: np.ndarray) -> np.ndarray:
+    if value.ndim == 6 and value.shape[0] == 2:
+        complex_value = value[0] + 1j * value[1]
+    elif np.iscomplexobj(value):
+        complex_value = value
+    else:
+        msg = f"Unsupported paths.a shape: {value.shape}"
+        raise ValueError(msg)
+    return _path_scalar_to_tx_first(complex_value, "a").astype(np.complex64)
+
+
+def _path_scalar_to_tx_first(value: np.ndarray, name: str) -> np.ndarray:
+    if value.ndim == 5:
+        return np.transpose(value, (2, 0, 1, 3, 4))
+    if value.ndim == 3:
+        expanded = value[:, np.newaxis, :, np.newaxis, :]
+        return np.transpose(expanded, (2, 0, 1, 3, 4))
+    msg = f"Unsupported Sionna path scalar shape for {name}: {value.shape}"
+    raise ValueError(msg)
+
+
+def _interaction_to_tx_first(value: np.ndarray, name: str) -> np.ndarray:
+    if value.ndim == 6:
+        return np.transpose(value, (3, 1, 2, 4, 5, 0)).astype(np.uint32)
+    if value.ndim == 4:
+        expanded = value[:, :, np.newaxis, :, np.newaxis, :]
+        return np.transpose(expanded, (3, 1, 2, 4, 5, 0)).astype(np.uint32)
+    msg = f"Unsupported Sionna interaction shape for {name}: {value.shape}"
+    raise ValueError(msg)
+
+
+def _vertices_to_tx_first(value: np.ndarray) -> np.ndarray:
+    if value.ndim == 7:
+        return np.transpose(value, (3, 1, 2, 4, 5, 0, 6)).astype(np.float32)
+    if value.ndim == 5:
+        expanded = value[:, :, np.newaxis, :, np.newaxis, :, :]
+        return np.transpose(expanded, (3, 1, 2, 4, 5, 0, 6)).astype(np.float32)
+    msg = f"Unsupported Sionna vertices shape: {value.shape}"
+    raise ValueError(msg)
+
+
+def _classify_path_types(interaction_type: np.ndarray) -> np.ndarray:
+    output = np.empty(interaction_type.shape[:-1], dtype=object)
+    for index in np.ndindex(output.shape):
+        nonzero = set(int(v) for v in interaction_type[index] if int(v) != INTERACTION_NONE)
+        if not nonzero:
+            output[index] = "los"
+        elif len(nonzero) > 1:
+            output[index] = "mixed"
+        elif INTERACTION_SPECULAR in nonzero:
+            output[index] = "reflection"
+        elif INTERACTION_DIFFUSE in nonzero:
+            output[index] = "diffuse"
+        elif INTERACTION_REFRACTION in nonzero:
+            output[index] = "refraction"
+        elif INTERACTION_DIFFRACTION in nonzero:
+            output[index] = "diffraction"
+        else:
+            output[index] = "unknown"
+    return output
+
+
+def _path_gain_db(value: np.complex64) -> np.float32:
+    return np.float32(20.0 * np.log10(max(float(np.abs(value)), 1e-30)))

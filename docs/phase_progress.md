@@ -116,3 +116,58 @@ Known issues or blockers:
 - No Phase 2 blockers.
 - Phase 2 uses RT-only `sionna-rt`; PyTorch is not installed yet because the PyTorch PHY/SYS chain starts in later phases.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 3
+
+Current completed phase: Phase 3.
+
+This round completed:
+
+- Added TX-first `PathTable` domain model.
+- Added Sionna RT path adapter for path scalar fields, complex path coefficients, interactions, objects, primitives, vertices, path type, and path depth.
+- Extended the RT truth pipeline to use `max_depth=1` with specular reflections by default.
+- Wrote non-empty `/paths/samples` and debug `/paths/full` HDF5 groups.
+- Added path visualization smoke helper and generated an ignored path plot.
+
+Commands and results:
+
+- `uv run pytest tests/adapter tests/schema tests/integration -k "path"`: passed, 3 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-rt-truth --output-dir outputs/phase3_paths`: passed.
+- Path plot generation to `outputs/phase3_paths/paths.png`: passed.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 19 tests.
+- `git status --short --ignored`: reviewed; outputs, caches, `.venv/`, `old`, and large scene OBJ are ignored.
+
+Key files generated:
+
+- `sionna_measurement_sim/adapters/sionna_rt/path_adapter.py`
+- `sionna_measurement_sim/visualization/path_plots.py`
+- `artifacts/phase_reports/phase_3_acceptance.md`
+- `outputs/phase3_paths/results.h5` (ignored runtime artifact)
+- `outputs/phase3_paths/manifest.json` (ignored runtime artifact)
+- `outputs/phase3_paths/logs/run.log` (ignored runtime artifact)
+- `outputs/phase3_paths/paths.png` (ignored runtime artifact)
+
+Acceptance items passed:
+
+- Parsed 26 valid paths from the prepared test scene.
+- Found 25 NLoS paths with finite intermediate vertices.
+- `/paths/samples` contains sampled link/path indices, vertices, interaction type, object id, primitive id, Doppler, delay, path gain, and path type.
+- `/paths/full` contains the TX-first full path table.
+- Active sample paths satisfy `vertex_count >= interaction_count + 2`.
+- Static-scene Doppler fields exist and are finite.
+- Path visualization smoke output exists and is non-empty.
+
+Current git commit hash:
+
+- Before this Phase 3 commit: `14a81bd`.
+- Phase 3 implementation commit: created immediately after this progress entry.
+
+Next step:
+
+- Continue from Phase 4: minimal PHY observation with custom OFDM pilots, AWGN, and LS estimation.
+
+Known issues or blockers:
+
+- No Phase 3 blockers.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.

@@ -21,7 +21,7 @@ from sionna_measurement_sim.domain.constants import (
     UNIT_CONVENTION,
 )
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
-from sionna_measurement_sim.domain.path import PathSamples
+from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.domain.validation import require_shape
 
@@ -133,6 +133,7 @@ class MeasurementSimulationResult:
     truth: RTTruthResult
     path_samples: PathSamples
     runtime: RuntimeInfo
+    path_table: PathTable | None = None
 
     def __post_init__(self) -> None:
         tx, rx, rx_ant, tx_ant, subcarrier = self.truth.cfr.shape

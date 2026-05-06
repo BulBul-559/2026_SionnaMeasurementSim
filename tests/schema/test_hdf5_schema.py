@@ -1,11 +1,13 @@
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import h5py
 import numpy as np
 import pytest
 
+from sionna_measurement_sim.domain.path import PathSamples
 from sionna_measurement_sim.domain.results import create_phase1_minimal_result
 from sionna_measurement_sim.io.hdf5_reader import read_metadata, read_truth_cfr
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
@@ -96,4 +98,34 @@ def test_validator_rejects_observation_shape_mismatch(tmp_path: Path):
         )
 
     with pytest.raises(SchemaValidationError, match="rank 6"):
+        validate_hdf5_contract(output_path)
+
+
+def test_path_sample_schema_requires_tx_rx_endpoints(tmp_path: Path):
+    samples = PathSamples(
+        sampled_link_indices=np.array([[0, 0]], dtype=np.int32),
+        sampled_path_indices=np.array([[0]], dtype=np.int32),
+        path_count=np.array([1], dtype=np.int32),
+        path_gain_db=np.array([[-10.0]], dtype=np.float32),
+        path_type=np.array([["reflection"]], dtype=object),
+        vertices_m=np.zeros((1, 1, 3, 3), dtype=np.float32),
+        vertex_count=np.array([[3]], dtype=np.int32),
+        interaction_type=np.array([[[1]]], dtype=np.uint32),
+        object_id=np.array([[[1]]], dtype=np.uint32),
+        primitive_id=np.array([[[7]]], dtype=np.uint32),
+        doppler_hz=np.array([[0.0]], dtype=np.float32),
+        tau_s=np.array([[1e-9]], dtype=np.float32),
+    )
+    output_path = tmp_path / "results.h5"
+    write_measurement_result(
+        output_path,
+        replace(create_phase1_minimal_result(), path_samples=samples),
+    )
+    validate_hdf5_contract(output_path)
+
+    with h5py.File(output_path, "a") as h5:
+        del h5["paths/samples/vertex_count"]
+        h5["paths/samples"].create_dataset("vertex_count", data=np.array([[2]], dtype=np.int32))
+
+    with pytest.raises(SchemaValidationError, match="TX/RX endpoints"):
         validate_hdf5_contract(output_path)

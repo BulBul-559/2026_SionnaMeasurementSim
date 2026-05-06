@@ -8,7 +8,7 @@ layers consume them.
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
-from sionna_measurement_sim.domain.path import PathSamples
+from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -27,6 +27,7 @@ __all__ = [
     "MeasurementSimulationResult",
     "Metadata",
     "PathSamples",
+    "PathTable",
     "RTTruthResult",
     "RuntimeInfo",
     "SceneSpec",

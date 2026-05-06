@@ -9,9 +9,14 @@ from typing import Any
 
 import numpy as np
 
+from sionna_measurement_sim.adapters.sionna_rt.path_adapter import (
+    path_table_to_samples,
+    paths_to_table,
+)
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.topology import Topology
 
 
@@ -36,6 +41,8 @@ class SionnaRTTruthAdapterResult:
     """Adapter output without leaking native Sionna objects."""
 
     truth: RTTruthResult
+    path_table: PathTable
+    path_samples: PathSamples
     runtime_versions: dict[str, str]
     raw_cfr_shape: tuple[int, ...]
     internal_cfr_shape: tuple[int, ...]
@@ -71,6 +78,8 @@ def run_sionna_rt_truth(
     cfr = _to_tx_first_cfr(raw_cfr)
     path_power_db = _path_power_db(cfr)
     has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
+    path_table = paths_to_table(paths)
+    path_samples = path_table_to_samples(path_table, topology)
 
     return SionnaRTTruthAdapterResult(
         truth=RTTruthResult(
@@ -78,6 +87,8 @@ def run_sionna_rt_truth(
             path_power_db=path_power_db,
             has_geometric_signal=has_signal,
         ),
+        path_table=path_table,
+        path_samples=path_samples,
         runtime_versions=_runtime_versions(),
         raw_cfr_shape=tuple(raw_cfr.shape),
         internal_cfr_shape=tuple(cfr.shape),
