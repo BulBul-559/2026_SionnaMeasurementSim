@@ -1,56 +1,38 @@
 # SionnaMeasurementSim – Measurement MVP default config
 # All physical quantities are in SI units unless stated otherwise.
+# Only fields that actually take effect in the pipeline are listed.
 
 runtime:
   seed: 42
   device: "cpu"
-  require_gpu: false
-  precision: "single"
-  torch_deterministic: false
 
 input:
   label_file: "data/scenes/test/test5.json"
   scene_file: "data/scenes/test/scene.xml"
-  label_schema: "simplesionna_v1"
-  coordinate_system: "scene_local_xyz_m"
   max_tx: 6
   max_rx: 100
 
 output:
   root_dir: "outputs"
-  run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
-  compression: "gzip"
   save_full_paths: false
-  save_sampled_paths: true
-  save_raw_waveform: false
 
 carrier:
   center_frequency_hz: 3500000000.0   # 3.5 GHz
   bandwidth_hz: 20000000.0            # 20 MHz
   num_subcarriers: 64
-  subcarrier_spacing_hz: 0            # derived: bandwidth/num_subcarriers
 
 antenna:
   tx_array:
-    type: "planar"
     num_rows: 1
     num_cols: 1
-    vertical_spacing_lambda: 0.5
-    horizontal_spacing_lambda: 0.5
-    pattern: "iso"
     polarization: "V"
   rx_array:
-    type: "planar"
     num_rows: 1
     num_cols: 1
-    vertical_spacing_lambda: 0.5
-    horizontal_spacing_lambda: 0.5
-    pattern: "iso"
     polarization: "V"
 
 rt:
-  engine: "sionna_rt"
   max_depth: 1
   los: true
   specular_reflection: true
@@ -63,14 +45,10 @@ rt:
 
 phy:
   enabled: true
-  standard: "custom_ofdm"
   snr_db: 30.0
   fft_size: 64
   cp_length: 0
   num_ofdm_symbols: 1
-  pilot_pattern: "all_active_subcarriers"
-  channel_estimator: "ls"
-  interpolation: "none"
   tx_power_dbm: 0.0
 
 impairments:
@@ -97,9 +75,6 @@ impairments:
 receiver:
   estimator_type: "ls"
   sync_method: "ideal"
-  interpolation_method: "none"
-  packet_detection_threshold: 0.0
-  failure_policy: "mark_invalid"
   calibration_profile_id: "synthetic_default"
 
 motion:
