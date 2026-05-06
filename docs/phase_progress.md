@@ -161,7 +161,7 @@ Acceptance items passed:
 Current git commit hash:
 
 - Before this Phase 3 commit: `14a81bd`.
-- Phase 3 implementation commit: created immediately after this progress entry.
+- Phase 3 implementation commit: `ea3351d`.
 
 Next step:
 
