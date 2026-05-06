@@ -107,6 +107,20 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 impairment=config.impairment_config,
             ),
         )
+        # Mark dead links as invalid
+        # Mark dead links as invalid
+        import numpy as _np
+
+        has_sig = adapter_result.truth.has_geometric_signal
+        link_mask = _np.broadcast_to(
+            has_sig, observation_bundle.observation.valid_mask.shape
+        )
+        vm = _np.asarray(observation_bundle.observation.valid_mask, dtype=_np.bool_)
+        ds = _np.asarray(observation_bundle.observation.detection_success, dtype=_np.bool_)
+        es = _np.asarray(observation_bundle.observation.estimation_success, dtype=_np.bool_)
+        object.__setattr__(observation_bundle.observation, "valid_mask", vm & link_mask)
+        object.__setattr__(observation_bundle.observation, "detection_success", ds & link_mask)
+        object.__setattr__(observation_bundle.observation, "estimation_success", es & link_mask)
     phase = 4 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     result = MeasurementSimulationResult(

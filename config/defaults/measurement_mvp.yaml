@@ -105,10 +105,10 @@ receiver:
 
 motion:
   enabled: true
-  mobility_mode: "static"
-  num_time_steps: 3
-  sampling_frequency_hz: 100.0
-  tx_velocity_mps: [0.0, 0.0, 0.0]
+  mobility_mode: "doppler_synthetic"
+  num_time_steps: 5
+  sampling_frequency_hz: 200.0
+  tx_velocity_mps: [1.0, 0.0, 0.0]
   rx_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:

@@ -30,14 +30,10 @@ def plot_nmse_snr(hdf5_path: str | Path, output_path: str | Path) -> Path:
             plt.close(figure)
             return output_path
 
-        snr_db = h5["/observation/snr_db"][()]   # (1, num_tx, num_rx)
-        nmse_db = h5["/evaluation/nmse_db"][()]  # (1, num_tx, num_rx)
+        snr_db = h5["/observation/snr_db"][()]
+        nmse_db = h5["/evaluation/nmse_db"][()]
 
-    # Squeeze leading batch dim -> (num_tx, num_rx)
-    snr_db = snr_db.squeeze(axis=0)
-    nmse_db = nmse_db.squeeze(axis=0)
-
-    # Flatten over links
+    # Flatten all leading dims
     snr_flat = snr_db.ravel()
     nmse_flat = nmse_db.ravel()
 
