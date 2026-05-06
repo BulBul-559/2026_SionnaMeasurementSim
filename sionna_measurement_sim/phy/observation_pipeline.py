@@ -87,14 +87,14 @@ def run_awgn_ls_observation(
     nmse_awgn_linear = torch.sum(torch.abs(error_awgn) ** 2, dim=signal_dims) / torch.clamp(
         torch.sum(torch.abs(snapshot_h) ** 2, dim=signal_dims), min=1e-30,
     )
-    nmse_db = 10.0 * torch.log10(torch.clamp(nmse_awgn_linear, min=1e-30))
+    nmse_awgn_db = 10.0 * torch.log10(torch.clamp(nmse_awgn_linear, min=1e-30))
 
     # NMSE vs clean H_true (includes impairment distortion)
     error_total = cfr_est - h_clean
     nmse_total_linear = torch.sum(torch.abs(error_total) ** 2, dim=signal_dims) / torch.clamp(
         torch.sum(torch.abs(h_clean) ** 2, dim=signal_dims), min=1e-30,
     )
-    nmse_db_total = 10.0 * torch.log10(torch.clamp(nmse_total_linear, min=1e-30))
+    nmse_db = 10.0 * torch.log10(torch.clamp(nmse_total_linear, min=1e-30))
 
     amplitude_error_db = 20.0 * torch.log10(
         torch.clamp(torch.mean(torch.abs(error_awgn), dim=signal_dims), min=1e-30)
@@ -180,7 +180,7 @@ def run_awgn_ls_observation(
     )
     evaluation = EvaluationResult(
         nmse_db=nmse_db.numpy().astype(np.float32),
-        nmse_db_total=nmse_db_total.numpy().astype(np.float32),
+        nmse_db_total=nmse_awgn_db.numpy().astype(np.float32),
         amplitude_error_db=amplitude_error_db.numpy().astype(np.float32),
         phase_error_rad=phase_error_rad.numpy().astype(np.float32),
         correlation=correlation.numpy().astype(np.float32),

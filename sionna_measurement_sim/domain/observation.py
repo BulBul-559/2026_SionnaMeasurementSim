@@ -125,8 +125,11 @@ class ImpairmentSpec:
 class ReceiverSpec:
     """Receiver algorithm configuration."""
 
+    receiver_type: str = "generic"
     estimator_type: str = "ls"
     sync_method: str = "perfect"
+    mimo_detector: str = "lmmse"
+    input_domain: str = "freq"
     interpolation_method: str = "none"
     packet_detection_threshold: float = 0.0
     failure_policy: str = "mark_invalid"
@@ -137,8 +140,8 @@ class ReceiverSpec:
 class EvaluationResult:
     """Truth-vs-observation metrics.
 
-    nmse_db: NMSE vs impaired+noisy channel (isolates AWGN effect).
-    nmse_db_total: NMSE vs clean H_true (includes impairment distortion).
+    nmse_db: Primary metric — NMSE(H_obs, H_true) vs clean truth.
+    nmse_db_total: Diagnostic — NMSE vs impaired channel (AWGN isolation).
     """
 
     nmse_db: np.ndarray

@@ -272,8 +272,11 @@ def _write_receiver(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     if receiver is None:
         return
     group = h5.require_group("receiver")
+    _write_scalar(group, "receiver_type", receiver.receiver_type)
     _write_scalar(group, "estimator_type", receiver.estimator_type)
     _write_scalar(group, "sync_method", receiver.sync_method)
+    _write_scalar(group, "mimo_detector", receiver.mimo_detector)
+    _write_scalar(group, "input_domain", receiver.input_domain)
     _write_scalar(group, "interpolation_method", receiver.interpolation_method)
     _write_scalar(
         group,

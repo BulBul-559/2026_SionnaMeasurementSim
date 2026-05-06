@@ -153,10 +153,9 @@ def _cir_to_cfr(
 
         return h_f.numpy()
     except Exception as exc:
-        import warnings
-
-        warnings.warn(f"CIR-to-CFR conversion failed: {exc}", stacklevel=2)
-        return None
+        raise RuntimeError(
+            f"CIR-to-CFR conversion failed: {exc}"
+        ) from exc
 
 
 # ── main entry point ────────────────────────────────────────────────────
@@ -235,18 +234,6 @@ def run_nr_pusch_observation(
 
     # 3. Convert CIR to CFR  ─────────────────────────────────────────────
     cfr_np = _cir_to_cfr(cir_a_ul, cir_tau_ul, sc_spacing_hz, num_subcarriers)
-
-    # Fallback: create unit-magnitude CFR when conversion fails
-    if cfr_np is None:
-        num_snapshots = cir_coefficients.shape[0]
-        num_tx = cir_coefficients.shape[1]
-        num_rx = cir_coefficients.shape[2]
-        num_rx_ant = cir_coefficients.shape[3]
-        num_tx_ant = cir_coefficients.shape[4]
-        cfr_np = np.ones(
-            (num_snapshots, num_tx, num_rx, num_rx_ant, num_tx_ant, num_subcarriers),
-            dtype=np.complex64,
-        )
 
     # 4. Run AWGN + LS observation pipeline  ─────────────────────────────
     # Approximate sample rate for impairment modelling
