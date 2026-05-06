@@ -43,7 +43,7 @@ Acceptance items passed:
 Current git commit hash:
 
 - Before this Phase 1 commit: `b96c71d`.
-- Phase 1 completion commit: created immediately after this progress entry.
+- Phase 1 implementation commit: `866d722`.
 
 Next step:
 
