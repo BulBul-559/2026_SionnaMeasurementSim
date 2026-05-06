@@ -135,9 +135,14 @@ class ReceiverSpec:
 
 @dataclass(frozen=True)
 class EvaluationResult:
-    """Truth-vs-observation metrics."""
+    """Truth-vs-observation metrics.
+
+    nmse_db: NMSE vs impaired+noisy channel (isolates AWGN effect).
+    nmse_db_total: NMSE vs clean H_true (includes impairment distortion).
+    """
 
     nmse_db: np.ndarray
+    nmse_db_total: np.ndarray  # vs clean H_true (before impairments)
     amplitude_error_db: np.ndarray
     phase_error_rad: np.ndarray
     correlation: np.ndarray
@@ -146,10 +151,12 @@ class EvaluationResult:
 
     def __post_init__(self) -> None:
         nmse_db = np.asarray(self.nmse_db, dtype=np.float32)
+        nmse_db_total = np.asarray(self.nmse_db_total, dtype=np.float32)
         amplitude_error_db = np.asarray(self.amplitude_error_db, dtype=np.float32)
         phase_error_rad = np.asarray(self.phase_error_rad, dtype=np.float32)
         correlation = np.asarray(self.correlation, dtype=np.float32)
         require_shape("nmse_db", nmse_db, (None, None, None))
+        require_shape("nmse_db_total", nmse_db_total, nmse_db.shape)
         for name, value in (
             ("amplitude_error_db", amplitude_error_db),
             ("phase_error_rad", phase_error_rad),
@@ -158,8 +165,10 @@ class EvaluationResult:
             require_shape(name, value, nmse_db.shape)
             require_finite(name, value)
         require_finite("nmse_db", nmse_db)
+        require_finite("nmse_db_total", nmse_db_total)
 
         object.__setattr__(self, "nmse_db", nmse_db)
+        object.__setattr__(self, "nmse_db_total", nmse_db_total)
         object.__setattr__(self, "amplitude_error_db", amplitude_error_db)
         object.__setattr__(self, "phase_error_rad", phase_error_rad)
         object.__setattr__(self, "correlation", correlation)

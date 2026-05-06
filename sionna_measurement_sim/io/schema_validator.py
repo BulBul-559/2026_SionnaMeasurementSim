@@ -103,6 +103,7 @@ REQUIRED_OBSERVATION_DATASETS = (
     "impairments/model_version",
     "impairments/random_seed",
     "evaluation/nmse_db",
+    "evaluation/nmse_db_total",
 )
 
 
@@ -179,6 +180,14 @@ def _validate_path_sample_shapes(h5: h5py.File) -> None:
     interactions = h5["paths/samples/interaction_type"]
     object_id = h5["paths/samples/object_id"]
     primitive_id = h5["paths/samples/primitive_id"]
+
+    # Antenna index field shape validation
+    for name in ("sampled_rx_ant_indices", "sampled_tx_ant_indices"):
+        if name in h5["paths/samples"]:
+            arr = h5[f"paths/samples/{name}"]
+            if arr.ndim != 1 or arr.shape[0] != sampled_links.shape[0]:
+                msg = f"/paths/samples/{name} must be 1D [sample]"
+                raise SchemaValidationError(msg)
     doppler = h5["paths/samples/doppler_hz"]
     tau = h5["paths/samples/tau_s"]
 

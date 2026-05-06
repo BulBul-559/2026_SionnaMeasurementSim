@@ -328,6 +328,8 @@ diffuse_count                  int32 [tx, rx, rx_ant, tx_ant, path]
 
 ```text
 sampled_link_indices           int32 [sample, 2]   # [tx_idx, rx_idx]
+sampled_rx_ant_indices         int32 [sample]      # rx antenna index per sample
+sampled_tx_ant_indices         int32 [sample]      # tx antenna index per sample
 sampled_path_indices           int32 [sample, sample_path]
 path_count                     int32 [sample]
 path_gain_db                   float32 [sample, sample_path]

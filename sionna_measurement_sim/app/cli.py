@@ -229,11 +229,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             # PHY: only enable if cfg.phy.enabled
             phy_enabled = cfg.phy.enabled
-            obs_snr = cfg.phy.snr_db if phy_enabled else None
+            obs_snr = _snr if phy_enabled else None
+            # Motion: respect enabled flag
+            mot = cfg.motion
+            motion_enabled = mot.enabled
             run_config = RTTruthRunConfig(
                 label_file=Path(cfg.input.label_file),
                 scene_file=Path(cfg.input.scene_file),
                 output_dir=Path(_outdir),
+                center_frequency_hz=cfg.carrier.center_frequency_hz,
+                bandwidth_hz=cfg.carrier.bandwidth_hz,
                 num_subcarriers=_nsub,
                 seed=cfg.runtime.seed,
                 max_depth=cfg.rt.max_depth,
@@ -246,8 +251,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 normalize_delays=cfg.rt.normalize_delays,
                 observation_snr_db=obs_snr,
                 impairment_config=impairment,
-                num_time_steps=cfg.motion.num_time_steps,
-                sampling_frequency_hz=cfg.motion.sampling_frequency_hz,
+                num_time_steps=mot.num_time_steps if motion_enabled else 1,
+                sampling_frequency_hz=(
+                    mot.sampling_frequency_hz if motion_enabled else 0.0
+                ),
                 max_tx=_max_tx,
                 max_rx=_max_rx,
                 tx_num_rows=cfg.antenna.tx_array.num_rows,
@@ -260,12 +267,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cfg.motion.tx_velocity_mps[0],
                     cfg.motion.tx_velocity_mps[1],
                     cfg.motion.tx_velocity_mps[2],
-                ),
+                ) if motion_enabled else (0.0, 0.0, 0.0),
                 rx_velocity_mps=(
                     cfg.motion.rx_velocity_mps[0],
                     cfg.motion.rx_velocity_mps[1],
                     cfg.motion.rx_velocity_mps[2],
-                ),
+                ) if motion_enabled else (0.0, 0.0, 0.0),
             )
         else:
             impairment = ImpairmentConfig(

@@ -67,6 +67,7 @@ def run_awgn_ls_observation(
         h = torch.as_tensor(h_true, dtype=torch.complex64).unsqueeze(0)
     snapshot_h = h
 
+    h_clean = snapshot_h.clone()  # reference before impairments
     impairment_sample = None
     if config.impairment is not None:
         snapshot_h, impairment_sample = apply_base_impairments(
@@ -81,14 +82,22 @@ def run_awgn_ls_observation(
     )
     cfr_est = snapshot_h + noise.to(torch.complex64)
 
-    error = cfr_est - snapshot_h
-    nmse_linear = torch.sum(torch.abs(error) ** 2, dim=signal_dims) / torch.clamp(
-        torch.sum(torch.abs(snapshot_h) ** 2, dim=signal_dims),
-        min=1e-30,
+    # NMSE vs impaired channel (isolates AWGN)
+    error_awgn = cfr_est - snapshot_h
+    nmse_awgn_linear = torch.sum(torch.abs(error_awgn) ** 2, dim=signal_dims) / torch.clamp(
+        torch.sum(torch.abs(snapshot_h) ** 2, dim=signal_dims), min=1e-30,
     )
-    nmse_db = 10.0 * torch.log10(torch.clamp(nmse_linear, min=1e-30))
+    nmse_db = 10.0 * torch.log10(torch.clamp(nmse_awgn_linear, min=1e-30))
+
+    # NMSE vs clean H_true (includes impairment distortion)
+    error_total = cfr_est - h_clean
+    nmse_total_linear = torch.sum(torch.abs(error_total) ** 2, dim=signal_dims) / torch.clamp(
+        torch.sum(torch.abs(h_clean) ** 2, dim=signal_dims), min=1e-30,
+    )
+    nmse_db_total = 10.0 * torch.log10(torch.clamp(nmse_total_linear, min=1e-30))
+
     amplitude_error_db = 20.0 * torch.log10(
-        torch.clamp(torch.mean(torch.abs(error), dim=signal_dims), min=1e-30)
+        torch.clamp(torch.mean(torch.abs(error_awgn), dim=signal_dims), min=1e-30)
     )
     phase_error_rad = torch.mean(
         torch.angle(cfr_est * torch.conj(snapshot_h)), dim=signal_dims,
@@ -171,6 +180,7 @@ def run_awgn_ls_observation(
     )
     evaluation = EvaluationResult(
         nmse_db=nmse_db.numpy().astype(np.float32),
+        nmse_db_total=nmse_db_total.numpy().astype(np.float32),
         amplitude_error_db=amplitude_error_db.numpy().astype(np.float32),
         phase_error_rad=phase_error_rad.numpy().astype(np.float32),
         correlation=correlation.numpy().astype(np.float32),

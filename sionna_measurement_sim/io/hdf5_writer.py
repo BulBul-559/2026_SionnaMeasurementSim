@@ -276,6 +276,7 @@ def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> Non
         return
     group = h5.require_group("evaluation")
     _write_dataset(group, "nmse_db", evaluation.nmse_db, unit="dB")
+    _write_dataset(group, "nmse_db_total", evaluation.nmse_db_total, unit="dB")
     _write_dataset(group, "amplitude_error_db", evaluation.amplitude_error_db, unit="dB")
     _write_dataset(group, "phase_error_rad", evaluation.phase_error_rad, unit="rad")
     _write_dataset(group, "correlation", evaluation.correlation)

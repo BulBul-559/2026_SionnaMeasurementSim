@@ -25,6 +25,7 @@ class TestDiagnosticsReport:
     def test_from_evaluation_perfect_link(self):
         evaluation = EvaluationResult(
             nmse_db=np.array([[[-30.0]]], dtype=np.float32),
+            nmse_db_total=np.array([[[-30.0]]], dtype=np.float32),
             amplitude_error_db=np.array([[[-30.0]]], dtype=np.float32),
             phase_error_rad=np.array([[[0.001]]], dtype=np.float32),
             correlation=np.array([[[0.99]]], dtype=np.float32),
@@ -73,6 +74,7 @@ class TestDiagnosticsReport:
     def test_from_evaluation_with_failures(self):
         evaluation = EvaluationResult(
             nmse_db=np.array([[[-10.0, -5.0], [-20.0, -15.0]]], dtype=np.float32),
+            nmse_db_total=np.array([[[-8.0, -3.0], [-18.0, -12.0]]], dtype=np.float32),
             amplitude_error_db=np.zeros((1, 2, 2), dtype=np.float32),
             phase_error_rad=np.zeros((1, 2, 2), dtype=np.float32),
             correlation=np.ones((1, 2, 2), dtype=np.float32),
