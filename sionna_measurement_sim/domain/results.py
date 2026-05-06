@@ -13,6 +13,7 @@ import numpy as np
 from sionna_measurement_sim import __version__
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.constants import (
     CONTRACT_NAME,
     INDEX_ORDER,
@@ -144,6 +145,7 @@ class MeasurementSimulationResult:
     path_samples: PathSamples
     runtime: RuntimeInfo
     path_table: PathTable | None = None
+    cir_truth: CIRTruth | None = None
     waveform: WaveformSpec | None = None
     observation: ObservationResult | None = None
     impairments: ImpairmentSpec | None = None
@@ -177,6 +179,19 @@ class MeasurementSimulationResult:
         if self.motion is not None and self.truth.cfr_snapshots is not None:
             if self.truth.cfr_snapshots.shape[0] != self.motion.num_time_steps:
                 msg = "cfr_snapshots must match motion num_time_steps"
+                raise ValueError(msg)
+        if self.cir_truth is not None:
+            if (
+                self.cir_truth.coefficients.shape[1] != tx
+                or self.cir_truth.coefficients.shape[2] != rx
+            ):
+                msg = "cir_truth tx/rx dimensions must match topology"
+                raise ValueError(msg)
+            if (
+                self.cir_truth.coefficients.shape[3] != rx_ant
+                or self.cir_truth.coefficients.shape[4] != tx_ant
+            ):
+                msg = "cir_truth antenna dimensions must match antenna spec"
                 raise ValueError(msg)
         if self.observation is not None:
             if self.observation.cfr_est.shape[1:] != cfr.shape[-5:]:
@@ -246,4 +261,11 @@ def create_phase1_minimal_result() -> MeasurementSimulationResult:
         ),
         path_samples=PathSamples.empty(),
         runtime=RuntimeInfo(command_line="phase1 fixture"),
+        cir_truth=CIRTruth.empty(
+            num_snapshots=1,
+            num_tx=topology.num_tx,
+            num_rx=topology.num_rx,
+            num_rx_ant=antenna.rx_num_ant,
+            num_tx_ant=antenna.tx_num_ant,
+        ),
     )

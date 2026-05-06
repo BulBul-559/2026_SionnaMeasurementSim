@@ -172,6 +172,37 @@ def _validate_truth_shapes(h5: h5py.File) -> None:
             msg = "cfr_snapshots.shape[1:] must match truth cfr shape"
             raise SchemaValidationError(msg)
 
+    _validate_cir_shapes(h5, cfr.shape[0], cfr.shape[1])
+
+
+def _validate_cir_shapes(
+    h5: h5py.File, num_tx: int, num_rx: int,
+) -> None:
+    """Validate CIR dataset shapes and consistency with topology."""
+    for name in ("cir_coefficients", "cir_delays_s", "cir_valid"):
+        path = f"channel/truth/{name}"
+        if path not in h5:
+            return  # CIR datasets optional for Phase 1 compatibility
+        ds = h5[path]
+        if ds.ndim != 6:
+            msg = f"/{path} must be rank 6, got {ds.shape}"
+            raise SchemaValidationError(msg)
+        if ds.shape[1] != num_tx or ds.shape[2] != num_rx:
+            msg = f"/{path} tx/rx dimensions must match topology"
+            raise SchemaValidationError(msg)
+    cir_coeff = h5["channel/truth/cir_coefficients"]
+    cir_delays = h5["channel/truth/cir_delays_s"]
+    cir_valid = h5["channel/truth/cir_valid"]
+    if cir_coeff.shape != cir_delays.shape or cir_coeff.shape != cir_valid.shape:
+        msg = "CIR dataset shapes must all match"
+        raise SchemaValidationError(msg)
+    if cir_coeff.dtype.kind != "c":
+        msg = "/channel/truth/cir_coefficients must be a complex dtype"
+        raise SchemaValidationError(msg)
+    if cir_delays.dtype.kind != "f":
+        msg = "/channel/truth/cir_delays_s must be a float dtype"
+        raise SchemaValidationError(msg)
+
 
 def _validate_path_sample_shapes(h5: h5py.File) -> None:
     sampled_links = h5["paths/samples/sampled_link_indices"]

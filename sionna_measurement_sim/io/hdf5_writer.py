@@ -34,6 +34,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_truth(h5, result)
         _write_path_samples(h5, result)
         _write_path_full(h5, result)
+        _write_cir_truth(h5, result)
         _write_waveform(h5, result)
         _write_observation(h5, result)
         _write_impairments(h5, result)
@@ -111,6 +112,8 @@ def _write_antenna(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "tx_pattern", antenna.tx_pattern)
     _write_scalar(group, "rx_pattern", antenna.rx_pattern)
     _write_scalar(group, "synthetic_array", bool(antenna.synthetic_array))
+    _write_scalar(group, "tx_orientation_mode", antenna.orientation_mode)
+    _write_scalar(group, "rx_orientation_mode", antenna.orientation_mode)
 
 
 def _write_scene(h5: h5py.File, result: MeasurementSimulationResult) -> None:
@@ -154,6 +157,16 @@ def _write_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             unit="linear_complex",
             index_order="snapshot,tx,rx,rx_ant,tx_ant,subcarrier",
         )
+
+
+def _write_cir_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    cir = result.cir_truth
+    if cir is None:
+        return
+    group = h5.require_group("channel").require_group("truth")
+    _write_dataset(group, "cir_coefficients", cir.coefficients, unit="linear_complex")
+    _write_dataset(group, "cir_delays_s", cir.delays_s, unit="s")
+    _write_dataset(group, "cir_valid", cir.valid)
 
 
 def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> None:

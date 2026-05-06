@@ -24,13 +24,19 @@ carrier:
 
 antenna:
   tx_array:
-    num_rows: 1
-    num_cols: 1
+    num_rows: 2
+    num_cols: 2
     polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
   rx_array:
-    num_rows: 1
-    num_cols: 1
+    num_rows: 2
+    num_cols: 2
     polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
 
 rt:
   max_depth: 1
@@ -42,6 +48,7 @@ rt:
   synthetic_array: false
   normalize_cfr: false
   normalize_delays: false
+  merge_shapes: false
 
 phy:
   enabled: true

@@ -6,6 +6,11 @@ from typing import Any
 
 import numpy as np
 
+from sionna_measurement_sim.adapters.sionna_rt.shape_contracts import (
+    to_project_path_interaction,
+    to_project_path_scalar,
+    to_project_path_vertices,
+)
 from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.topology import Topology
 
@@ -60,18 +65,12 @@ def paths_to_table(paths: Any) -> tuple[PathTable, np.ndarray, np.ndarray, np.nd
 
     # Collapse antenna dims: any antenna pair with a valid path means the link is active
     tx, rx, rx_ant, tx_ant, path_count = valid.shape
-    ant_flat = valid.reshape(tx, rx, rx_ant * tx_ant, path_count)
-    link_valid = np.any(ant_flat, axis=2)  # [tx, rx, path_count]
+    link_valid = np.any(valid, axis=(2, 3))  # [tx, rx, path_count]
 
     geometric_path_count = np.count_nonzero(link_valid, axis=-1).astype(np.int32)
-    los_exists = np.any(
-        link_valid & (path_type.reshape(tx, rx, rx_ant * tx_ant, path_count)[:, :, 0, :] == "los"),
-        axis=-1,
-    )
-    nlos_exists = np.any(
-        link_valid & (path_type.reshape(tx, rx, rx_ant * tx_ant, path_count)[:, :, 0, :] != "los"),
-        axis=-1,
-    )
+    # Aggregate over ALL antenna pairs (not just index 0) for los/nlos detection
+    los_exists = np.any(valid & (path_type == "los"), axis=(2, 3, 4))  # [tx, rx]
+    nlos_exists = np.any(valid & (path_type != "los"), axis=(2, 3, 4))  # [tx, rx]
 
     return path_table, geometric_path_count, los_exists, nlos_exists
 
@@ -175,33 +174,27 @@ def _complex_path_coefficients(value: np.ndarray) -> np.ndarray:
 
 
 def _path_scalar_to_tx_first(value: np.ndarray, name: str) -> np.ndarray:
-    if value.ndim == 5:
-        return np.transpose(value, (2, 0, 1, 3, 4))
-    if value.ndim == 3:
-        expanded = value[:, np.newaxis, :, np.newaxis, :]
-        return np.transpose(expanded, (2, 0, 1, 3, 4))
-    msg = f"Unsupported Sionna path scalar shape for {name}: {value.shape}"
-    raise ValueError(msg)
+    """Convert Sionna path scalar to TX-first 5D.
+
+    Delegates to :func:`shape_contracts.to_project_path_scalar`.
+    """
+    return to_project_path_scalar(value, name)
 
 
 def _interaction_to_tx_first(value: np.ndarray, name: str) -> np.ndarray:
-    if value.ndim == 6:
-        return np.transpose(value, (3, 1, 2, 4, 5, 0)).astype(np.uint32)
-    if value.ndim == 4:
-        expanded = value[:, :, np.newaxis, :, np.newaxis, :]
-        return np.transpose(expanded, (3, 1, 2, 4, 5, 0)).astype(np.uint32)
-    msg = f"Unsupported Sionna interaction shape for {name}: {value.shape}"
-    raise ValueError(msg)
+    """Convert Sionna interaction data to TX-first 6D.
+
+    Delegates to :func:`shape_contracts.to_project_path_interaction`.
+    """
+    return to_project_path_interaction(value, name)
 
 
 def _vertices_to_tx_first(value: np.ndarray) -> np.ndarray:
-    if value.ndim == 7:
-        return np.transpose(value, (3, 1, 2, 4, 5, 0, 6)).astype(np.float32)
-    if value.ndim == 5:
-        expanded = value[:, :, np.newaxis, :, np.newaxis, :, :]
-        return np.transpose(expanded, (3, 1, 2, 4, 5, 0, 6)).astype(np.float32)
-    msg = f"Unsupported Sionna vertices shape: {value.shape}"
-    raise ValueError(msg)
+    """Convert Sionna vertices to TX-first 7D.
+
+    Delegates to :func:`shape_contracts.to_project_path_vertices`.
+    """
+    return to_project_path_vertices(value)
 
 
 def _classify_path_types(interaction_type: np.ndarray) -> np.ndarray:

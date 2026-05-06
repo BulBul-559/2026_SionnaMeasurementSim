@@ -55,6 +55,12 @@ SionnaMeasurementSim/old/SimpleSionna/
 12. [12_final_acceptance_checklist.md](12_final_acceptance_checklist.md)  
     定义系统开发完成后的最终总验收清单，可逐项对照检查。
 
+13. [13_tdd_reciprocity_nr_pusch_phy_plan.md](13_tdd_reciprocity_nr_pusch_phy_plan.md)  
+    定义下一阶段 TDD 互易性建模和 5G NR PUSCH PHY 补齐任务，面向执行 agent 使用。
+
+14. [14_rt_hardening_before_nr_pusch.md](14_rt_hardening_before_nr_pusch.md)  
+    定义进入 NR PUSCH 前必须完成的 RT 链路硬化任务，包括天线朝向、pattern/polarization、CIR、4x4 MIMO 测试和快照补齐。
+
 ## 全局约束
 
 - 新系统使用 Sionna 2.x，不在新核心链路中继续依赖 TensorFlow。

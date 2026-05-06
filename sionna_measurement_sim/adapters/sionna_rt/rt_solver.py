@@ -13,8 +13,10 @@ from sionna_measurement_sim.adapters.sionna_rt.path_adapter import (
     path_table_to_samples,
     paths_to_table,
 )
+from sionna_measurement_sim.adapters.sionna_rt.shape_contracts import to_project_cfr
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.topology import Topology
@@ -39,6 +41,7 @@ class SionnaRTConfig:
     sampling_frequency_hz: float = 0.0  # for multi-snapshot Doppler synthetic
     tx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    merge_shapes: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,9 @@ class SionnaRTTruthAdapterResult:
     runtime_versions: dict[str, str]
     raw_cfr_shape: tuple[int, ...]
     internal_cfr_shape: tuple[int, ...]
+    cir_truth: CIRTruth
+    tx_orientation_rad: np.ndarray | None = None  # (num_tx, 3) from scene
+    rx_orientation_rad: np.ndarray | None = None  # (num_rx, 3) from scene
 
 
 def run_sionna_rt_truth(
@@ -61,7 +67,9 @@ def run_sionna_rt_truth(
 ) -> SionnaRTTruthAdapterResult:
     """Run Sionna RT and return TX-first truth CFR."""
 
-    scene, modules = _build_scene(topology, antenna, frequency, config)
+    scene, modules, tx_orientations, rx_orientations = _build_scene(
+        topology, antenna, frequency, config,
+    )
     paths = modules["PathSolver"]()(
         scene=scene,
         max_depth=config.max_depth,
@@ -84,10 +92,25 @@ def run_sionna_rt_truth(
         out_type="numpy",
     )
     cfr, cfr_snapshots = _to_tx_first_cfr(raw_cfr, config.num_time_steps)
-    has_signal = _compute_has_signal(cfr)
-    path_power_db = _path_power_db(cfr)
+    has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
+    power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
+    path_power_db = (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
     path_table, geometric_path_count, los_exists, nlos_exists = paths_to_table(paths)
     path_samples = path_table_to_samples(path_table, topology)
+
+    # Extract CIR from Sionna paths
+    raw_cir_result = paths.cir(
+        sampling_frequency=config.sampling_frequency_hz or None,
+        num_time_steps=config.num_time_steps,
+        out_type="numpy",
+    )
+    raw_cir_a, raw_cir_tau = raw_cir_result
+    cir_coefficients, cir_delays, cir_valid = _to_tx_first_cir(
+        raw_cir_a,
+        raw_cir_tau,
+        path_table.valid,
+        config.num_time_steps,
+    )
 
     return SionnaRTTruthAdapterResult(
         truth=RTTruthResult(
@@ -105,6 +128,15 @@ def run_sionna_rt_truth(
         runtime_versions=_runtime_versions(),
         raw_cfr_shape=tuple(raw_cfr.shape),
         internal_cfr_shape=tuple(cfr.shape),
+        cir_truth=CIRTruth(
+            coefficients=cir_coefficients,
+            delays_s=cir_delays,
+            valid=cir_valid,
+        ),
+        tx_orientation_rad=np.array(tx_orientations, dtype=np.float64)
+        if tx_orientations else None,
+        rx_orientation_rad=np.array(rx_orientations, dtype=np.float64)
+        if rx_orientations else None,
     )
 
 
@@ -113,10 +145,13 @@ def _build_scene(
     antenna: AntennaSpec,
     frequency: FrequencyGrid,
     config: SionnaRTConfig,
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[Any, dict[str, Any], list[list[float]], list[list[float]]]:
     from sionna.rt import PlanarArray, Receiver, Transmitter, load_scene
 
-    scene = load_scene(config.scene_file.resolve().as_posix(), merge_shapes=True)
+    scene = load_scene(
+        config.scene_file.resolve().as_posix(),
+        merge_shapes=config.merge_shapes,
+    )
     scene.frequency = frequency.center_frequency_hz
     scene.tx_array = PlanarArray(
         num_rows=antenna.tx_num_rows,
@@ -135,6 +170,7 @@ def _build_scene(
         polarization=_sionna_polarization(antenna.rx_polarization),
     )
 
+    transmitters = []
     receivers = []
     for index, (label, position) in enumerate(
         zip(topology.tx_labels, topology.tx_positions_m, strict=True)
@@ -142,6 +178,7 @@ def _build_scene(
         tx = Transmitter(name=f"tx{index}_{label}", position=position.tolist())
         tx.velocity = list(config.tx_velocity)
         scene.add(tx)
+        transmitters.append(tx)
     for index, (label, position) in enumerate(
         zip(topology.rx_labels, topology.rx_positions_m, strict=True)
     ):
@@ -150,13 +187,35 @@ def _build_scene(
         scene.add(receiver)
         receivers.append(receiver)
 
-    if receivers:
-        for tx_name in scene.transmitters:
-            scene.get(tx_name).look_at(receivers[0])
+    # Set TX orientation based on antenna.orientation_mode
+    for tx in transmitters:
+        if antenna.orientation_mode == "fixed":
+            tx.orientation = [float(v) for v in antenna.orientation_rad]
+        elif antenna.orientation_mode == "look_at_first_peer":
+            if receivers:
+                tx.look_at(receivers[0])
+        elif antenna.orientation_mode == "look_at_centroid":
+            if receivers:
+                centroid = np.mean(
+                    topology.rx_positions_m, axis=0
+                ).tolist()
+                tx.look_at(centroid)
+
+    # Read back TX orientations from scene (captures look_at results)
+    tx_orientation_list: list[list[float]] = [
+        np.asarray(tx.orientation, dtype=float).tolist() for tx in transmitters
+    ]
+
+    # Set RX orientation: always fixed (read back too for consistency)
+    for rx in receivers:
+        rx.orientation = [float(v) for v in antenna.orientation_rad]
+    rx_orientation_list: list[list[float]] = [
+        np.asarray(rx.orientation, dtype=float).tolist() for rx in receivers
+    ]
 
     from sionna.rt import PathSolver
 
-    return scene, {"PathSolver": PathSolver}
+    return scene, {"PathSolver": PathSolver}, tx_orientation_list, rx_orientation_list
 
 
 def _sionna_polarization(polarization: str) -> str:
@@ -170,35 +229,60 @@ def _to_tx_first_cfr(
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Convert Sionna CFR to TX-first 5D, plus optional 6D snapshots.
 
-    Returns (cfr_5d, cfr_snapshots) where:
-      - cfr_5d: [tx, rx, rx_ant, tx_ant, subcarrier]
-      - cfr_snapshots: [time, tx, rx, rx_ant, tx_ant, subcarrier] or None
+    Delegates to :func:`shape_contracts.to_project_cfr`.
     """
-
-    cfr = np.asarray(raw_cfr)
-    if cfr.ndim != 6:
-        msg = f"Sionna cfr must have rank 6, got {cfr.shape}"
-        raise ValueError(msg)
-    if cfr.shape[4] != num_time_steps:
-        msg = f"Expected {num_time_steps} time steps, got {cfr.shape[4]}"
-        raise ValueError(msg)
-    # [rx, rx_ant, tx, tx_ant, time, subcarrier] → [tx, rx, rx_ant, tx_ant, time, subcarrier]
-    cfr_tx_first = np.transpose(cfr, (2, 0, 1, 3, 4, 5))
-    cfr_5d = cfr_tx_first[..., 0, :]  # first time step → 5D
-    if num_time_steps == 1:
-        return cfr_5d, None
-    # 6D snapshots: [time, tx, rx, rx_ant, tx_ant, subcarrier]
-    snapshots = np.transpose(cfr_tx_first, (4, 0, 1, 2, 3, 5))
-    return cfr_5d, snapshots
+    return to_project_cfr(raw_cfr, num_time_steps)
 
 
-def _compute_has_signal(cfr: np.ndarray) -> np.ndarray:
-    return np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
+def _to_tx_first_cir(
+    raw_a: np.ndarray,
+    raw_tau: np.ndarray,
+    valid_5d: np.ndarray,
+    num_time_steps: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Convert Sionna CIR to TX-first 6D arrays.
 
+    Returns (coefficients, delays_s, valid) all with shape
+    [snapshot, tx, rx, rx_ant, tx_ant, path].
+    """
+    a = np.asarray(raw_a)
+    # Handle potential real/imag split [2, batch, rx, rx_ant, tx, tx_ant, path, time]
+    if a.ndim == 8 and a.shape[0] == 2:
+        a = a[0] + 1j * a[1]
 
-def _path_power_db(cfr: np.ndarray) -> np.ndarray:
-    power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
-    return (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
+    tau = np.asarray(raw_tau)
+
+    # Drop batch dimension if present (single scene)
+    if a.ndim == 7:
+        a = a[0]
+    if tau.ndim == 6:
+        tau = tau[0]
+
+    # a: [rx, rx_ant, tx, tx_ant, path, time]
+    # -> [time, tx, rx, rx_ant, tx_ant, path]
+    a_tx_first = np.transpose(a, (5, 2, 0, 1, 3, 4))
+
+    # tau: [rx, rx_ant, tx, tx_ant, path]
+    # -> [tx, rx, rx_ant, tx_ant, path]
+    tau_tx_first = np.transpose(tau, (2, 0, 1, 3, 4))
+
+    # Expand tau to include snapshot dimension
+    tau_6d = np.broadcast_to(
+        tau_tx_first[np.newaxis, ...],
+        (num_time_steps, *tau_tx_first.shape),
+    ).astype(np.float32, copy=False)
+
+    # Expand valid to include snapshot dimension
+    # valid_5d: [tx, rx, rx_ant, tx_ant, path]
+    valid_6d = np.broadcast_to(
+        valid_5d[np.newaxis, ...],
+        (num_time_steps, *valid_5d.shape),
+    ).copy()
+
+    # Zero out coefficients for invalid paths
+    a_clean = np.where(valid_6d, a_tx_first, np.zeros_like(a_tx_first))
+
+    return a_clean.astype(np.complex64, copy=False), tau_6d, valid_6d
 
 
 def _runtime_versions() -> dict[str, str]:

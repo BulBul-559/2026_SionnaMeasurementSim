@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
     SionnaRTConfig,
     run_sionna_rt_truth,
@@ -74,6 +76,15 @@ class RTTruthRunConfig:
     rx_num_cols: int = 1
     tx_polarization: str = "V"
     rx_polarization: str = "V"
+    tx_orientation_mode: str = "fixed"
+    tx_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rx_orientation_mode: str = "fixed"
+    rx_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    tx_spacing_lambda: tuple[float, float] = (0.5, 0.5)
+    rx_spacing_lambda: tuple[float, float] = (0.5, 0.5)
+    tx_pattern: str = "iso"
+    rx_pattern: str = "iso"
+    merge_shapes: bool = False
     hdf5_filename: str = "results.h5"
     save_full_paths: bool = False
     calibration_enabled: bool = True
@@ -99,6 +110,12 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         rx_num_cols=config.rx_num_cols,
         tx_polarization=config.tx_polarization,
         rx_polarization=config.rx_polarization,
+        tx_spacing_lambda=config.tx_spacing_lambda,
+        rx_spacing_lambda=config.rx_spacing_lambda,
+        tx_pattern=config.tx_pattern,
+        rx_pattern=config.rx_pattern,
+        orientation_mode=config.tx_orientation_mode,
+        orientation_rad=config.tx_orientation_rad,
     )
     frequency = FrequencyGrid.from_center_bandwidth(
         config.center_frequency_hz,
@@ -125,6 +142,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             sampling_frequency_hz=config.sampling_frequency_hz,
             tx_velocity=config.tx_velocity_mps,
             rx_velocity=config.rx_velocity_mps,
+            merge_shapes=config.merge_shapes,
         ),
     )
     elapsed_seconds = time.perf_counter() - start
@@ -160,7 +178,11 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             input_schema="test5_json",
         ),
         topology=topology,
-        devices=_build_device_state(config, topology),
+        devices=_build_device_state(
+            config, topology,
+            tx_orientation_rad_scene=adapter_result.tx_orientation_rad,
+            rx_orientation_rad_scene=adapter_result.rx_orientation_rad,
+        ),
         motion=_build_motion_spec(config),
         antenna=antenna,
         scene=SceneSpec(
@@ -180,6 +202,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             command_line="run-rt-truth",
             elapsed_seconds=elapsed_seconds,
         ),
+        cir_truth=adapter_result.cir_truth,
         path_table=adapter_result.path_table if config.save_full_paths else None,
         waveform=observation_bundle.waveform if observation_bundle else None,
         observation=observation_bundle.observation if observation_bundle else None,
@@ -238,19 +261,37 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     return results_path
 
 
-def _build_device_state(config: RTTruthRunConfig, topology: Topology) -> DeviceState:
-    import numpy as np
-
+def _build_device_state(
+    config: RTTruthRunConfig,
+    topology: Topology,
+    tx_orientation_rad_scene: np.ndarray | None = None,
+    rx_orientation_rad_scene: np.ndarray | None = None,
+) -> DeviceState:
     num_snap = max(config.num_time_steps, 1)
     v_tx = np.array(config.tx_velocity_mps, dtype=np.float32)
     v_rx = np.array(config.rx_velocity_mps, dtype=np.float32)
     tx_v = np.tile(v_tx.reshape(1, 1, 3), (num_snap, topology.num_tx, 1))
     rx_v = np.tile(v_rx.reshape(1, 1, 3), (num_snap, topology.num_rx, 1))
+
+    if tx_orientation_rad_scene is not None:
+        tx_orient = tx_orientation_rad_scene.reshape(1, topology.num_tx, 3)
+        tx_o = np.tile(tx_orient, (num_snap, 1, 1)).astype(np.float32, copy=False)
+    else:
+        tx_orient = np.array(config.tx_orientation_rad, dtype=np.float32).reshape(1, 1, 3)
+        tx_o = np.tile(tx_orient, (num_snap, topology.num_tx, 1))
+
+    if rx_orientation_rad_scene is not None:
+        rx_orient = rx_orientation_rad_scene.reshape(1, topology.num_rx, 3)
+        rx_o = np.tile(rx_orient, (num_snap, 1, 1)).astype(np.float32, copy=False)
+    else:
+        rx_orient = np.array(config.rx_orientation_rad, dtype=np.float32).reshape(1, 1, 3)
+        rx_o = np.tile(rx_orient, (num_snap, topology.num_rx, 1))
+
     return DeviceState(
         tx_velocity_mps=tx_v,
         rx_velocity_mps=rx_v,
-        tx_orientation_rad=np.zeros_like(tx_v),
-        rx_orientation_rad=np.zeros_like(rx_v),
+        tx_orientation_rad=tx_o,
+        rx_orientation_rad=rx_o,
     )
 
 
@@ -270,15 +311,37 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "center_frequency_hz": config.center_frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
         "num_subcarriers": config.num_subcarriers,
-        "seed": config.seed,
-        "max_tx": config.max_tx,
-        "max_rx": config.max_rx,
         "max_depth": config.max_depth,
+        "los": config.los,
         "specular_reflection": config.specular_reflection,
-        "observation_snr_db": config.observation_snr_db,
-        "observation_seed": config.observation_seed,
+        "diffuse_reflection": config.diffuse_reflection,
+        "refraction": config.refraction,
+        "diffraction": config.diffraction,
+        "synthetic_array": config.synthetic_array,
+        "normalize_cfr": config.normalize_cfr,
+        "normalize_delays": config.normalize_delays,
+        "merge_shapes": config.merge_shapes,
+        "tx_num_rows": config.tx_num_rows,
+        "tx_num_cols": config.tx_num_cols,
+        "rx_num_rows": config.rx_num_rows,
+        "rx_num_cols": config.rx_num_cols,
+        "tx_spacing_lambda": list(config.tx_spacing_lambda),
+        "rx_spacing_lambda": list(config.rx_spacing_lambda),
+        "tx_pattern": config.tx_pattern,
+        "rx_pattern": config.rx_pattern,
+        "tx_polarization": config.tx_polarization,
+        "rx_polarization": config.rx_polarization,
+        "tx_orientation_mode": config.tx_orientation_mode,
+        "tx_orientation_rad": list(config.tx_orientation_rad),
+        "rx_orientation_mode": config.rx_orientation_mode,
+        "rx_orientation_rad": list(config.rx_orientation_rad),
         "num_time_steps": config.num_time_steps,
         "sampling_frequency_hz": config.sampling_frequency_hz,
         "tx_velocity_mps": list(config.tx_velocity_mps),
         "rx_velocity_mps": list(config.rx_velocity_mps),
+        "seed": config.seed,
+        "max_tx": config.max_tx,
+        "max_rx": config.max_rx,
+        "observation_snr_db": config.observation_snr_db,
+        "observation_seed": config.observation_seed,
     }

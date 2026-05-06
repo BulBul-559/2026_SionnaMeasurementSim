@@ -8,6 +8,8 @@ import numpy as np
 
 from sionna_measurement_sim.domain.validation import require_shape
 
+_VALID_ORIENTATION_MODES = frozenset({"fixed", "look_at_first_peer", "look_at_centroid"})
+
 
 @dataclass(frozen=True)
 class AntennaSpec:
@@ -26,6 +28,8 @@ class AntennaSpec:
     tx_pattern: str = "iso"
     rx_pattern: str = "iso"
     synthetic_array: bool = False
+    orientation_mode: str = "fixed"
+    orientation_rad: np.ndarray | tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         tx_spacing = np.asarray(self.tx_spacing_lambda, dtype=np.float32)
@@ -38,8 +42,22 @@ class AntennaSpec:
                 msg = f"{name} must be positive"
                 raise ValueError(msg)
 
+        orientation_rad = np.asarray(self.orientation_rad, dtype=np.float64)
+        require_shape("orientation_rad", orientation_rad, (3,))
+        if not np.all(np.isfinite(orientation_rad)):
+            msg = "orientation_rad must contain all finite values"
+            raise ValueError(msg)
+
+        if self.orientation_mode not in _VALID_ORIENTATION_MODES:
+            msg = (
+                f"orientation_mode must be one of {_VALID_ORIENTATION_MODES}, "
+                f"got {self.orientation_mode!r}"
+            )
+            raise ValueError(msg)
+
         object.__setattr__(self, "tx_spacing_lambda", tx_spacing)
         object.__setattr__(self, "rx_spacing_lambda", rx_spacing)
+        object.__setattr__(self, "orientation_rad", orientation_rad)
 
     @property
     def tx_num_ant(self) -> int:

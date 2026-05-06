@@ -7,6 +7,7 @@ layers consume them.
 
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
@@ -28,6 +29,7 @@ from sionna_measurement_sim.domain.topology import Topology
 
 __all__ = [
     "AntennaSpec",
+    "CIRTruth",
     "DeviceState",
     "EvaluationResult",
     "FrequencyGrid",

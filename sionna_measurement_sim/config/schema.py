@@ -71,6 +71,8 @@ class ArraySpec(BaseModel):
     horizontal_spacing_lambda: float = Field(default=0.5, gt=0)
     pattern: str = Field(default="iso")
     polarization: str = Field(default="V")
+    orientation_mode: str = Field(default="fixed")
+    orientation_rad: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 
 class AntennaConfig(BaseModel):
@@ -90,6 +92,7 @@ class RTConfig(BaseModel):
     synthetic_array: bool = False
     normalize_cfr: bool = False
     normalize_delays: bool = False
+    merge_shapes: bool = False
 
 
 # ── phy ──────────────────────────────────────────────────────────────
