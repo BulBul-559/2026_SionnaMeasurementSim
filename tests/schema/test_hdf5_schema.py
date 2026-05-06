@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 import h5py
@@ -11,9 +13,20 @@ from sionna_measurement_sim.io.schema_validator import SchemaValidationError, va
 
 
 def test_phase1_schema_stack_does_not_import_sionna():
-    import sys
-
-    assert "sionna" not in sys.modules
+    code = (
+        "import sys;"
+        "import sionna_measurement_sim.domain.results;"
+        "import sionna_measurement_sim.io.hdf5_writer;"
+        "import sionna_measurement_sim.io.hdf5_reader;"
+        "print('sionna' in sys.modules)"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.stdout.strip() == "False"
 
 
 def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):

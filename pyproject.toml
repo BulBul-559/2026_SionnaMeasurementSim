@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=1.26.0",
     "pydantic>=2.7.0",
     "pyyaml>=6.0.1",
+    "sionna-rt>=2.0.1",
 ]
 
 [project.scripts]
