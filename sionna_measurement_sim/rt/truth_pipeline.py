@@ -92,6 +92,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             specular_reflection=config.specular_reflection,
             num_time_steps=config.num_time_steps,
             sampling_frequency_hz=config.sampling_frequency_hz,
+            tx_velocity=config.tx_velocity_mps,
+            rx_velocity=config.rx_velocity_mps,
         ),
     )
     elapsed_seconds = time.perf_counter() - start

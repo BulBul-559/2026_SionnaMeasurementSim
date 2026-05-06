@@ -12,21 +12,33 @@ from sionna_measurement_sim.phy.observation_pipeline import (
 
 
 class TestCFOvsPhaseDrift:
-    def test_cfo_produces_measurable_distortion(self):
-        # CFO on non-constant CFR causes ICI — impaired CFR differs from clean CFR
+    def test_cfo_increases_distortion(self):
+        """Higher CFO causes larger NMSE between impaired and clean CFR."""
         rng = np.random.default_rng(42)
-        h_true_np = (rng.normal(size=(1, 1, 1, 1, 64)).astype(np.float32)
-                     + 1j * rng.normal(size=(1, 1, 1, 1, 64)).astype(np.float32))
-        h_tensor = torch.as_tensor(h_true_np, dtype=torch.complex64)
+        h_np = (rng.normal(size=(1, 1, 1, 1, 64)).astype(np.float32)
+                + 1j * rng.normal(size=(1, 1, 1, 1, 64)).astype(np.float32))
+        h_tensor = torch.as_tensor(h_np, dtype=torch.complex64)
 
-        _, sample_no = apply_base_impairments(
-            h_tensor, 64, 20e6, ImpairmentConfig(random_seed=3, cfo_hz=None),
+        # No CFO vs low CFO vs high CFO
+        results = {}
+        for cfo_val in [None, 100.0, 5000.0]:
+            impaired, _ = apply_base_impairments(
+                h_tensor, 64, 20e6,
+                ImpairmentConfig(random_seed=3, cfo_hz=cfo_val),
+            )
+            # NMSE between clean (no impairment) and impaired
+            noise = impaired - h_tensor
+            nmse = (torch.sum(torch.abs(noise)**2) /
+                    torch.clamp(torch.sum(torch.abs(h_tensor)**2), min=1e-30))
+            results[str(cfo_val)] = float(nmse)
+
+        # no-CFO should have near-zero NMSE (minor rounding from FFT/IFFT)
+        assert results["None"] < 1e-5, f"No-CFO NMSE should be ~0, got {results['None']}"
+        # Higher CFO should cause larger NMSE
+        assert results["5000.0"] > results["100.0"], (
+            f"High CFO NMSE ({results['5000.0']}) "
+            f"should exceed low CFO NMSE ({results['100.0']})"
         )
-        _, sample_cfo = apply_base_impairments(
-            h_tensor, 64, 20e6, ImpairmentConfig(random_seed=3, cfo_hz=5000.0),
-        )
-        assert float(sample_no.cfo_hz.mean()) == 0.0
-        assert float(sample_cfo.cfo_hz.mean()) == 5000.0
 
 
 class TestClippingStatistical:

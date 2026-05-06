@@ -36,6 +36,8 @@ class SionnaRTConfig:
     normalize_delays: bool = False
     num_time_steps: int = 1
     sampling_frequency_hz: float = 0.0  # for multi-snapshot Doppler synthetic
+    tx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -137,11 +139,14 @@ def _build_scene(
     for index, (label, position) in enumerate(
         zip(topology.tx_labels, topology.tx_positions_m, strict=True)
     ):
-        scene.add(Transmitter(name=f"tx{index}_{label}", position=position.tolist()))
+        tx = Transmitter(name=f"tx{index}_{label}", position=position.tolist())
+        tx.velocity = list(config.tx_velocity)
+        scene.add(tx)
     for index, (label, position) in enumerate(
         zip(topology.rx_labels, topology.rx_positions_m, strict=True)
     ):
         receiver = Receiver(name=f"rx{index}_{label}", position=position.tolist())
+        receiver.velocity = list(config.rx_velocity)
         scene.add(receiver)
         receivers.append(receiver)
 
