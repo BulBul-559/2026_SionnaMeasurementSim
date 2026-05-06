@@ -431,6 +431,7 @@ Acceptance items passed:
 Current git commit hash:
 
 - Before this Phase 8 commit: `1143aa3`.
+- Phase 8 implementation commit: `3889605`.
 
 Next step:
 
