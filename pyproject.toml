@@ -1,0 +1,40 @@
+[project]
+name = "sionna-measurement-sim"
+version = "0.1.0"
+description = "Measurement-oriented Sionna RT simulation pipeline with truth and observation branches."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "h5py>=3.11.0",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.scripts]
+sionna-measurement-sim = "sionna_measurement_sim.app.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "ruff>=0.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sionna_measurement_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
