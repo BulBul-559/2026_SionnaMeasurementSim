@@ -284,3 +284,57 @@ Known issues or blockers:
 
 - No Phase 5 blockers.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 6
+
+Current completed phase: Phase 6.
+
+This round completed:
+
+- Added `MotionSpec` domain model with timestamp monotonicity validation.
+- Extended `RTTruthResult` and schema validator to support both 5D (static) and 6D (multi-snapshot) truth CFR.
+- Updated Sionna RT solver for `num_time_steps` support.
+- Extended truth pipeline for multi-snapshot, velocity config, and motion spec generation.
+- Added `/motion` HDF5 group writer.
+- Added CLI command `run-motion` with `--num-time-steps` and `--sampling-frequency-hz` flags.
+- Added delay-Doppler scatter plot visualization.
+
+Commands and results:
+
+- `uv run pytest tests/adapter tests/integration tests/statistical -k "doppler or motion"`: passed, 5 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-motion --output-dir outputs/phase6_motion --num-time-steps 3 --sampling-frequency-hz 100`: passed.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 56 tests.
+
+Key files generated:
+
+- `sionna_measurement_sim/domain/motion.py`
+- `tests/unit/test_motion_domain.py`
+- `tests/statistical/test_motion.py`
+- `artifacts/phase_reports/phase_6_acceptance.md`
+- `outputs/phase6_motion/results.h5` (ignored)
+- `outputs/phase6_motion/delay_doppler.png` (ignored)
+
+Acceptance items passed:
+
+- Multi-snapshot CFR shape `(3, 1, 1, 1, 1, 8)` matches `num_time_steps=3`.
+- `/motion` group written with `snapshot_id`, `timestamp_s`, `sampling_frequency_hz`, `num_time_steps`, `mobility_mode`.
+- `timestamp_s` is monotonically increasing.
+- Static device state has zero velocity; non-zero velocity configurable.
+- `/paths/samples/doppler_hz` field exists with finite Doppler values.
+- Delay-Doppler visualization smoke output generated.
+- Schema validator handles both 5D and 6D truth CFR.
+- `MotionSpec` rejects non-increasing timestamps.
+
+Current git commit hash:
+
+- Before this Phase 6 commit: `6c31fec`.
+
+Next step:
+
+- Continue from Phase 7: calibration and diagnostics.
+
+Known issues or blockers:
+
+- No Phase 6 blockers.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.

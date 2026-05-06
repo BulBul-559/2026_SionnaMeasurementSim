@@ -137,13 +137,15 @@ def _validate_truth_shapes(h5: h5py.File) -> None:
     rx_positions = h5["topology/rx_positions_m"]
     frequencies = h5["frequency/frequencies_hz"]
 
-    if cfr.ndim != 5:
-        msg = f"/channel/truth/cfr must be rank 5, got {cfr.shape}"
+    if cfr.ndim not in (5, 6):
+        msg = f"/channel/truth/cfr must be rank 5 or 6, got {cfr.shape}"
         raise SchemaValidationError(msg)
     if cfr.dtype.kind != "c":
         msg = "/channel/truth/cfr must be a complex dtype"
         raise SchemaValidationError(msg)
-    if cfr.shape[0] != tx_positions.shape[0] or cfr.shape[1] != rx_positions.shape[0]:
+    tx_dim = 0 if cfr.ndim == 5 else 1
+    rx_dim = 1 if cfr.ndim == 5 else 2
+    if cfr.shape[tx_dim] != tx_positions.shape[0] or cfr.shape[rx_dim] != rx_positions.shape[0]:
         msg = "/channel/truth/cfr tx/rx dimensions must match topology"
         raise SchemaValidationError(msg)
     if cfr.shape[-1] != frequencies.shape[-1]:
@@ -288,6 +290,6 @@ def _validate_observation_cfr_est_shape_if_present(h5: h5py.File) -> None:
     if cfr_est.ndim != 6:
         msg = f"/observation/cfr_est must be rank 6, got {cfr_est.shape}"
         raise SchemaValidationError(msg)
-    if cfr_est.shape[1:] != truth_cfr.shape:
-        msg = "/observation/cfr_est shape[1:] must match /channel/truth/cfr"
+    if cfr_est.shape[-5:] != truth_cfr.shape[-5:]:
+        msg = "/observation/cfr_est shape[-5:] must match /channel/truth/cfr"
         raise SchemaValidationError(msg)

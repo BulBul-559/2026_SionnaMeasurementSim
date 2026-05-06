@@ -22,10 +22,21 @@ class RTTruthResult:
         path_power_db = np.asarray(self.path_power_db, dtype=np.float32)
         has_signal = np.asarray(self.has_geometric_signal, dtype=np.bool_)
 
-        require_shape("cfr", cfr, (None, None, None, None, None))
-        tx, rx = cfr.shape[:2]
-        require_shape("path_power_db", path_power_db, (tx, rx))
-        require_shape("has_geometric_signal", has_signal, (tx, rx))
+        if cfr.ndim not in (5, 6):
+            msg = f"cfr must have rank 5 or 6, got {cfr.shape}"
+            raise ValueError(msg)
+        tx_dim = 0 if cfr.ndim == 5 else 1
+        rx_dim = 1 if cfr.ndim == 5 else 2
+        tx, rx = cfr.shape[tx_dim], cfr.shape[rx_dim]
+        if path_power_db.ndim == 2:
+            require_shape("path_power_db", path_power_db, (tx, rx))
+            require_shape("has_geometric_signal", has_signal, (tx, rx))
+        elif path_power_db.ndim == 3:
+            require_shape("path_power_db", path_power_db, (None, tx, rx))
+            require_shape("has_geometric_signal", has_signal, (None, tx, rx))
+        else:
+            msg = f"path_power_db must have rank 2 or 3, got {path_power_db.shape}"
+            raise ValueError(msg)
         require_finite("cfr", cfr)
         require_finite("path_power_db", path_power_db)
 

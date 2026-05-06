@@ -1,4 +1,4 @@
-"""Phase 2 RT truth pipeline."""
+"""Phases 2-6 RT truth pipeline."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -21,6 +22,7 @@ from sionna_measurement_sim.domain.results import (
     RuntimeInfo,
     SceneSpec,
 )
+from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.label_parser import load_topology_from_label
 from sionna_measurement_sim.io.manifest import write_manifest
@@ -50,6 +52,10 @@ class RTTruthRunConfig:
     observation_snr_db: float | None = None
     observation_seed: int = 11
     impairment_config: ImpairmentConfig | None = None
+    num_time_steps: int = 1
+    sampling_frequency_hz: float = 0.0
+    tx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -80,6 +86,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             seed=config.seed,
             max_depth=config.max_depth,
             specular_reflection=config.specular_reflection,
+            num_time_steps=config.num_time_steps,
+            sampling_frequency_hz=config.sampling_frequency_hz,
         ),
     )
     elapsed_seconds = time.perf_counter() - start
@@ -113,7 +121,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             input_schema="test5_json",
         ),
         topology=topology,
-        devices=DeviceState.static(snapshots=1, tx=topology.num_tx, rx=topology.num_rx),
+        devices=_build_device_state(config, topology),
+        motion=_build_motion_spec(config),
         antenna=antenna,
         scene=SceneSpec(
             scene_name=config.scene_file.stem,
@@ -176,6 +185,33 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     return results_path
 
 
+def _build_device_state(config: RTTruthRunConfig, topology: Topology) -> DeviceState:
+    import numpy as np
+
+    num_snap = max(config.num_time_steps, 1)
+    tx_v = np.zeros((num_snap, topology.num_tx, 3), dtype=np.float32)
+    rx_v = np.zeros((num_snap, topology.num_rx, 3), dtype=np.float32)
+    for i in range(min(topology.num_tx, 1)):
+        tx_v[:, i, :] = np.array(config.tx_velocity_mps, dtype=np.float32)
+    for i in range(min(topology.num_rx, 1)):
+        rx_v[:, i, :] = np.array(config.rx_velocity_mps, dtype=np.float32)
+    return DeviceState(
+        tx_velocity_mps=tx_v,
+        rx_velocity_mps=rx_v,
+        tx_orientation_rad=np.zeros_like(tx_v),
+        rx_orientation_rad=np.zeros_like(rx_v),
+    )
+
+
+def _build_motion_spec(config: RTTruthRunConfig) -> MotionSpec | None:
+    if config.num_time_steps <= 1 and config.sampling_frequency_hz <= 0:
+        return None
+    return MotionSpec.doppler_synthetic(
+        num_time_steps=max(config.num_time_steps, 1),
+        sampling_frequency_hz=config.sampling_frequency_hz or 1.0,
+    )
+
+
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
     return {
         "label_file": config.label_file.as_posix(),
@@ -190,4 +226,8 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "specular_reflection": config.specular_reflection,
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
+        "num_time_steps": config.num_time_steps,
+        "sampling_frequency_hz": config.sampling_frequency_hz,
+        "tx_velocity_mps": list(config.tx_velocity_mps),
+        "rx_velocity_mps": list(config.rx_velocity_mps),
     }

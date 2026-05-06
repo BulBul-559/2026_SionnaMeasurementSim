@@ -1,4 +1,4 @@
-"""Path sample visualization smoke helper."""
+"""Path sample visualization smoke helpers."""
 
 from __future__ import annotations
 
@@ -36,3 +36,31 @@ def plot_path_samples(hdf5_path: str | Path, output_path: str | Path) -> Path:
     figure.savefig(output_path)
     plt.close(figure)
     return output_path
+
+
+def plot_delay_doppler(hdf5_path: str | Path, output_path: str | Path) -> Path:
+    """Delay-Doppler scatter plot from path samples."""
+
+    hdf5_path = Path(hdf5_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(hdf5_path, "r") as h5:
+        tau = h5["paths/samples/tau_s"][()]
+        doppler = h5["paths/samples/doppler_hz"][()]
+        path_gain = h5["paths/samples/path_gain_db"][()]
+
+    figure, axis = plt.subplots(figsize=(7, 5))
+    points = axis.scatter(
+        tau.ravel() * 1e9, doppler.ravel(),
+        c=path_gain.ravel(), cmap="viridis", alpha=0.7, s=20,
+    )
+    axis.set_xlabel("Delay [ns]")
+    axis.set_ylabel("Doppler [Hz]")
+    axis.set_title("Delay-Doppler Scatter")
+    figure.colorbar(points, ax=axis, label="Path Gain [dB]")
+    figure.tight_layout()
+    figure.savefig(output_path)
+    plt.close(figure)
+    return output_path
+

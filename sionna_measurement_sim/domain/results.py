@@ -21,6 +21,7 @@ from sionna_measurement_sim.domain.constants import (
     UNIT_CONVENTION,
 )
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
     ImpairmentSpec,
@@ -146,9 +147,18 @@ class MeasurementSimulationResult:
     impairments: ImpairmentSpec | None = None
     receiver: ReceiverSpec | None = None
     evaluation: EvaluationResult | None = None
+    motion: MotionSpec | None = None
 
     def __post_init__(self) -> None:
-        tx, rx, rx_ant, tx_ant, subcarrier = self.truth.cfr.shape
+        cfr = self.truth.cfr
+        ndim = cfr.ndim
+        if ndim == 5:
+            tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
+        elif ndim == 6:
+            _, tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
+        else:
+            msg = f"truth cfr must have rank 5 or 6, got {cfr.shape}"
+            raise ValueError(msg)
         if tx != self.topology.num_tx or rx != self.topology.num_rx:
             msg = "truth cfr tx/rx dimensions must match topology"
             raise ValueError(msg)
@@ -164,8 +174,12 @@ class MeasurementSimulationResult:
         if self.devices.rx_velocity_mps.shape[1] != rx:
             msg = "device rx state dimension must match topology"
             raise ValueError(msg)
+        if self.motion is not None:
+            if cfr.ndim == 6 and cfr.shape[0] != self.motion.num_time_steps:
+                msg = "truth cfr snapshots must match motion num_time_steps"
+                raise ValueError(msg)
         if self.observation is not None:
-            if self.observation.cfr_est.shape[1:] != self.truth.cfr.shape:
+            if self.observation.cfr_est.shape[1:] != cfr.shape[-5:]:
                 msg = "observation cfr_est shape[1:] must match truth cfr"
                 raise ValueError(msg)
             if self.evaluation is None or self.waveform is None or self.receiver is None:

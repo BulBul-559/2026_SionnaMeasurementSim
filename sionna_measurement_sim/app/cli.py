@@ -32,6 +32,19 @@ def build_parser() -> argparse.ArgumentParser:
     rt_truth.add_argument("--seed", type=int, default=1)
     rt_truth.add_argument("--max-depth", type=int, default=1)
     rt_truth.add_argument("--no-specular-reflection", action="store_true")
+    rt_truth.add_argument("--num-time-steps", type=int, default=1)
+    rt_truth.add_argument("--sampling-frequency-hz", type=float, default=0.0)
+    motion = subparsers.add_parser(
+        "run-motion",
+        help="Run Phase 6 multi-snapshot RT truth with motion / Doppler.",
+    )
+    motion.add_argument("--label-file", default="data/scenes/test/test5.json")
+    motion.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    motion.add_argument("--output-dir", default="outputs/phase6_motion")
+    motion.add_argument("--num-subcarriers", type=int, default=8)
+    motion.add_argument("--seed", type=int, default=1)
+    motion.add_argument("--num-time-steps", type=int, default=3)
+    motion.add_argument("--sampling-frequency-hz", type=float, default=100.0)
     observation = subparsers.add_parser(
         "run-observation",
         help="Run the Phase 4 minimal RT + AWGN/LS observation pipeline.",
@@ -75,6 +88,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed=args.seed,
                 max_depth=args.max_depth,
                 specular_reflection=not args.no_specular_reflection,
+                num_time_steps=args.num_time_steps,
+                sampling_frequency_hz=args.sampling_frequency_hz,
+            )
+        )
+        print(output_path)
+        return 0
+
+    if args.command == "run-motion":
+        from pathlib import Path
+
+        from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
+
+        output_path = run_rt_truth_pipeline(
+            RTTruthRunConfig(
+                label_file=Path(args.label_file),
+                scene_file=Path(args.scene_file),
+                output_dir=Path(args.output_dir),
+                num_subcarriers=args.num_subcarriers,
+                seed=args.seed,
+                max_depth=1,
+                specular_reflection=True,
+                num_time_steps=args.num_time_steps,
+                sampling_frequency_hz=args.sampling_frequency_hz,
             )
         )
         print(output_path)

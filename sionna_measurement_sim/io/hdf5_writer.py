@@ -39,6 +39,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_impairments(h5, result)
         _write_receiver(h5, result)
         _write_evaluation(h5, result)
+        _write_motion(h5, result)
         _write_runtime(h5, result)
 
     return output_path
@@ -270,6 +271,18 @@ def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> Non
         "estimation_failure_rate",
         np.float32(evaluation.estimation_failure_rate),
     )
+
+
+def _write_motion(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    motion = result.motion
+    if motion is None:
+        return
+    group = h5.require_group("motion")
+    _write_dataset(group, "snapshot_id", motion.snapshot_id)
+    _write_dataset(group, "timestamp_s", motion.timestamp_s, unit="s")
+    _write_scalar(group, "sampling_frequency_hz", np.float64(motion.sampling_frequency_hz))
+    _write_scalar(group, "num_time_steps", np.int32(motion.num_time_steps))
+    _write_scalar(group, "mobility_mode", motion.mobility_mode)
 
 
 def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:
