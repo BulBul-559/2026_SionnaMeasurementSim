@@ -100,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--sampling-frequency-hz", type=float, default=100.0)
     full.add_argument("--max-tx", type=int, default=6)
     full.add_argument("--max-rx", type=int, default=30)
+    full.add_argument("--phy-standard", default="custom_ofdm",
+                      choices=["custom_ofdm", "nr_pusch"])
 
     return parser
 
@@ -253,6 +255,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 normalize_delays=cfg.rt.normalize_delays,
                 observation_snr_db=obs_snr,
                 impairment_config=impairment,
+                phy_standard=cfg.phy.standard,
                 num_time_steps=mot.num_time_steps if motion_enabled else 1,
                 sampling_frequency_hz=(
                     mot.sampling_frequency_hz if motion_enabled else 0.0
@@ -313,6 +316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 observation_snr_db=args.snr_db,
                 observation_seed=args.seed + _SEED_OFFSET_OBSERVATION,
                 impairment_config=impairment,
+                phy_standard=args.phy_standard,
                 num_time_steps=args.num_time_steps,
                 sampling_frequency_hz=args.sampling_frequency_hz,
                 max_tx=args.max_tx,
