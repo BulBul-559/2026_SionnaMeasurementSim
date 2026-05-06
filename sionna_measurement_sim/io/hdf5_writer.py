@@ -160,6 +160,8 @@ def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> N
     samples = result.path_samples
     group = h5.require_group("paths").require_group("samples")
     _write_dataset(group, "sampled_link_indices", samples.sampled_link_indices)
+    _write_dataset(group, "sampled_rx_ant_indices", samples.sampled_rx_ant_indices)
+    _write_dataset(group, "sampled_tx_ant_indices", samples.sampled_tx_ant_indices)
     _write_dataset(group, "sampled_path_indices", samples.sampled_path_indices)
     _write_dataset(group, "path_count", samples.path_count)
     _write_dataset(group, "path_gain_db", samples.path_gain_db, unit="dB")

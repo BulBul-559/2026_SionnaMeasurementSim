@@ -52,7 +52,13 @@ class RTTruthRunConfig:
     max_tx: int = 1
     max_rx: int = 1
     max_depth: int = 1
+    los: bool = True
     specular_reflection: bool = True
+    diffuse_reflection: bool = False
+    refraction: bool = False
+    synthetic_array: bool = False
+    normalize_cfr: bool = False
+    normalize_delays: bool = False
     observation_snr_db: float | None = None
     observation_seed: int = 11
     impairment_config: ImpairmentConfig | None = None
@@ -60,6 +66,13 @@ class RTTruthRunConfig:
     sampling_frequency_hz: float = 0.0
     tx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Antenna config
+    tx_num_rows: int = 1
+    tx_num_cols: int = 1
+    rx_num_rows: int = 1
+    rx_num_cols: int = 1
+    tx_polarization: str = "V"
+    rx_polarization: str = "V"
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -75,7 +88,14 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         max_tx=config.max_tx,
         max_rx=config.max_rx,
     )
-    antenna = AntennaSpec(tx_polarization="V", rx_polarization="V")
+    antenna = AntennaSpec(
+        tx_num_rows=config.tx_num_rows,
+        tx_num_cols=config.tx_num_cols,
+        rx_num_rows=config.rx_num_rows,
+        rx_num_cols=config.rx_num_cols,
+        tx_polarization=config.tx_polarization,
+        rx_polarization=config.rx_polarization,
+    )
     frequency = FrequencyGrid.from_center_bandwidth(
         config.center_frequency_hz,
         config.bandwidth_hz,
@@ -89,7 +109,13 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             scene_file=config.scene_file,
             seed=config.seed,
             max_depth=config.max_depth,
+            los=config.los,
             specular_reflection=config.specular_reflection,
+            diffuse_reflection=config.diffuse_reflection,
+            refraction=config.refraction,
+            synthetic_array=config.synthetic_array,
+            normalize_cfr=config.normalize_cfr,
+            normalize_delays=config.normalize_delays,
             num_time_steps=config.num_time_steps,
             sampling_frequency_hz=config.sampling_frequency_hz,
             tx_velocity=config.tx_velocity_mps,

@@ -200,9 +200,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             from sionna_measurement_sim.config.loader import load_config_or_exit
 
             cfg = load_config_or_exit(args.config)
-            # Config values with CLI overrides (CLI non-default wins)
+            # CLI overrides (non-default wins)
             _max_rx = (args.max_rx if hasattr(args, 'max_rx')
                        and args.max_rx != 30 else cfg.input.max_rx)
+            _max_tx = (args.max_tx if hasattr(args, 'max_tx')
+                       and args.max_tx != 6 else cfg.input.max_tx)
             _snr = (args.snr_db if hasattr(args, 'snr_db')
                     and args.snr_db != 30.0 else cfg.phy.snr_db)
             _nsub = (args.num_subcarriers if hasattr(args, 'num_subcarriers')
@@ -211,14 +213,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                        and args.output_dir != "outputs/e2e_full"
                        else cfg.output.root_dir)
 
+            # Impairments: respect .enabled flags
+            imp = cfg.impairments
             impairment = ImpairmentConfig(
-                random_seed=cfg.impairments.impairment_seed,
-                cfo_hz=cfg.impairments.cfo.cfo_hz,
-                sfo_ppm=cfg.impairments.sfo.sfo_ppm,
-                phase_offset_rad=cfg.impairments.phase_noise.phase_offset_rad,
-                timing_offset_samples=cfg.impairments.timing_offset.timing_offset_samples,
-                clipping_threshold=cfg.impairments.agc_adc.clipping_threshold,
+                random_seed=imp.impairment_seed,
+                cfo_hz=imp.cfo.cfo_hz if imp.cfo.enabled else None,
+                sfo_ppm=imp.sfo.sfo_ppm if imp.sfo.enabled else None,
+                phase_offset_rad=imp.phase_noise.phase_offset_rad
+                if imp.phase_noise.enabled else None,
+                timing_offset_samples=imp.timing_offset.timing_offset_samples
+                if imp.timing_offset.enabled else None,
+                agc_gain_db=imp.agc_adc.agc_gain_db if imp.agc_adc.enabled else 0.0,
+                clipping_threshold=imp.agc_adc.clipping_threshold
+                if imp.agc_adc.enabled else None,
             )
+            # PHY: only enable if cfg.phy.enabled
+            phy_enabled = cfg.phy.enabled
+            obs_snr = cfg.phy.snr_db if phy_enabled else None
             run_config = RTTruthRunConfig(
                 label_file=Path(cfg.input.label_file),
                 scene_file=Path(cfg.input.scene_file),
@@ -226,13 +237,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 num_subcarriers=_nsub,
                 seed=cfg.runtime.seed,
                 max_depth=cfg.rt.max_depth,
+                los=cfg.rt.los,
                 specular_reflection=cfg.rt.specular_reflection,
-                observation_snr_db=_snr,
+                diffuse_reflection=cfg.rt.diffuse_reflection,
+                refraction=cfg.rt.refraction,
+                synthetic_array=cfg.rt.synthetic_array,
+                normalize_cfr=cfg.rt.normalize_cfr,
+                normalize_delays=cfg.rt.normalize_delays,
+                observation_snr_db=obs_snr,
                 impairment_config=impairment,
                 num_time_steps=cfg.motion.num_time_steps,
                 sampling_frequency_hz=cfg.motion.sampling_frequency_hz,
-                max_tx=cfg.input.max_tx,
+                max_tx=_max_tx,
                 max_rx=_max_rx,
+                tx_num_rows=cfg.antenna.tx_array.num_rows,
+                tx_num_cols=cfg.antenna.tx_array.num_cols,
+                rx_num_rows=cfg.antenna.rx_array.num_rows,
+                rx_num_cols=cfg.antenna.rx_array.num_cols,
+                tx_polarization=cfg.antenna.tx_array.polarization,
+                rx_polarization=cfg.antenna.rx_array.polarization,
                 tx_velocity_mps=(
                     cfg.motion.tx_velocity_mps[0],
                     cfg.motion.tx_velocity_mps[1],

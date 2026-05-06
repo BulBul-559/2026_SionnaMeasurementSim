@@ -94,7 +94,9 @@ class PathTable:
 class PathSamples:
     """Lightweight path samples for HDF5 `/paths/samples`."""
 
-    sampled_link_indices: np.ndarray
+    sampled_link_indices: np.ndarray  # [sample, 2] = [tx, rx]
+    sampled_rx_ant_indices: np.ndarray  # [sample] rx antenna index
+    sampled_tx_ant_indices: np.ndarray  # [sample] tx antenna index
     sampled_path_indices: np.ndarray
     path_count: np.ndarray
     path_gain_db: np.ndarray
@@ -109,6 +111,8 @@ class PathSamples:
 
     def __post_init__(self) -> None:
         sampled_link_indices = np.asarray(self.sampled_link_indices, dtype=np.int32)
+        sampled_rx_ant = np.asarray(self.sampled_rx_ant_indices, dtype=np.int32)
+        sampled_tx_ant = np.asarray(self.sampled_tx_ant_indices, dtype=np.int32)
         sampled_path_indices = np.asarray(self.sampled_path_indices, dtype=np.int32)
         path_count = np.asarray(self.path_count, dtype=np.int32)
         path_gain_db = np.asarray(self.path_gain_db, dtype=np.float32)
@@ -123,6 +127,8 @@ class PathSamples:
 
         require_shape("sampled_link_indices", sampled_link_indices, (None, 2))
         sample_count = sampled_link_indices.shape[0]
+        require_shape("sampled_rx_ant_indices", sampled_rx_ant, (sample_count,))
+        require_shape("sampled_tx_ant_indices", sampled_tx_ant, (sample_count,))
         require_shape("sampled_path_indices", sampled_path_indices, (sample_count, None))
         sample_path_count = sampled_path_indices.shape[1]
         require_shape("path_count", path_count, (sample_count,))
@@ -150,6 +156,8 @@ class PathSamples:
             raise ValueError(msg)
 
         object.__setattr__(self, "sampled_link_indices", sampled_link_indices)
+        object.__setattr__(self, "sampled_rx_ant_indices", sampled_rx_ant)
+        object.__setattr__(self, "sampled_tx_ant_indices", sampled_tx_ant)
         object.__setattr__(self, "sampled_path_indices", sampled_path_indices)
         object.__setattr__(self, "path_count", path_count)
         object.__setattr__(self, "path_gain_db", path_gain_db)
@@ -168,6 +176,8 @@ class PathSamples:
 
         return cls(
             sampled_link_indices=np.zeros((0, 2), dtype=np.int32),
+            sampled_rx_ant_indices=np.zeros((0,), dtype=np.int32),
+            sampled_tx_ant_indices=np.zeros((0,), dtype=np.int32),
             sampled_path_indices=np.zeros((0, 0), dtype=np.int32),
             path_count=np.zeros((0,), dtype=np.int32),
             path_gain_db=np.zeros((0, 0), dtype=np.float32),

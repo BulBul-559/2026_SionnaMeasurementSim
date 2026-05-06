@@ -91,6 +91,8 @@ def path_table_to_samples(
     selected_paths = max_paths_per_link or path_count
 
     sampled_link_indices = np.zeros((sample_count, 2), dtype=np.int32)
+    sampled_rx_ant_indices = np.zeros((sample_count,), dtype=np.int32)
+    sampled_tx_ant_indices = np.zeros((sample_count,), dtype=np.int32)
     sampled_path_indices = np.full((sample_count, selected_paths), -1, dtype=np.int32)
     sample_path_count = np.zeros((sample_count,), dtype=np.int32)
     path_gain_db = np.zeros((sample_count, selected_paths), dtype=np.float32)
@@ -110,6 +112,8 @@ def path_table_to_samples(
             for rx_ant in range(rx_ant_count):
                 for tx_ant in range(tx_ant_count):
                     sampled_link_indices[sample] = [tx, rx]
+                    sampled_rx_ant_indices[sample] = rx_ant
+                    sampled_tx_ant_indices[sample] = tx_ant
                     v = np.flatnonzero(
                         table.valid[tx, rx, rx_ant, tx_ant]
                     )[:selected_paths]
@@ -139,6 +143,8 @@ def path_table_to_samples(
 
     return PathSamples(
         sampled_link_indices=sampled_link_indices,
+        sampled_rx_ant_indices=sampled_rx_ant_indices,
+        sampled_tx_ant_indices=sampled_tx_ant_indices,
         sampled_path_indices=sampled_path_indices,
         path_count=sample_path_count,
         path_gain_db=path_gain_db,

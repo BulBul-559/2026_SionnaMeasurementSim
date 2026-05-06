@@ -104,6 +104,8 @@ def test_validator_rejects_observation_shape_mismatch(tmp_path: Path):
 def test_path_sample_schema_requires_tx_rx_endpoints(tmp_path: Path):
     samples = PathSamples(
         sampled_link_indices=np.array([[0, 0]], dtype=np.int32),
+        sampled_rx_ant_indices=np.array([0], dtype=np.int32),
+        sampled_tx_ant_indices=np.array([0], dtype=np.int32),
         sampled_path_indices=np.array([[0]], dtype=np.int32),
         path_count=np.array([1], dtype=np.int32),
         path_gain_db=np.array([[-10.0]], dtype=np.float32),

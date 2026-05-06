@@ -54,6 +54,8 @@ REQUIRED_TRUTH_DATASETS = (
 
 PATH_SAMPLE_DATASETS = (
     "paths/samples/sampled_link_indices",
+    "paths/samples/sampled_rx_ant_indices",
+    "paths/samples/sampled_tx_ant_indices",
     "paths/samples/sampled_path_indices",
     "paths/samples/path_count",
     "paths/samples/path_gain_db",
