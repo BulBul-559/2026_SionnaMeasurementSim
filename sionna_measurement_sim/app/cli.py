@@ -246,6 +246,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 specular_reflection=cfg.rt.specular_reflection,
                 diffuse_reflection=cfg.rt.diffuse_reflection,
                 refraction=cfg.rt.refraction,
+                diffraction=cfg.rt.diffraction,
                 synthetic_array=cfg.rt.synthetic_array,
                 normalize_cfr=cfg.rt.normalize_cfr,
                 normalize_delays=cfg.rt.normalize_delays,

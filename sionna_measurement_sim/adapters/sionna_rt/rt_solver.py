@@ -31,6 +31,7 @@ class SionnaRTConfig:
     specular_reflection: bool = False
     diffuse_reflection: bool = False
     refraction: bool = False
+    diffraction: bool = False
     synthetic_array: bool = False
     normalize_cfr: bool = False
     normalize_delays: bool = False
@@ -68,6 +69,7 @@ def run_sionna_rt_truth(
         specular_reflection=config.specular_reflection,
         diffuse_reflection=config.diffuse_reflection,
         refraction=config.refraction,
+        diffraction=config.diffraction,
         synthetic_array=config.synthetic_array,
         seed=config.seed,
     )

@@ -56,6 +56,7 @@ class RTTruthRunConfig:
     specular_reflection: bool = True
     diffuse_reflection: bool = False
     refraction: bool = False
+    diffraction: bool = False
     synthetic_array: bool = False
     normalize_cfr: bool = False
     normalize_delays: bool = False
@@ -116,6 +117,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             specular_reflection=config.specular_reflection,
             diffuse_reflection=config.diffuse_reflection,
             refraction=config.refraction,
+            diffraction=config.diffraction,
             synthetic_array=config.synthetic_array,
             normalize_cfr=config.normalize_cfr,
             normalize_delays=config.normalize_delays,

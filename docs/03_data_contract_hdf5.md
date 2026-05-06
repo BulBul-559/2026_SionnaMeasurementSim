@@ -263,6 +263,15 @@ dc_subcarrier_index            int32
 cfr                            complex64 [tx, rx, rx_ant, tx_ant, subcarrier]
 path_power_db                  float32 [tx, rx]
 has_geometric_signal           bool [tx, rx]
+geometric_path_count           int32 [tx, rx]
+los_exists                     bool [tx, rx]
+nlos_exists                     bool [tx, rx]
+```
+
+可选：
+
+```text
+cfr_snapshots                  complex64 [snapshot, tx, rx, rx_ant, tx_ant, subcarrier]
 ```
 
 建议：
@@ -462,7 +471,8 @@ calibration_profile_id         string
 必选，如果 truth 和 observation 都启用：
 
 ```text
-nmse_db                        float32 [snapshot, tx, rx]
+nmse_db                        float32 [snapshot, tx, rx]  # vs impaired+noisy (AWGN isolation)
+nmse_db_total                  float32 [snapshot, tx, rx]  # vs clean H_true (total distortion)
 amplitude_error_db             float32 [snapshot, tx, rx]
 phase_error_rad                float32 [snapshot, tx, rx]
 correlation                    float32 [snapshot, tx, rx]

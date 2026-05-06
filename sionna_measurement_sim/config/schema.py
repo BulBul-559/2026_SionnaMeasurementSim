@@ -80,7 +80,6 @@ class AntennaConfig(BaseModel):
 
 # ── rt ───────────────────────────────────────────────────────────────
 class RTConfig(BaseModel):
-    enabled: bool = True
     engine: str = Field(default="sionna_rt")
     max_depth: int = Field(default=1, ge=0)
     los: bool = True

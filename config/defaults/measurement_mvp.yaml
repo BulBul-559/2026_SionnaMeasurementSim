@@ -50,7 +50,6 @@ antenna:
     polarization: "V"
 
 rt:
-  enabled: true
   engine: "sionna_rt"
   max_depth: 1
   los: true
