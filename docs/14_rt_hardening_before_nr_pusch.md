@@ -376,3 +376,51 @@ CFR truth、CIR truth、路径级数据、天线/朝向/scene 配置快照，
 ```
 
 只有答案为肯定，才继续实现 TDD reciprocity 与 NR PUSCH PHY。
+
+
+## review
+RX 朝向配置没有真正生效，且 HDF5 会误写 RX mode。
+
+RTTruthRunConfig 有独立的 rx_orientation_mode/rx_orientation_rad，但构造 AntennaSpec 时只传了 TX 的朝向字段：truth_pipeline.py (line 106)。
+
+AntennaSpec 本身也只有单一 orientation_mode/orientation_rad：antenna.py (line 31)。
+
+RT scene 中 RX 被固定设置为同一个 antenna.orientation_rad，没有用 RX 配置：rt_solver.py (line 209)。
+
+HDF5 写 /antenna/rx_orientation_mode 时也直接写了 TX 的同一个 mode：hdf5_writer.py (line 115)。
+
+这违反了 docs/14 对“TX/RX 朝向分别可配置、scene 和 HDF5 一致”的要求。
+
+
+
+docs/14 要求的 4x4 MIMO/CIR/shape 专项测试基本缺失。
+
+docs/14 明确要求新增这些测试文件：14_rt_hardening_before_nr_pusch.md (line 332)。
+
+当前 tests 里没有 test_rt_shape_contracts.py、test_rt_cir_adapter.py、test_rt_mimo_4x4_pipeline.py、test_rt_cir_schema.py。现有 RT 集成测试仍断言 SISO shape (1, 1, 1, 1, 8)：test_rt_truth_pipeline.py (line 31)。
+
+所以 uv run pytest 通过不等于 14 验收通过。
+
+
+
+HDF5 CIR 契约文档和实现不一致，validator 对部分缺失 CIR 数据集放行。
+
+实现写了三项：cir_coefficients/cir_delays_s/cir_valid：hdf5_writer.py (line 167)。
+
+但 docs/03_data_contract_hdf5.md 仍写 cir_delays_s 是 5D，且没有列 cir_valid：03_data_contract_hdf5.md (line 280)。
+
+另外 validator 遍历三项时，只要任意一个缺失就 return，这会让“只写了部分 CIR 数据集”的坏文件通过校验：schema_validator.py (line 182)。
+
+
+
+CIR shape 转换没有按 docs/14 集中进 shape_contracts.py。
+
+docs/14 要求提供 to_project_cir(...)：14_rt_hardening_before_nr_pusch.md (line 227)。
+
+当前 shape_contracts.py 有 CFR/path scalar/interactions/vertices，但没有 CIR：shape_contracts.py (line 13)。CIR 转换还在 rt_solver.py 的私有函数里：rt_solver.py (line 237)。这不一定马上错，但不符合 14 的架构目标，也缺少单测保护。
+
+
+
+CIR delay 没有 finite 校验。
+
+CIRTruth 会校验 coefficients finite，但 delays_s 只做 np.maximum，没有 require_finite("delays_s", ...)：cir.py (line 37)。如果 Sionna 输出 NaN delay，可能进入 HDF5。

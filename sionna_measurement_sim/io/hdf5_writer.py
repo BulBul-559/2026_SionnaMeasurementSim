@@ -112,8 +112,8 @@ def _write_antenna(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "tx_pattern", antenna.tx_pattern)
     _write_scalar(group, "rx_pattern", antenna.rx_pattern)
     _write_scalar(group, "synthetic_array", bool(antenna.synthetic_array))
-    _write_scalar(group, "tx_orientation_mode", antenna.orientation_mode)
-    _write_scalar(group, "rx_orientation_mode", antenna.orientation_mode)
+    _write_scalar(group, "tx_orientation_mode", antenna.tx_orientation_mode)
+    _write_scalar(group, "rx_orientation_mode", antenna.rx_orientation_mode)
 
 
 def _write_scene(h5: h5py.File, result: MeasurementSimulationResult) -> None:

@@ -36,6 +36,7 @@ class CIRTruth:
 
         delays_s = np.maximum(delays_s, 0.0)
         require_finite("coefficients", coefficients)
+        require_finite("delays_s", delays_s)
 
         object.__setattr__(self, "coefficients", coefficients)
         object.__setattr__(self, "delays_s", delays_s)

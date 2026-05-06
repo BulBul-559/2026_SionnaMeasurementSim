@@ -114,8 +114,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         rx_spacing_lambda=config.rx_spacing_lambda,
         tx_pattern=config.tx_pattern,
         rx_pattern=config.rx_pattern,
-        orientation_mode=config.tx_orientation_mode,
-        orientation_rad=config.tx_orientation_rad,
+        tx_orientation_mode=config.tx_orientation_mode,
+        tx_orientation_rad=config.tx_orientation_rad,
+        rx_orientation_mode=config.rx_orientation_mode,
+        rx_orientation_rad=config.rx_orientation_rad,
     )
     frequency = FrequencyGrid.from_center_bandwidth(
         config.center_frequency_hz,

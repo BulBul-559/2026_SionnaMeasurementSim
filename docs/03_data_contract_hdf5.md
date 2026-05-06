@@ -278,7 +278,8 @@ cfr_snapshots                  complex64 [snapshot, tx, rx, rx_ant, tx_ant, subc
 
 ```text
 cir_coefficients               complex64 [snapshot, tx, rx, rx_ant, tx_ant, path]
-cir_delays_s                   float32 [tx, rx, rx_ant, tx_ant, path]
+cir_delays_s                   float32   [snapshot, tx, rx, rx_ant, tx_ant, path]
+cir_valid                      bool      [snapshot, tx, rx, rx_ant, tx_ant, path]
 delay_doppler_response         complex64 optional
 ```
 

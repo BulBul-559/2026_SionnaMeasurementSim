@@ -13,7 +13,10 @@ from sionna_measurement_sim.adapters.sionna_rt.path_adapter import (
     path_table_to_samples,
     paths_to_table,
 )
-from sionna_measurement_sim.adapters.sionna_rt.shape_contracts import to_project_cfr
+from sionna_measurement_sim.adapters.sionna_rt.shape_contracts import (
+    to_project_cfr,
+    to_project_cir,
+)
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
@@ -105,7 +108,7 @@ def run_sionna_rt_truth(
         out_type="numpy",
     )
     raw_cir_a, raw_cir_tau = raw_cir_result
-    cir_coefficients, cir_delays, cir_valid = _to_tx_first_cir(
+    cir_coefficients, cir_delays, cir_valid = to_project_cir(
         raw_cir_a,
         raw_cir_tau,
         path_table.valid,
@@ -187,14 +190,14 @@ def _build_scene(
         scene.add(receiver)
         receivers.append(receiver)
 
-    # Set TX orientation based on antenna.orientation_mode
+    # Set TX orientation based on antenna.tx_orientation_mode
     for tx in transmitters:
-        if antenna.orientation_mode == "fixed":
-            tx.orientation = [float(v) for v in antenna.orientation_rad]
-        elif antenna.orientation_mode == "look_at_first_peer":
+        if antenna.tx_orientation_mode == "fixed":
+            tx.orientation = [float(v) for v in antenna.tx_orientation_rad]
+        elif antenna.tx_orientation_mode == "look_at_first_peer":
             if receivers:
                 tx.look_at(receivers[0])
-        elif antenna.orientation_mode == "look_at_centroid":
+        elif antenna.tx_orientation_mode == "look_at_centroid":
             if receivers:
                 centroid = np.mean(
                     topology.rx_positions_m, axis=0
@@ -206,9 +209,9 @@ def _build_scene(
         np.asarray(tx.orientation, dtype=float).tolist() for tx in transmitters
     ]
 
-    # Set RX orientation: always fixed (read back too for consistency)
+    # Set RX orientation from config (read back for consistency)
     for rx in receivers:
-        rx.orientation = [float(v) for v in antenna.orientation_rad]
+        rx.orientation = [float(v) for v in antenna.rx_orientation_rad]
     rx_orientation_list: list[list[float]] = [
         np.asarray(rx.orientation, dtype=float).tolist() for rx in receivers
     ]
@@ -232,57 +235,6 @@ def _to_tx_first_cfr(
     Delegates to :func:`shape_contracts.to_project_cfr`.
     """
     return to_project_cfr(raw_cfr, num_time_steps)
-
-
-def _to_tx_first_cir(
-    raw_a: np.ndarray,
-    raw_tau: np.ndarray,
-    valid_5d: np.ndarray,
-    num_time_steps: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Convert Sionna CIR to TX-first 6D arrays.
-
-    Returns (coefficients, delays_s, valid) all with shape
-    [snapshot, tx, rx, rx_ant, tx_ant, path].
-    """
-    a = np.asarray(raw_a)
-    # Handle potential real/imag split [2, batch, rx, rx_ant, tx, tx_ant, path, time]
-    if a.ndim == 8 and a.shape[0] == 2:
-        a = a[0] + 1j * a[1]
-
-    tau = np.asarray(raw_tau)
-
-    # Drop batch dimension if present (single scene)
-    if a.ndim == 7:
-        a = a[0]
-    if tau.ndim == 6:
-        tau = tau[0]
-
-    # a: [rx, rx_ant, tx, tx_ant, path, time]
-    # -> [time, tx, rx, rx_ant, tx_ant, path]
-    a_tx_first = np.transpose(a, (5, 2, 0, 1, 3, 4))
-
-    # tau: [rx, rx_ant, tx, tx_ant, path]
-    # -> [tx, rx, rx_ant, tx_ant, path]
-    tau_tx_first = np.transpose(tau, (2, 0, 1, 3, 4))
-
-    # Expand tau to include snapshot dimension
-    tau_6d = np.broadcast_to(
-        tau_tx_first[np.newaxis, ...],
-        (num_time_steps, *tau_tx_first.shape),
-    ).astype(np.float32, copy=False)
-
-    # Expand valid to include snapshot dimension
-    # valid_5d: [tx, rx, rx_ant, tx_ant, path]
-    valid_6d = np.broadcast_to(
-        valid_5d[np.newaxis, ...],
-        (num_time_steps, *valid_5d.shape),
-    ).copy()
-
-    # Zero out coefficients for invalid paths
-    a_clean = np.where(valid_6d, a_tx_first, np.zeros_like(a_tx_first))
-
-    return a_clean.astype(np.complex64, copy=False), tau_6d, valid_6d
 
 
 def _runtime_versions() -> dict[str, str]:

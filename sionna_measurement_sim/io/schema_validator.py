@@ -179,10 +179,19 @@ def _validate_cir_shapes(
     h5: h5py.File, num_tx: int, num_rx: int,
 ) -> None:
     """Validate CIR dataset shapes and consistency with topology."""
-    for name in ("cir_coefficients", "cir_delays_s", "cir_valid"):
-        path = f"channel/truth/{name}"
-        if path not in h5:
-            return  # CIR datasets optional for Phase 1 compatibility
+    cir_paths = {
+        "cir_coefficients": "channel/truth/cir_coefficients",
+        "cir_delays_s": "channel/truth/cir_delays_s",
+        "cir_valid": "channel/truth/cir_valid",
+    }
+    present = [p for p in cir_paths.values() if p in h5]
+    if not present:
+        return  # CIR all absent — OK for backward compat
+    if len(present) != 3:
+        missing = [n for n, p in cir_paths.items() if p not in h5]
+        msg = f"CIR datasets partially present; missing: {missing}"
+        raise SchemaValidationError(msg)
+    for _name, path in cir_paths.items():
         ds = h5[path]
         if ds.ndim != 6:
             msg = f"/{path} must be rank 6, got {ds.shape}"

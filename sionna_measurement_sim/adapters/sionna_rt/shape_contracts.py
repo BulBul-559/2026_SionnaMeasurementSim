@@ -93,6 +93,45 @@ def to_project_path_vertices(value: np.ndarray) -> np.ndarray:
     raise ValueError(msg)
 
 
+def to_project_cir(
+    raw_a: np.ndarray,
+    raw_tau: np.ndarray,
+    valid_5d: np.ndarray,
+    num_time_steps: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Convert Sionna CIR to TX-first 6D.
+
+    Sionna raw: a [rx, rx_ant, tx, tx_ant, path, time],
+                tau [rx, rx_ant, tx, tx_ant, path].
+    Returns (coefficients, delays_s, valid) — all
+    [snapshot, tx, rx, rx_ant, tx_ant, path].
+    """
+    a = np.asarray(raw_a)
+    if a.ndim == 8 and a.shape[0] == 2:  # real/imag split
+        a = a[0] + 1j * a[1]
+    if a.ndim == 7:
+        a = a[0]  # drop batch dim
+    tau = np.asarray(raw_tau)
+    if tau.ndim == 6:
+        tau = tau[0]
+
+    a_tx = np.transpose(a, (5, 2, 0, 1, 3, 4))  # [time, tx, rx, rx_ant, tx_ant, path]
+    tau_tx = np.transpose(tau, (2, 0, 1, 3, 4))  # [tx, rx, rx_ant, tx_ant, path]
+
+    tau_6d = np.broadcast_to(
+        tau_tx[np.newaxis, ...],
+        (num_time_steps, *tau_tx.shape),
+    ).astype(np.float32, copy=False)
+
+    valid_6d = np.broadcast_to(
+        valid_5d[np.newaxis, ...],
+        (num_time_steps, *valid_5d.shape),
+    ).copy()
+
+    a_clean = np.where(valid_6d, a_tx, np.zeros_like(a_tx))
+    return a_clean.astype(np.complex64, copy=False), tau_6d, valid_6d
+
+
 def assert_tx_first_scalar(arr: np.ndarray, name: str) -> None:
     """Raise if *arr* does not have expected TX-first 5D shape.
 
