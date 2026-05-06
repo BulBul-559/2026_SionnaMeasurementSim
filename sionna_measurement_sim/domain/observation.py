@@ -142,12 +142,19 @@ class EvaluationResult:
     """
 
     nmse_db: np.ndarray
-    nmse_db_total: np.ndarray  # vs clean H_true (before impairments)
+    nmse_db_total: np.ndarray
     amplitude_error_db: np.ndarray
     phase_error_rad: np.ndarray
     correlation: np.ndarray
     detection_rate: float
     estimation_failure_rate: float
+    # NR PUSCH link-level metrics (placeholder until full PUSCH receiver)
+    ber: float = 0.0
+    bler: float = 0.0
+    num_bit_errors: int = 0
+    num_bits: int = 0
+    num_block_errors: int = 0
+    num_blocks: int = 0
 
     def __post_init__(self) -> None:
         nmse_db = np.asarray(self.nmse_db, dtype=np.float32)
@@ -172,6 +179,12 @@ class EvaluationResult:
         object.__setattr__(self, "amplitude_error_db", amplitude_error_db)
         object.__setattr__(self, "phase_error_rad", phase_error_rad)
         object.__setattr__(self, "correlation", correlation)
+        object.__setattr__(self, "ber", float(self.ber))
+        object.__setattr__(self, "bler", float(self.bler))
+        object.__setattr__(self, "num_bit_errors", int(self.num_bit_errors))
+        object.__setattr__(self, "num_bits", int(self.num_bits))
+        object.__setattr__(self, "num_block_errors", int(self.num_block_errors))
+        object.__setattr__(self, "num_blocks", int(self.num_blocks))
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ REQUIRED_TRUTH_GROUPS = (
     "channel/truth",
     "paths/samples",
     "runtime",
+    "link",
 )
 
 REQUIRED_TRUTH_DATASETS = (
@@ -67,6 +68,11 @@ PATH_SAMPLE_DATASETS = (
     "paths/samples/primitive_id",
     "paths/samples/doppler_hz",
     "paths/samples/tau_s",
+    "link/duplex_mode",
+    "link/phy_link_direction",
+    "link/rt_trace_direction",
+    "link/reciprocity_mode",
+    "link/reciprocity_applied",
 )
 
 REQUIRED_OBSERVATION_GROUPS = (
@@ -104,6 +110,10 @@ REQUIRED_OBSERVATION_DATASETS = (
     "impairments/random_seed",
     "evaluation/nmse_db",
     "evaluation/nmse_db_total",
+    "evaluation/ber",
+    "evaluation/bler",
+    "evaluation/num_bit_errors",
+    "evaluation/num_blocks",
 )
 
 

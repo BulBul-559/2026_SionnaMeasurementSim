@@ -300,6 +300,12 @@ def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> Non
         "estimation_failure_rate",
         np.float32(evaluation.estimation_failure_rate),
     )
+    _write_scalar(group, "ber", np.float32(evaluation.ber))
+    _write_scalar(group, "bler", np.float32(evaluation.bler))
+    _write_scalar(group, "num_bit_errors", np.int64(evaluation.num_bit_errors))
+    _write_scalar(group, "num_bits", np.int64(evaluation.num_bits))
+    _write_scalar(group, "num_block_errors", np.int64(evaluation.num_block_errors))
+    _write_scalar(group, "num_blocks", np.int64(evaluation.num_blocks))
 
 
 def _write_calibration(h5: h5py.File, result: MeasurementSimulationResult) -> None:

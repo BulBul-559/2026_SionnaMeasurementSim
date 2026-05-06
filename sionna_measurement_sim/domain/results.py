@@ -270,4 +270,5 @@ def create_phase1_minimal_result() -> MeasurementSimulationResult:
             num_rx_ant=antenna.rx_num_ant,
             num_tx_ant=antenna.tx_num_ant,
         ),
+        link=LinkConfig(),
     )
