@@ -32,6 +32,16 @@ def build_parser() -> argparse.ArgumentParser:
     rt_truth.add_argument("--seed", type=int, default=1)
     rt_truth.add_argument("--max-depth", type=int, default=1)
     rt_truth.add_argument("--no-specular-reflection", action="store_true")
+    observation = subparsers.add_parser(
+        "run-observation",
+        help="Run the Phase 4 minimal RT + AWGN/LS observation pipeline.",
+    )
+    observation.add_argument("--label-file", default="data/scenes/test/test5.json")
+    observation.add_argument("--scene-file", default="data/scenes/test/scene.xml")
+    observation.add_argument("--output-dir", default="outputs/phase4_observation")
+    observation.add_argument("--num-subcarriers", type=int, default=8)
+    observation.add_argument("--seed", type=int, default=1)
+    observation.add_argument("--snr-db", type=float, default=40.0)
 
     return parser
 
@@ -59,6 +69,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed=args.seed,
                 max_depth=args.max_depth,
                 specular_reflection=not args.no_specular_reflection,
+            )
+        )
+        print(output_path)
+        return 0
+
+    if args.command == "run-observation":
+        from pathlib import Path
+
+        from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
+
+        output_path = run_rt_truth_pipeline(
+            RTTruthRunConfig(
+                label_file=Path(args.label_file),
+                scene_file=Path(args.scene_file),
+                output_dir=Path(args.output_dir),
+                num_subcarriers=args.num_subcarriers,
+                seed=args.seed,
+                max_depth=1,
+                specular_reflection=True,
+                observation_snr_db=args.snr_db,
             )
         )
         print(output_path)

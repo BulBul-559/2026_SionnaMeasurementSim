@@ -171,3 +171,60 @@ Known issues or blockers:
 
 - No Phase 3 blockers.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-06 - Phase 4
+
+Current completed phase: Phase 4.
+
+This round completed:
+
+- Added PyTorch dependency for PHY tensor operations.
+- Added minimal custom OFDM waveform, AWGN-only observation, LS estimator semantics, receiver diagnostics, and NMSE evaluation.
+- Extended HDF5 writer and validator for `/waveform`, `/observation`, `/impairments`, `/receiver`, and `/evaluation`.
+- Added CLI command `run-observation`.
+- Generated an ignored Phase 4 observation run.
+
+Commands and results:
+
+- `uv add torch`: passed; installed `torch==2.11.0`.
+- `uv run pytest tests/unit tests/integration tests/statistical -k "awgn or observation or nmse"`: passed, 3 tests.
+- `uv run python -m sionna_measurement_sim.app.cli run-observation --output-dir outputs/phase4_observation --snr-db 40`: passed.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: passed, 22 tests.
+- `git status --short --ignored`: reviewed; outputs, caches, `.venv/`, `old`, and large scene OBJ are ignored.
+
+Key files generated:
+
+- `sionna_measurement_sim/domain/observation.py`
+- `sionna_measurement_sim/phy/observation_pipeline.py`
+- `tests/unit/test_observation_pipeline.py`
+- `tests/statistical/test_awgn_observation.py`
+- `artifacts/phase_reports/phase_4_acceptance.md`
+- `outputs/phase4_observation/results.h5` (ignored runtime artifact)
+- `outputs/phase4_observation/manifest.json` (ignored runtime artifact)
+- `outputs/phase4_observation/logs/run.log` (ignored runtime artifact)
+
+Acceptance items passed:
+
+- `/waveform/standard`, `/waveform/fft_size`, `/waveform/pilot_indices`, and `/waveform/pilot_symbols` exist.
+- `/receiver/estimator_type` exists and is `ls`.
+- `/observation/cfr_est` exists with shape `(1, 1, 1, 1, 1, 8)`.
+- `/observation/cfr_est.shape[1:] == /channel/truth/cfr.shape`.
+- `/observation/valid_mask`, `/observation/detection_success`, and `/observation/estimation_success` shape is `(1, 1, 1)`.
+- `/observation/snr_db` and `/evaluation/nmse_db` exist.
+- AWGN-only high SNR median NMSE is below `-20 dB`; generated output observed about `-41.3 dB`.
+- Statistical test verifies high SNR median NMSE is lower than low SNR median NMSE.
+
+Current git commit hash:
+
+- Before this Phase 4 commit: `7d24a0c`.
+- Phase 4 implementation commit: created immediately after this progress entry.
+
+Next step:
+
+- Continue from Phase 5: base impairments including CFO, SFO, phase, timing, AGC, and ADC/clipping.
+
+Known issues or blockers:
+
+- No Phase 4 blockers.
+- Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.

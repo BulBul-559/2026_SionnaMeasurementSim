@@ -91,3 +91,38 @@ def test_path_pipeline_writes_samples_full_paths_and_plot(tmp_path: Path):
     plot_path = plot_path_samples(results_path, output_dir / "paths.png")
     assert plot_path.is_file()
     assert plot_path.stat().st_size > 0
+
+
+def test_observation_pipeline_writes_awgn_ls_outputs(tmp_path: Path):
+    output_dir = tmp_path / "phase4_observation"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("data/scenes/test/test5.json"),
+            scene_file=Path("data/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_depth=1,
+            specular_reflection=True,
+            observation_snr_db=40.0,
+            observation_seed=5,
+        )
+    )
+
+    with h5py.File(results_path, "r") as h5:
+        truth = h5["channel/truth/cfr"]
+        cfr_est = h5["observation/cfr_est"]
+        assert h5["waveform/standard"][()].decode("utf-8") == "custom_ofdm"
+        assert h5["waveform/fft_size"][()] == 8
+        assert h5["waveform/pilot_indices"].shape == (8,)
+        assert h5["waveform/pilot_symbols"].shape == (8,)
+        assert h5["receiver/estimator_type"][()].decode("utf-8") == "ls"
+        assert cfr_est.shape == (1, 1, 1, 1, 1, 8)
+        assert cfr_est.shape[1:] == truth.shape
+        assert h5["observation/valid_mask"].shape == (1, 1, 1)
+        assert h5["observation/detection_success"].shape == (1, 1, 1)
+        assert h5["observation/estimation_success"].shape == (1, 1, 1)
+        assert h5["observation/snr_db"].shape == (1, 1, 1)
+        assert h5["evaluation/nmse_db"].shape == (1, 1, 1)
+        assert float(np.median(h5["evaluation/nmse_db"][()])) < -20.0

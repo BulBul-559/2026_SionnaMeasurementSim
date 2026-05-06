@@ -64,6 +64,28 @@ PATH_SAMPLE_DATASETS = (
     "paths/samples/tau_s",
 )
 
+REQUIRED_OBSERVATION_GROUPS = (
+    "waveform",
+    "observation",
+    "impairments",
+    "receiver",
+    "evaluation",
+)
+
+REQUIRED_OBSERVATION_DATASETS = (
+    "waveform/standard",
+    "waveform/fft_size",
+    "waveform/pilot_indices",
+    "waveform/pilot_symbols",
+    "receiver/estimator_type",
+    "observation/cfr_est",
+    "observation/valid_mask",
+    "observation/detection_success",
+    "observation/estimation_success",
+    "observation/snr_db",
+    "evaluation/nmse_db",
+)
+
 
 def validate_hdf5_contract(path: str | Path) -> None:
     """Validate the minimal truth HDF5 contract."""
@@ -76,6 +98,11 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _require_present(h5, PATH_SAMPLE_DATASETS, kind=h5py.Dataset)
         _validate_truth_shapes(h5)
         _validate_path_sample_shapes(h5)
+        if _observation_enabled(h5):
+            _validate_observation_cfr_est_shape_if_present(h5)
+            _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
+            _require_present(h5, REQUIRED_OBSERVATION_DATASETS, kind=h5py.Dataset)
+            _validate_observation_shapes(h5)
         _validate_units(h5)
         _validate_values(h5)
 
@@ -114,15 +141,6 @@ def _validate_truth_shapes(h5: h5py.File) -> None:
     if cfr.shape[-1] != frequencies.shape[-1]:
         msg = "frequencies_hz length must match truth cfr subcarrier dimension"
         raise SchemaValidationError(msg)
-
-    if "observation/cfr_est" in h5:
-        cfr_est = h5["observation/cfr_est"]
-        if cfr_est.ndim != 6:
-            msg = f"/observation/cfr_est must be rank 6, got {cfr_est.shape}"
-            raise SchemaValidationError(msg)
-        if cfr_est.shape[1:] != cfr.shape:
-            msg = "/observation/cfr_est shape[1:] must match /channel/truth/cfr"
-            raise SchemaValidationError(msg)
 
 
 def _validate_path_sample_shapes(h5: h5py.File) -> None:
@@ -176,6 +194,16 @@ def _validate_units(h5: h5py.File) -> None:
         if "unit" not in h5[dataset_path].attrs:
             msg = f"Missing unit attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
+    if _observation_enabled(h5):
+        for dataset_path in (
+            "waveform/pilot_symbols",
+            "observation/cfr_est",
+            "observation/snr_db",
+            "evaluation/nmse_db",
+        ):
+            if "unit" not in h5[dataset_path].attrs:
+                msg = f"Missing unit attribute on /{dataset_path}"
+                raise SchemaValidationError(msg)
 
 
 def _validate_values(h5: h5py.File) -> None:
@@ -206,3 +234,52 @@ def _validate_values(h5: h5py.File) -> None:
         if np.any(vertex_count[active] < interaction_count[active] + 2):
             msg = "sample path vertex_count must include TX/RX endpoints"
             raise SchemaValidationError(msg)
+    if _observation_enabled(h5):
+        for dataset_path in ("observation/cfr_est", "observation/snr_db", "evaluation/nmse_db"):
+            values = h5[dataset_path][()]
+            if not np.all(np.isfinite(values)):
+                msg = f"/{dataset_path} must contain finite values"
+                raise SchemaValidationError(msg)
+
+
+def _observation_enabled(h5: h5py.File) -> bool:
+    if "observation/cfr_est" in h5:
+        return True
+    if "meta/observation_branch_enabled" in h5:
+        return bool(h5["meta/observation_branch_enabled"][()])
+    return False
+
+
+def _validate_observation_shapes(h5: h5py.File) -> None:
+    cfr_est = h5["observation/cfr_est"]
+    valid_mask = h5["observation/valid_mask"]
+    detection_success = h5["observation/detection_success"]
+    estimation_success = h5["observation/estimation_success"]
+    snr_db = h5["observation/snr_db"]
+    nmse_db = h5["evaluation/nmse_db"]
+
+    _validate_observation_cfr_est_shape_if_present(h5)
+    link_shape = cfr_est.shape[:3]
+    for name, dataset in (
+        ("valid_mask", valid_mask),
+        ("detection_success", detection_success),
+        ("estimation_success", estimation_success),
+        ("snr_db", snr_db),
+        ("nmse_db", nmse_db),
+    ):
+        if dataset.shape != link_shape:
+            msg = f"/observation or /evaluation {name} must match [snapshot, tx, rx]"
+            raise SchemaValidationError(msg)
+
+
+def _validate_observation_cfr_est_shape_if_present(h5: h5py.File) -> None:
+    if "observation/cfr_est" not in h5:
+        return
+    truth_cfr = h5["channel/truth/cfr"]
+    cfr_est = h5["observation/cfr_est"]
+    if cfr_est.ndim != 6:
+        msg = f"/observation/cfr_est must be rank 6, got {cfr_est.shape}"
+        raise SchemaValidationError(msg)
+    if cfr_est.shape[1:] != truth_cfr.shape:
+        msg = "/observation/cfr_est shape[1:] must match /channel/truth/cfr"
+        raise SchemaValidationError(msg)

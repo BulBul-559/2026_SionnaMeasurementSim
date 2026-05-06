@@ -21,6 +21,13 @@ from sionna_measurement_sim.domain.constants import (
     UNIT_CONVENTION,
 )
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.observation import (
+    EvaluationResult,
+    ImpairmentSpec,
+    ObservationResult,
+    ReceiverSpec,
+    WaveformSpec,
+)
 from sionna_measurement_sim.domain.path import PathSamples, PathTable
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.domain.validation import require_shape
@@ -134,6 +141,11 @@ class MeasurementSimulationResult:
     path_samples: PathSamples
     runtime: RuntimeInfo
     path_table: PathTable | None = None
+    waveform: WaveformSpec | None = None
+    observation: ObservationResult | None = None
+    impairments: ImpairmentSpec | None = None
+    receiver: ReceiverSpec | None = None
+    evaluation: EvaluationResult | None = None
 
     def __post_init__(self) -> None:
         tx, rx, rx_ant, tx_ant, subcarrier = self.truth.cfr.shape
@@ -152,6 +164,16 @@ class MeasurementSimulationResult:
         if self.devices.rx_velocity_mps.shape[1] != rx:
             msg = "device rx state dimension must match topology"
             raise ValueError(msg)
+        if self.observation is not None:
+            if self.observation.cfr_est.shape[1:] != self.truth.cfr.shape:
+                msg = "observation cfr_est shape[1:] must match truth cfr"
+                raise ValueError(msg)
+            if self.evaluation is None or self.waveform is None or self.receiver is None:
+                msg = "observation results require waveform, receiver, and evaluation"
+                raise ValueError(msg)
+            if self.evaluation.nmse_db.shape != self.observation.valid_mask.shape:
+                msg = "evaluation nmse_db shape must match observation link mask"
+                raise ValueError(msg)
 
 
 def create_phase1_minimal_result() -> MeasurementSimulationResult:

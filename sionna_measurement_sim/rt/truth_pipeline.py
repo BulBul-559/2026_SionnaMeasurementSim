@@ -25,6 +25,10 @@ from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.label_parser import load_topology_from_label
 from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
+from sionna_measurement_sim.phy.observation_pipeline import (
+    AWGNObservationConfig,
+    run_awgn_ls_observation,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,8 @@ class RTTruthRunConfig:
     max_rx: int = 1
     max_depth: int = 1
     specular_reflection: bool = True
+    observation_snr_db: float | None = None
+    observation_seed: int = 11
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -75,7 +81,18 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         ),
     )
     elapsed_seconds = time.perf_counter() - start
-    phase = 3 if config.max_depth > 0 else 2
+    observation_bundle = None
+    if config.observation_snr_db is not None:
+        observation_bundle = run_awgn_ls_observation(
+            adapter_result.truth.cfr,
+            AWGNObservationConfig(
+                snr_db=config.observation_snr_db,
+                random_seed=config.observation_seed,
+                sample_rate_hz=config.bandwidth_hz,
+                fft_size=config.num_subcarriers,
+            ),
+        )
+    phase = 4 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     result = MeasurementSimulationResult(
         metadata=Metadata(
@@ -83,6 +100,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             random_seed=config.seed,
             config_snapshot=json.dumps(_config_snapshot(config), sort_keys=True),
             measurement_realism_level=f"phase{phase}_rt_truth",
+            observation_branch_enabled=observation_bundle is not None,
             software_versions=json.dumps(adapter_result.runtime_versions, sort_keys=True),
         ),
         input_spec=InputSpec(
@@ -112,6 +130,11 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             elapsed_seconds=elapsed_seconds,
         ),
         path_table=adapter_result.path_table,
+        waveform=observation_bundle.waveform if observation_bundle else None,
+        observation=observation_bundle.observation if observation_bundle else None,
+        impairments=observation_bundle.impairments if observation_bundle else None,
+        receiver=observation_bundle.receiver if observation_bundle else None,
+        evaluation=observation_bundle.evaluation if observation_bundle else None,
     )
 
     results_path = write_measurement_result(output_dir / "results.h5", result)
@@ -128,6 +151,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "raw_cfr_shape": adapter_result.raw_cfr_shape,
             "internal_cfr_shape": adapter_result.internal_cfr_shape,
             "path_count": int(adapter_result.path_samples.path_count.sum()),
+            "observation_snr_db": config.observation_snr_db,
             "elapsed_seconds": elapsed_seconds,
         },
     )
@@ -140,6 +164,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
                 f"internal_cfr_shape={adapter_result.internal_cfr_shape}",
                 f"path_count={int(adapter_result.path_samples.path_count.sum())}",
+                f"observation_snr_db={config.observation_snr_db}",
             ]
         )
         + "\n",
@@ -160,4 +185,6 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "max_rx": config.max_rx,
         "max_depth": config.max_depth,
         "specular_reflection": config.specular_reflection,
+        "observation_snr_db": config.observation_snr_db,
+        "observation_seed": config.observation_seed,
     }

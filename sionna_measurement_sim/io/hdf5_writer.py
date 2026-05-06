@@ -34,6 +34,11 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_truth(h5, result)
         _write_path_samples(h5, result)
         _write_path_full(h5, result)
+        _write_waveform(h5, result)
+        _write_observation(h5, result)
+        _write_impairments(h5, result)
+        _write_receiver(h5, result)
+        _write_evaluation(h5, result)
         _write_runtime(h5, result)
 
     return output_path
@@ -175,6 +180,96 @@ def _write_path_full(h5: h5py.File, result: MeasurementSimulationResult) -> None
     _write_dataset(group, "vertices_m", table.vertices_m, unit="m")
     _write_string_array(group, "path_type", table.path_type)
     _write_dataset(group, "path_depth", table.path_depth)
+
+
+def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    waveform = result.waveform
+    if waveform is None:
+        return
+    group = h5.require_group("waveform")
+    _write_scalar(group, "standard", waveform.standard)
+    _write_scalar(group, "sample_rate_hz", np.float64(waveform.sample_rate_hz))
+    _write_scalar(group, "fft_size", np.int32(waveform.fft_size))
+    _write_scalar(group, "cp_length", np.int32(waveform.cp_length))
+    _write_scalar(group, "num_ofdm_symbols", np.int32(waveform.num_ofdm_symbols))
+    _write_dataset(group, "pilot_indices", waveform.pilot_indices)
+    _write_dataset(group, "data_subcarrier_indices", waveform.data_subcarrier_indices)
+    _write_dataset(group, "pilot_symbols", waveform.pilot_symbols, unit="linear_complex")
+    _write_scalar(group, "tx_power_dbm", np.float32(waveform.tx_power_dbm))
+
+
+def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    observation = result.observation
+    if observation is None:
+        return
+    group = h5.require_group("observation")
+    _write_dataset(
+        group,
+        "cfr_est",
+        observation.cfr_est,
+        unit="linear_complex",
+        index_order="snapshot,tx,rx,rx_ant,tx_ant,subcarrier",
+    )
+    _write_dataset(group, "valid_mask", observation.valid_mask)
+    _write_dataset(group, "detection_success", observation.detection_success)
+    _write_dataset(group, "estimation_success", observation.estimation_success)
+    _write_dataset(group, "snr_db", observation.snr_db, unit="dB")
+    _write_dataset(group, "rssi_dbm", observation.rssi_dbm, unit="dBm")
+    _write_dataset(group, "noise_power_dbm", observation.noise_power_dbm, unit="dBm")
+    _write_dataset(group, "cfo_hz", observation.cfo_hz, unit="Hz")
+    _write_dataset(group, "sfo_ppm", observation.sfo_ppm, unit="ppm")
+    _write_dataset(group, "timing_offset_samples", observation.timing_offset_samples, unit="sample")
+    _write_dataset(group, "phase_offset_rad", observation.phase_offset_rad, unit="rad")
+    _write_dataset(group, "agc_gain_db", observation.agc_gain_db, unit="dB")
+    _write_dataset(group, "clipping_flag", observation.clipping_flag)
+
+
+def _write_impairments(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    impairments = result.impairments
+    if impairments is None:
+        return
+    group = h5.require_group("impairments")
+    _write_scalar(group, "model_version", impairments.model_version)
+    _write_scalar(group, "random_seed", np.int64(impairments.random_seed))
+    _write_scalar(group, "awgn_config", impairments.awgn_config)
+    _write_scalar(group, "cfo_sfo_config", impairments.cfo_sfo_config)
+    _write_scalar(group, "phase_noise_config", impairments.phase_noise_config)
+    _write_scalar(group, "iq_imbalance_config", impairments.iq_imbalance_config)
+    _write_scalar(group, "agc_adc_config", impairments.agc_adc_config)
+
+
+def _write_receiver(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    receiver = result.receiver
+    if receiver is None:
+        return
+    group = h5.require_group("receiver")
+    _write_scalar(group, "estimator_type", receiver.estimator_type)
+    _write_scalar(group, "sync_method", receiver.sync_method)
+    _write_scalar(group, "interpolation_method", receiver.interpolation_method)
+    _write_scalar(
+        group,
+        "packet_detection_threshold",
+        np.float32(receiver.packet_detection_threshold),
+    )
+    _write_scalar(group, "failure_policy", receiver.failure_policy)
+    _write_scalar(group, "calibration_profile_id", receiver.calibration_profile_id)
+
+
+def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    evaluation = result.evaluation
+    if evaluation is None:
+        return
+    group = h5.require_group("evaluation")
+    _write_dataset(group, "nmse_db", evaluation.nmse_db, unit="dB")
+    _write_dataset(group, "amplitude_error_db", evaluation.amplitude_error_db, unit="dB")
+    _write_dataset(group, "phase_error_rad", evaluation.phase_error_rad, unit="rad")
+    _write_dataset(group, "correlation", evaluation.correlation)
+    _write_scalar(group, "detection_rate", np.float32(evaluation.detection_rate))
+    _write_scalar(
+        group,
+        "estimation_failure_rate",
+        np.float32(evaluation.estimation_failure_rate),
+    )
 
 
 def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:
