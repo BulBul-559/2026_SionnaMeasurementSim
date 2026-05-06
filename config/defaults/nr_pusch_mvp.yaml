@@ -1,0 +1,112 @@
+# SionnaMeasurementSim – NR PUSCH TDD uplink default config
+# All physical quantities are in SI units unless stated otherwise.
+
+runtime:
+  seed: 42
+  device: "cpu"
+
+input:
+  label_file: "data/scenes/test/test5.json"
+  scene_file: "data/scenes/test/scene.xml"
+  max_tx: 6
+  max_rx: 20
+
+output:
+  root_dir: "outputs"
+  hdf5_filename: "results.h5"
+  save_full_paths: false
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 20000000.0
+  num_subcarriers: 192       # 16 PRB * 12 SC/PRB = 192
+
+antenna:
+  tx_array:
+    num_rows: 2
+    num_cols: 2
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+  rx_array:
+    num_rows: 2
+    num_cols: 2
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+
+rt:
+  max_depth: 1
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: false
+  diffraction: false
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+  rt_trace_direction: "bs_to_ue"
+  reciprocity_mode: "transpose_rt_channel"
+
+phy:
+  enabled: true
+  standard: "nr_pusch"
+  snr_db: 30.0
+  perfect_csi: false
+  ebno_db: 10.0
+  num_prb: 16
+  num_layers: 1
+  num_antenna_ports: 4
+  mcs_index: 14
+  mcs_table: 1
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 14
+  pusch_dmrs_config_type: 1
+  pusch_dmrs_length: 1
+  pusch_dmrs_additional_position: 1
+  pusch_num_cdm_groups_without_data: 2
+
+impairments:
+  awgn:
+    enabled: true
+  cfo:
+    enabled: true
+    cfo_hz: 100.0
+  sfo:
+    enabled: true
+    sfo_ppm: 5.0
+  phase_noise:
+    enabled: true
+    phase_offset_rad: 0.5
+  timing_offset:
+    enabled: true
+    timing_offset_samples: 2.0
+  agc_adc:
+    enabled: true
+    agc_gain_db: 0.0
+    clipping_threshold: 3.0
+  impairment_seed: 142
+
+receiver:
+  estimator_type: "ls"
+  sync_method: "ideal"
+  calibration_profile_id: "synthetic_default"
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  tx_velocity_mps: [0.0, 0.0, 0.0]
+  rx_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: true
+  profile_id: "synthetic_default"

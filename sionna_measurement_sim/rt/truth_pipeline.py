@@ -15,6 +15,7 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
@@ -88,6 +89,7 @@ class RTTruthRunConfig:
     hdf5_filename: str = "results.h5"
     save_full_paths: bool = False
     calibration_enabled: bool = True
+    link_config: LinkConfig = LinkConfig()
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -216,6 +218,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             if (observation_bundle and config.calibration_enabled)
             else None
         ),
+        link=config.link_config,
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -346,4 +349,11 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "max_rx": config.max_rx,
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
+        "link_config": {
+            "duplex_mode": config.link_config.duplex_mode,
+            "phy_link_direction": config.link_config.phy_link_direction,
+            "rt_trace_direction": config.link_config.rt_trace_direction,
+            "reciprocity_mode": config.link_config.reciprocity_mode,
+            "reciprocity_applied": config.link_config.reciprocity_applied,
+        },
     }

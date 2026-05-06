@@ -42,6 +42,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_evaluation(h5, result)
         _write_calibration(h5, result)
         _write_motion(h5, result)
+        _write_link(h5, result)
         _write_runtime(h5, result)
 
     return output_path
@@ -321,6 +322,18 @@ def _write_motion(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "sampling_frequency_hz", np.float64(motion.sampling_frequency_hz))
     _write_scalar(group, "num_time_steps", np.int32(motion.num_time_steps))
     _write_scalar(group, "mobility_mode", motion.mobility_mode)
+
+
+def _write_link(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    link = result.link
+    if link is None:
+        return
+    group = h5.require_group("link")
+    _write_scalar(group, "duplex_mode", link.duplex_mode)
+    _write_scalar(group, "phy_link_direction", link.phy_link_direction)
+    _write_scalar(group, "rt_trace_direction", link.rt_trace_direction)
+    _write_scalar(group, "reciprocity_mode", link.reciprocity_mode)
+    _write_scalar(group, "reciprocity_applied", bool(link.reciprocity_applied))
 
 
 def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:

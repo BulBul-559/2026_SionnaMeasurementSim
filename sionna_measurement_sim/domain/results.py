@@ -22,6 +22,7 @@ from sionna_measurement_sim.domain.constants import (
     UNIT_CONVENTION,
 )
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
@@ -154,6 +155,7 @@ class MeasurementSimulationResult:
     motion: MotionSpec | None = None
     calibration: CalibrationResult | None = None
     diagnostics: DiagnosticsReport | None = None
+    link: LinkConfig | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr

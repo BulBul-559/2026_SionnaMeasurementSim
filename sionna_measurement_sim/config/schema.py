@@ -108,6 +108,20 @@ class PHYConfig(BaseModel):
     interpolation: str = Field(default="none")
     tx_power_dbm: float = Field(default=0.0)
 
+    # NR PUSCH parameters
+    subcarrier_spacing_khz: int = 30
+    num_prb: int = 16
+    num_layers: int = 1
+    num_antenna_ports: int = 4
+    mcs_index: int = 14
+    mcs_table: int = 1
+    perfect_csi: bool = False
+    ebno_db: float = 10.0
+    pusch_dmrs_config_type: int = 1
+    pusch_dmrs_length: int = 1
+    pusch_dmrs_additional_position: int = 1
+    pusch_num_cdm_groups_without_data: int = 2
+
     @model_validator(mode="after")
     def check_fft_consistent(self) -> PHYConfig:
         if self.fft_size < 2:
@@ -184,6 +198,17 @@ class MotionConfig(BaseModel):
         return self
 
 
+# ── link ─────────────────────────────────────────────────────────────
+class LinkConfig(BaseModel):
+    """NR PUSCH link configuration for TDD reciprocity."""
+
+    duplex_mode: str = Field(default="tdd")
+    phy_link_direction: str = Field(default="uplink")
+    rt_trace_direction: str = Field(default="bs_to_ue")
+    reciprocity_mode: str = Field(default="transpose_rt_channel")
+    reciprocity_applied: bool = True
+
+
 # ── calibration ──────────────────────────────────────────────────────
 class CalibrationConfig(BaseModel):
     enabled: bool = True
@@ -205,6 +230,7 @@ class MeasurementConfig(BaseModel):
     receiver: ReceiverConfig = Field(default_factory=ReceiverConfig)
     motion: MotionConfig = Field(default_factory=MotionConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
+    link: LinkConfig = Field(default_factory=LinkConfig)
 
     @model_validator(mode="after")
     def check_phy_requires_observation(self) -> MeasurementConfig:

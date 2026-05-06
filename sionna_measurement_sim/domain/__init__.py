@@ -9,6 +9,7 @@ from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
     ImpairmentSpec,
@@ -35,6 +36,7 @@ __all__ = [
     "FrequencyGrid",
     "ImpairmentSpec",
     "InputSpec",
+    "LinkConfig",
     "MeasurementSimulationResult",
     "Metadata",
     "PathSamples",
