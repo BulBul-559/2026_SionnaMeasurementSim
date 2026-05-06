@@ -274,6 +274,7 @@ Acceptance items passed:
 Current git commit hash:
 
 - Before this Phase 5 commit: `c5ccc82`.
+- Phase 5 implementation commit: `ec5e91a`.
 
 Next step:
 
