@@ -8,8 +8,13 @@ import h5py
 import matplotlib.pyplot as plt
 
 
-def plot_path_samples(hdf5_path: str | Path, output_path: str | Path) -> Path:
-    """Plot sampled path polylines from an HDF5 result."""
+def plot_path_samples(
+    hdf5_path: str | Path,
+    output_path: str | Path,
+    max_tx: int = 3,
+    max_rx: int = 10,
+) -> Path:
+    """Plot sampled path polylines, limited to first `max_tx` TX × `max_rx` RX."""
 
     hdf5_path = Path(hdf5_path)
     output_path = Path(output_path)
@@ -18,10 +23,18 @@ def plot_path_samples(hdf5_path: str | Path, output_path: str | Path) -> Path:
     with h5py.File(hdf5_path, "r") as h5:
         vertices = h5["paths/samples/vertices_m"][()]
         vertex_count = h5["paths/samples/vertex_count"][()]
+        link_indices = h5["paths/samples/sampled_link_indices"][()]
+
+    # Filter to first max_tx TX and max_rx RX
+    tx_idx = link_indices[:, 0]
+    rx_idx = link_indices[:, 1]
+    selected = (tx_idx < max_tx) & (rx_idx < max_rx)
 
     figure = plt.figure(figsize=(6, 4))
     axis = figure.add_subplot(111, projection="3d")
     for sample in range(vertices.shape[0]):
+        if not selected[sample]:
+            continue
         for path in range(vertices.shape[1]):
             count = int(vertex_count[sample, path])
             if count <= 1:
@@ -32,6 +45,7 @@ def plot_path_samples(hdf5_path: str | Path, output_path: str | Path) -> Path:
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_zlabel("z [m]")
+    axis.set_title(f"Path Samples (TX<{max_tx}, RX<{max_rx})")
     figure.tight_layout()
     figure.savefig(output_path)
     plt.close(figure)
