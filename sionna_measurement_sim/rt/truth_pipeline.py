@@ -20,6 +20,7 @@ from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
     DiagnosticsReport,
+    ReceiverSpec,
 )
 from sionna_measurement_sim.domain.results import (
     DeviceState,
@@ -37,6 +38,7 @@ from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.phy.impairments import ImpairmentConfig
 from sionna_measurement_sim.phy.observation_pipeline import (
     AWGNObservationConfig,
+    PHYObservationBundle,
     run_awgn_ls_observation,
 )
 
@@ -90,6 +92,7 @@ class RTTruthRunConfig:
     save_full_paths: bool = False
     calibration_enabled: bool = True
     link_config: LinkConfig = LinkConfig()
+    phy_standard: str = "custom_ofdm"  # "custom_ofdm" | "nr_pusch"
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -151,19 +154,12 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     )
     elapsed_seconds = time.perf_counter() - start
     observation_bundle = None
+    nr_pusch_extra: dict = {}
     if config.observation_snr_db is not None:
-        observation_bundle = run_awgn_ls_observation(
-            adapter_result.truth.cfr,
-            AWGNObservationConfig(
-                snr_db=config.observation_snr_db,
-                random_seed=config.observation_seed,
-                sample_rate_hz=config.bandwidth_hz,
-                fft_size=config.num_subcarriers,
-                impairment=config.impairment_config,
-            ),
-            has_signal=adapter_result.truth.has_geometric_signal,
-            cfr_snapshots=adapter_result.truth.cfr_snapshots,
-        )
+        if config.phy_standard == "nr_pusch":
+            observation_bundle, nr_pusch_extra = _run_nr_pusch_obs(config, adapter_result)
+        else:
+            observation_bundle = _run_custom_ofdm_obs(config, adapter_result)
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     result = MeasurementSimulationResult(
@@ -307,6 +303,44 @@ def _build_motion_spec(config: RTTruthRunConfig) -> MotionSpec | None:
         num_time_steps=max(config.num_time_steps, 1),
         sampling_frequency_hz=config.sampling_frequency_hz or 1.0,
     )
+
+
+def _run_custom_ofdm_obs(config, adapter_result):
+    return run_awgn_ls_observation(
+        adapter_result.truth.cfr,
+        AWGNObservationConfig(
+            snr_db=config.observation_snr_db,
+            random_seed=config.observation_seed,
+            sample_rate_hz=config.bandwidth_hz,
+            fft_size=config.num_subcarriers,
+            impairment=config.impairment_config,
+        ),
+        has_signal=adapter_result.truth.has_geometric_signal,
+        cfr_snapshots=adapter_result.truth.cfr_snapshots,
+    )
+
+
+def _run_nr_pusch_obs(config, adapter_result):
+    from sionna_measurement_sim.phy.nr_pusch_observation import (
+        run_nr_pusch_observation,
+    )
+
+    nr_result = run_nr_pusch_observation(
+        cir_coefficients=adapter_result.cir_truth.coefficients,
+        cir_delays=adapter_result.cir_truth.delays_s,
+        link_config=config.link_config,
+        phy_config=config,  # RTTruthRunConfig acts as phy_config
+        carrier_config=config,  # RTTruthRunConfig acts as carrier_config
+    )
+    # Map NR result into existing bundle format
+    bundle = PHYObservationBundle(
+        waveform=nr_result["nr_waveform_spec"],
+        observation=nr_result["observation"],
+        impairments=nr_result["impairments"],
+        receiver=ReceiverSpec(receiver_type="pusch_receiver"),
+        evaluation=nr_result["evaluation"],
+    )
+    return bundle, {"pusch_config": nr_result["pusch_config"]}
 
 
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
