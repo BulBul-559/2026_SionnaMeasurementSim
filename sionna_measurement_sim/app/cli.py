@@ -97,6 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--clipping-threshold", type=float, default=3.0)
     full.add_argument("--num-time-steps", type=int, default=3)
     full.add_argument("--sampling-frequency-hz", type=float, default=100.0)
+    full.add_argument("--max-tx", type=int, default=6)
+    full.add_argument("--max-rx", type=int, default=30)
 
     return parser
 
@@ -215,6 +217,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 impairment_config=impairment,
                 num_time_steps=args.num_time_steps,
                 sampling_frequency_hz=args.sampling_frequency_hz,
+                max_tx=args.max_tx,
+                max_rx=args.max_rx,
             )
         )
         print(output_path)
