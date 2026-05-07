@@ -25,6 +25,7 @@ rt:
 phy:
 impairments:
 receiver:
+link:
 motion:
 analysis:
 visualization:
@@ -74,6 +75,9 @@ carrier:
   num_subcarriers: 1024
   subcarrier_spacing_hz: 78125.0
 ```
+
+注意：对于 NR PUSCH，配置 YAML 中使用 `subcarrier_spacing_khz`（单位 kHz），
+HDF5 `/waveform` 中则存储为 `subcarrier_spacing_hz`（单位 Hz）。
 
 ## 7. antenna
 
@@ -186,7 +190,18 @@ receiver:
   failure_policy: "mark_invalid"
 ```
 
-## 13. calibration
+## 13. link
+
+```yaml
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+  rt_trace_direction: "bs_to_ue"
+  reciprocity_mode: "transpose_rt_channel"
+  reciprocity_applied: true
+```
+
+## 14. calibration
 
 ```yaml
 calibration:
@@ -197,7 +212,7 @@ calibration:
 
 详见 [11_calibration_and_diagnostics.md](11_calibration_and_diagnostics.md)。
 
-## 14. Schema 校验要求
+## 15. Schema 校验要求
 
 实现时必须校验：
 
@@ -216,7 +231,7 @@ calibration:
 
 配置校验失败时，程序必须在 RT 或 PHY 开始前停止，不允许跑到中途才失败。
 
-## 15. Profile 策略
+## 16. Profile 策略
 
 推荐配置文件：
 

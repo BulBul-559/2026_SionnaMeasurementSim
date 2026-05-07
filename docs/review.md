@@ -1,197 +1,203 @@
-# Review: docs 13 and 14
+# 13 与 14 整体 Review
 
-Review date: 2026-05-07
+Review 日期：2026-05-07
 
-Scope:
+Review 范围：
 
 - [13_tdd_reciprocity_nr_pusch_phy_plan.md](13_tdd_reciprocity_nr_pusch_phy_plan.md)
 - [14_rt_hardening_before_nr_pusch.md](14_rt_hardening_before_nr_pusch.md)
-- Lightweight code/test spot check for the requirements described by these two documents.
+- 当前代码和测试中与 13/14 直接相关的实现状态。
 
-## Overall Conclusion
+## 总体结论
 
-13 and 14 describe the right architecture direction: first harden Sionna RT truth, CIR, shape contracts, antenna configuration, and 4x4 MIMO; then use that RT/CIR foundation to build a TDD uplink NR PUSCH PHY path.
+13 和 14 的方向是对的：先把 Sionna RT truth、CIR、shape contract、天线配置、4x4 MIMO 和 config snapshot 做硬，再在这个基础上做 TDD 互易性和 NR PUSCH PHY。
 
-However, the documentation set is currently not clean enough to be used as a single source of truth. The main issues are:
+但当前文档还不能作为干净的执行入口。主要问题是：
 
-- 14 is a prerequisite for 13, but numerically appears after 13. This creates execution-order ambiguity.
-- Both 13 and 14 now contain appended `review` sections that are partially stale relative to the current codebase.
-- 13 still mixes a final target design with partially implemented skeleton behavior. The document should separate "must be physically correct" from "temporary smoke-test bridge".
-- 03 and 06 have not fully caught up with the NR PUSCH fields required by 13, especially `/waveform`, `/receiver`, `/evaluation`, and config naming.
-- The current NR PUSCH implementation is closer than the old review says, but still not physically strong enough to claim full 13 completion.
+- 14 是 13 的前置条件，但编号在 13 后面，容易让执行 agent 误以为先做 13。
+- 13 和 14 末尾都追加过历史 review，其中不少判断已经过期。
+- 14 的实现状态已经明显推进，但文档仍像“待实现计划”，没有更新为“已完成 / 待完成 / 验收命令 / 已知风险”的状态文档。
+- 13 的代码也已经从 skeleton 前进到主链路可选 `nr_pusch`，并尝试 `PUSCHReceiver`，但 PHY 物理闭环仍有明显简化，不能直接宣称达到官方示例级别。
+- 03 HDF5 契约和 06 配置文档仍没有完全同步 13 要求，尤其是 NR PUSCH waveform、receiver、NMSE 语义和 config 单位命名。
 
-## Status Summary
+## 14 的 Review
 
-### 14 RT hardening
+当前判断：14 大部分核心任务已经落地，但 14 文档本身需要刷新。
 
-Current status: mostly implemented, but the document should be refreshed.
+已经看到的积极进展：
 
-Observed current positives:
+- `tests/adapter/test_rt_shape_contracts.py` 存在。
+- `tests/adapter/test_rt_cir_adapter.py` 存在。
+- `tests/schema/test_rt_cir_schema.py` 存在。
+- `tests/integration/test_rt_mimo_4x4_pipeline.py` 存在。
+- `to_project_cir(...)` 已经进入 `sionna_measurement_sim/adapters/sionna_rt/shape_contracts.py`。
+- `AntennaSpec` 已经拆出 `tx_orientation_mode/rad` 和 `rx_orientation_mode/rad`。
+- HDF5 writer 已经分别写 `tx_orientation_mode` 和 `rx_orientation_mode`。
+- 当前 4x4 MIMO、CIR、shape contract 相关测试通过。
 
-- Dedicated RT shape/CIR tests exist:
-  - `tests/adapter/test_rt_shape_contracts.py`
-  - `tests/adapter/test_rt_cir_adapter.py`
-  - `tests/schema/test_rt_cir_schema.py`
-  - `tests/integration/test_rt_mimo_4x4_pipeline.py`
-- `to_project_cir(...)` now exists in `sionna_measurement_sim/adapters/sionna_rt/shape_contracts.py`.
-- `AntennaSpec` now has separate TX/RX orientation fields.
-- HDF5 writer now writes distinct `tx_orientation_mode` and `rx_orientation_mode`.
-- The 4x4 MIMO RT/CIR tests passed in this review run.
+14 文档里的过期内容：
 
-Remaining documentation problems:
+- 14 末尾历史 review 仍说 RX 朝向没有拆分、4x4/CIR/shape 测试缺失、`to_project_cir` 缺失。这些已经不符合当前代码状态。
+- 14 仍以“下一步改造计划”的口吻写成，但许多要求已经实现。继续保留这种写法会误导后续 agent 重复实现或错误修复。
 
-- The `## review` section at the end of 14 is stale. It still says the 4x4/CIR tests are missing and that RX orientation is not split, but those points appear to have been addressed in current code.
-- 14 is still written mostly as a future plan. It should be converted into a status-aware acceptance document: completed, pending, blocked, and verified commands.
-- The document should explicitly say whether `look_at_centroid` for RX is implemented or only TX supports look-at modes. Current RT code sets RX orientation from fixed config, so 14 should not imply symmetric look-at behavior unless implemented.
-- 14 should require fail-fast validation for unsupported Sionna pattern/polarization values and document the exact supported values tested locally.
-- 14 should keep the no-label-change decision, but it should also clarify how BS/UE roles are mapped from labels before entering 13.
+14 仍需明确的点：
 
-### 13 TDD reciprocity and NR PUSCH PHY
+- RX 是否支持 `look_at_first_peer` / `look_at_centroid` 需要写清楚。当前 RT 代码看起来 TX 支持 look-at 模式，RX 仍主要按配置 orientation 写入，不应让文档暗示 TX/RX look-at 能力完全对称。
+- Sionna `PlanarArray` 的 `pattern` / `polarization` 支持范围需要写成明确白名单，并要求配置校验 fail fast。
+- `merge_shapes=true` 时 object/primitive 可追溯性下降的 warning 是否已落入 manifest 或 diagnostics，需要文档和测试明确。
+- 14 应该增加一张当前验收表，列出每个要求的状态和对应测试。
 
-Current status: partially implemented, not fully complete.
+建议对 14 的处理：
 
-Observed current positives:
-
-- `LinkConfig` exists and rejects unsupported non-TDD / non-uplink modes.
-- `apply_tdd_reciprocity(...)` and `apply_tdd_reciprocity_cir(...)` exist and have basic unit tests.
-- `run-full --phy-standard nr_pusch` exists.
-- `run_rt_truth_pipeline(...)` selects the NR PUSCH branch when `phy_standard == "nr_pusch"`.
-- `nr_pusch_observation.py` builds Sionna `PUSCHConfig`, `PUSCHTransmitter`, attempts a `PUSCHReceiver`, and records BER/BLER fields.
-
-Remaining technical risks:
-
-- The NR PUSCH backend still contains simplified channel application: it averages antenna dimensions and applies only the first TX/RX pair in the frequency domain. That does not yet satisfy the 4x4 MIMO PUSCH receiver semantics required by 13.
-- The receiver path catches all exceptions and falls back to `ber=0.0`, `bler=0.0`, and zero bit counts. This can make a failed receiver look like a perfect link. For 13 acceptance, receiver failure must fail the test or be marked invalid.
-- `EvaluationResult` still uses `nmse_db_total`, and `docs/03_data_contract_hdf5.md` still documents `nmse_db` as AWGN-isolation while 13 requires `/evaluation/nmse_db` to mean `H_obs` vs clean `H_true`.
-- `WaveformSpec` and `/waveform` remain custom-OFDM shaped. The HDF5 contract does not yet list the NR PUSCH fields from 13: PRB count, slot, DMRS config, layers, antenna ports, MCS, coderate, modulation.
-- `/receiver` in 03 still documents legacy receiver fields and does not clearly define `receiver_type="pusch_receiver"`, `channel_estimator`, `mimo_detector`, and `input_domain`.
-- 13 asks for integration and statistical tests:
-  - `tests/integration/test_nr_pusch_observation.py`
-  - `tests/statistical/test_nr_pusch_link_metrics.py`
-  These were not present in the current file listing.
-- The current 13 appended review is stale. It says the backend is not connected to the main pipeline and no `PUSCHReceiver` is attempted; current code has moved beyond that. The stale review should be replaced by a fresh acceptance matrix.
-
-## Cross-Document Issues
-
-1. Execution order is confusing.
-
-14 must be completed before 13, but 13 is numbered first. Keep the filenames if needed, but add a clear gate in README and phase progress:
-
-```text
-Run order for this pair:
-  14 RT hardening
-  then 13 TDD NR PUSCH
-```
-
-2. The HDF5 contract is behind the plans.
-
-13 and 14 both require schema changes, but `03_data_contract_hdf5.md` is not fully aligned with 13. This should be fixed before declaring 13 complete.
-
-3. Config naming is inconsistent.
-
-13 writes `subcarrier_spacing_hz`, while current code/config uses `subcarrier_spacing_khz`. Pick one public config name and document unit semantics consistently. For 5G NR, `subcarrier_spacing_khz` is natural, but HDF5 may also store derived `subcarrier_spacing_hz`.
-
-4. Link direction semantics need one authoritative rule.
-
-13 says `/channel/truth/cfr` remains RT-direction BS-to-UE truth, while PUSCH uses uplink tensors internally. The docs must explicitly define the direction of `/observation/cfr_est` for `standard="nr_pusch"`. If it is uplink perspective, HDF5 must record that clearly.
-
-5. Reciprocity needs a stronger physical note.
-
-The docs should state that TDD reciprocity here assumes same carrier frequency, calibrated RF chains, and consistent antenna phase references. The transform should explicitly state whether it is transpose-only, conjugate transpose, or another calibrated mapping. Do not leave this implicit.
-
-6. MIMO stream mapping is under-specified.
-
-14 defines physical antenna dimensions. 13 defines `num_layers` and `num_antenna_ports`. The bridge between them must be documented:
-
-```text
-RT tx_ant/rx_ant
-  -> UE/BS antenna ports
-  -> PUSCH layers / streams
-  -> detector expected dimensions
-```
-
-Without this, a 4x4 RT channel can still be collapsed into a SISO-like PHY path without tests noticing.
-
-7. The embedded reviews should not remain as historical truth.
-
-Both 13 and 14 contain inline `## review` sections. They are useful history, but they are now drifting. Prefer either:
-
-- move reviews into this document only, or
-- rename old sections to `Historical review` and add dates/status.
-
-## Recommended Acceptance Gates
-
-### Gate A: Refresh 14
-
-Before touching more NR PHY code:
-
-1. Update 14's stale review section.
-2. Run and record:
+1. 删除或改名 14 末尾旧 `## review`，避免过期结论继续传播。
+2. 把 14 改成“RT hardening acceptance status”，而不是纯计划。
+3. 明确记录通过命令：
 
 ```bash
 uv run pytest tests/adapter/test_rt_shape_contracts.py tests/adapter/test_rt_cir_adapter.py tests/schema/test_rt_cir_schema.py tests/integration/test_rt_mimo_4x4_pipeline.py
 uv run ruff check .
 ```
 
-3. Confirm 14 explicitly answers:
+## 13 的 Review
+
+当前判断：13 已经有可运行雏形，但没有达到完整验收。
+
+已经看到的积极进展：
+
+- `LinkConfig` 已有 TDD/uplink/bs_to_ue/reciprocity 配置，并对非 TDD、非 uplink 做限制。
+- `apply_tdd_reciprocity(...)` 和 `apply_tdd_reciprocity_cir(...)` 已有基础单测。
+- CLI 已有 `run-full --phy-standard nr_pusch`。
+- `run_rt_truth_pipeline(...)` 会在 `phy_standard == "nr_pusch"` 时进入 NR PUSCH 分支。
+- `nr_pusch_observation.py` 会构建 Sionna `PUSCHConfig`、`PUSCHTransmitter`，并尝试构建 `PUSCHReceiver` / `PUSCHLSChannelEstimator` / `LinearDetector`。
+- HDF5 writer 已经出现 `receiver_type` 写入。
+- `tests/integration/test_nr_pusch_observation.py` 已存在。
+
+13 的主要阻塞：
+
+1. NR PUSCH 的 MIMO 信道使用仍过度简化。当前实现会把 CFR antenna 维度平均，然后取第一个 TX/RX pair 走一个近似频域链路。这不能证明 4x4 MIMO PUSCH receiver 语义正确，也不能替代官方示例中的完整 channel/receiver 路径。
+
+2. PUSCH receiver 失败会被吞掉。当前 receiver try/except 失败后回退到 `ber=0.0`、`bler=0.0`、bit count 为 0。这是验收风险：真实 receiver 坏了也可能显示完美链路。13 验收时必须 fail fast，或者至少把 detection/estimation 标为失败并让测试失败。
+
+3. BER/BLER 仍不够可信。虽然字段已存在，但如果 fallback 发生，BER/BLER 仍是占位式结果。13 要求的是通过真实接收链路得到 bit/block error 统计。
+
+4. perfect CSI 和 imperfect CSI 两条路径没有形成强验收。13 要求 perfect CSI BER/BLER 不差于 estimated CSI，但当前没有看到对应 statistical test。
+
+5. 高/低 Eb/N0 的统计验收不足。`tests/statistical/test_nr_pusch_link_metrics.py` 当前未发现，现有 integration test 主要检查 HDF5 字段存在和有限值。
+
+6. `tests/integration/test_nr_pusch_observation.py` 依赖已有 `outputs/e2e_nr_pusch_rx/results.h5`，如果文件不存在会 skip。这种测试不能作为强制端到端质量门。验收测试应该在测试内生成输出或使用 fixture 生成输出。
+
+7. `/evaluation/nmse_db` 语义仍冲突。13 要求 `/evaluation/nmse_db` 表示 `H_obs` vs clean `H_true`，但 `03_data_contract_hdf5.md` 仍写 `nmse_db` 是 AWGN isolation，`nmse_db_total` 是 clean truth total distortion。这需要统一，否则后续诊断和训练标签会混乱。
+
+8. `/waveform` 和 `/receiver` 契约仍不完整。13 要求记录 PRB、slot、DMRS、layers、antenna ports、MCS、coderate、modulation，以及 receiver_type/channel_estimator/mimo_detector/input_domain。当前 03 文档仍偏 custom OFDM。
+
+9. 配置单位命名不一致。13 文档写 `subcarrier_spacing_hz`，当前代码和配置使用 `subcarrier_spacing_khz`。建议配置层保留 `subcarrier_spacing_khz`，HDF5 派生写 `subcarrier_spacing_hz`，并在 06/03 中明确。
+
+## 13 与 14 的交叉问题
+
+### 执行顺序
+
+必须写成：
 
 ```text
-Can RT generate auditable 4x4 CFR, CIR, paths, antenna orientation, pattern,
-polarization, merge_shapes config, and config snapshots?
+先验收 14 RT hardening
+再进入 13 TDD NR PUSCH
 ```
 
-### Gate B: Align contracts before 13 completion
+不能因为文件编号是 13、14 就按数字顺序执行。
 
-Update:
+### RT truth 与 PHY uplink 方向
 
-- `docs/03_data_contract_hdf5.md`
-- `docs/06_config_and_experiment_schema.md`
-- schema validator
-- HDF5 writer
-- schema tests
+13 说 `/channel/truth/cfr` 保持 RT trace direction，即 BS -> UE。PUSCH backend 内部使用 TDD reciprocity 得到 UE -> BS uplink。这里必须在 HDF5 中明确：
 
-Required additions include NR PUSCH waveform fields, receiver fields, link direction fields, and corrected NMSE semantics.
+- `/channel/truth/cfr` 是 RT 方向。
+- `/channel/truth/cir_*` 是 RT 方向。
+- `/observation/cfr_est` 对 `standard="nr_pusch"` 到底是 uplink 方向还是和 truth 同方向，需要明确写入 link metadata。
 
-### Gate C: Harden NR PUSCH path
+否则后续训练或评估会把 TX/RX 角色弄反。
 
-For 13 acceptance:
+### Reciprocity 的物理假设
 
-1. Remove silent receiver-success fallback.
-2. Do not average antenna dimensions or use only first TX/RX pair for the accepted path.
-3. Use the Sionna receiver/channel path in a way that preserves MIMO and PUSCH semantics.
-4. Compute BER/BLER from real decoded or estimated bits.
-5. Add high/low Eb/N0 and perfect/imperfect CSI statistical checks.
-
-### Gate D: End-to-end tests
-
-At minimum, add:
+13 需要补一句硬约束：
 
 ```text
-tests/integration/test_nr_pusch_observation.py
-tests/statistical/test_nr_pusch_link_metrics.py
+当前 TDD reciprocity 只在同频、窄时间间隔、RF chain 已校准、antenna phase reference 一致的假设下成立。
 ```
 
-These tests should verify:
+并且要明确当前 transform 是 transpose、conjugate transpose，还是带 calibration matrix 的映射。不要只写“互易性转换”。
 
-- `/waveform/standard == "nr_pusch"`
-- `/receiver/receiver_type == "pusch_receiver"`
-- `/evaluation/ber` and `/evaluation/bler` are finite and not placeholder-only
-- high Eb/N0 is no worse than low Eb/N0
-- perfect CSI is no worse than estimated CSI
-- `/observation/cfr_est` direction and shape are documented and validated
+### MIMO 维度桥接
 
-## Commands Run During This Review
+14 定义 RT 维度：
+
+```text
+[tx, rx, rx_ant, tx_ant, subcarrier]
+```
+
+13 定义 PUSCH 维度：
+
+```text
+num_antenna_ports
+num_layers
+num_streams
+receiver antenna
+```
+
+两者之间缺少一张桥接表。必须明确：
+
+```text
+RT tx_ant/rx_ant
+  -> UE/BS physical antennas
+  -> PUSCH antenna ports
+  -> PUSCH layers/streams
+  -> detector input shape
+```
+
+否则 4x4 RT channel 很容易被实现成“测试看起来是 4x4，PHY 实际只用第一个 link 或平均后的 SISO”。
+
+## 建议下一步
+
+优先级 1：清理文档状态。
+
+- 删除或重命名 13/14 末尾的历史 `## review`。
+- 13/14 不要继续把旧 review 当正文。统一使用本文件作为当前 review。
+- README 或 phase_progress 中明确“14 先于 13”。
+
+优先级 2：把 14 收口成已验收状态。
+
+- 更新 14 中过期描述。
+- 明确 RX look-at 能力边界。
+- 明确 pattern/polarization 支持白名单。
+- 记录 4x4 MIMO、CIR、shape contract 的验收命令和结果。
+
+优先级 3：修 13 的 contract。
+
+- 更新 `docs/03_data_contract_hdf5.md`。
+- 更新 `docs/06_config_and_experiment_schema.md`。
+- 更新 schema validator 和 schema tests。
+- 统一 `nmse_db` / `nmse_awgn_db` / `nmse_db_total` 命名。
+- 写入 NR PUSCH waveform 和 receiver 必填字段。
+
+优先级 4：修 13 的 PHY 真实性。
+
+- 去掉 PUSCHReceiver 静默 fallback。
+- 不允许平均 antenna 维度后只取第一个 TX/RX pair 作为最终验收路径。
+- 使用能保留 MIMO 语义的 Sionna channel / receiver 路径。
+- BER/BLER 必须来自真实 bit/block 对比。
+- 增加 high/low Eb/N0、perfect/imperfect CSI 的统计测试。
+- 集成测试必须自己生成输出，不能依赖已有 outputs 后 skip。
+
+## 本次运行命令
 
 ```bash
-uv run pytest tests/adapter/test_rt_shape_contracts.py tests/adapter/test_rt_cir_adapter.py tests/schema/test_rt_cir_schema.py tests/integration/test_rt_mimo_4x4_pipeline.py tests/unit/test_reciprocity.py tests/unit/test_nr_pusch_config.py
+uv run pytest tests/adapter/test_rt_shape_contracts.py tests/adapter/test_rt_cir_adapter.py tests/schema/test_rt_cir_schema.py tests/integration/test_rt_mimo_4x4_pipeline.py tests/unit/test_reciprocity.py tests/unit/test_nr_pusch_config.py tests/integration/test_nr_pusch_observation.py
 uv run ruff check .
 ```
 
-Result:
+结果：
 
 ```text
-38 passed, 1 warning
+43 passed, 1 warning
 ruff: All checks passed
 ```
 
-This is a good sign for the implemented skeleton and RT hardening tests. It is not yet sufficient to declare 13 complete, because the missing integration/statistical NR PUSCH acceptance tests are part of 13's own definition of done.
+说明：当前 RT hardening 和 NR PUSCH 雏形测试是绿的，这是好信号；但 13 仍缺少强制端到端生成、统计验收和完整 MIMO/PUSCH receiver 语义，所以不能仅凭这些测试宣称 13 完成。

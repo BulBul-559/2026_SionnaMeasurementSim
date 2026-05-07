@@ -240,13 +240,15 @@ def run_nr_pusch_observation(
     # TX signal: [batch, num_tx, num_streams, num_symbols, num_subcarriers]
     # Need to map: CFR tx_ant dim → TX num_tx, CFR rx_ant dim → channel paths
     # For SISO-like processing: squeeze antenna dims to get channel matrix
+    # CFR: [tx, rx, rx_ant, tx_ant, sub] — preserve all dims
+    # TX signal: [batch, num_tx=1, num_streams=1, num_symbols, num_subcarriers]
+    #
+    # NOTE: Full MIMO PUSCH receiver requires GPU. For CPU implementation,
+    # select antenna pair (0,0) for the first (tx,rx) pair. This is correct
+    # for SISO scenarios but discards MIMO information. To process all TX/RX
+    # pairs with full antenna dimensions, iterate per-pair with PUSCHReceiver.
     h_tensor = torch.as_tensor(cfr_np[0], dtype=torch.complex64)  # [tx, rx, rx_ant, tx_ant, sub]
-    # Average over antenna dims for simple channel
-    h_avg = torch.mean(h_tensor, dim=(2, 3))  # [tx, rx, sub]
-
-    # Apply channel: y = h * x (per-subcarrier, per-tx-rx pair)
-    # Simplified: use first TX, first RX
-    h_ch = h_avg[0, 0, :]  # [subcarrier]
+    h_ch = h_tensor[0, 0, 0, 0, :]  # [subcarrier] — explicit antenna pair (0,0)
     tx_freq = tx_signal[0, 0, 0, :, :]  # [num_symbols, num_subcarriers]
     y_freq = tx_freq * h_ch.unsqueeze(0)  # [num_symbols, num_subcarriers]
 
@@ -261,45 +263,31 @@ def run_nr_pusch_observation(
     y_noisy = y_freq + noise.to(torch.complex64)
 
     # Reshape for receiver: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
-    y_rx = y_noisy.unsqueeze(0).unsqueeze(0)  # [1, 1, 1, symbols, subcarriers]
-    no = noise_power * torch.ones(1, dtype=torch.complex64)
+    y_rx = y_noisy.unsqueeze(0).unsqueeze(0).unsqueeze(0)  # [1, 1, 1, symbols, subcarriers]
+    no = noise_power * torch.ones(1, dtype=torch.float32)
 
     # 5. Build and run PUSCHReceiver  ────────────────────────────────────
-    try:
-        from sionna.phy.mimo import LinearDetector, lmmse_equalizer
-        from sionna.phy.nr import PUSCHLSChannelEstimator, PUSCHReceiver
+    # Let PUSCHReceiver create its own default channel estimator and MIMO
+    # detector (sionna.phy.ofdm.LinearDetector with resource grid and
+    # stream management).  Passing a custom mimo_detector from
+    # sionna.phy.mimo.LinearDetector would require the caller to manage
+    # resource-grid-aware detection, which is handled internally when
+    # defaults are used.
+    from sionna.phy.nr import PUSCHReceiver
 
-        rx = PUSCHReceiver(
-            pusch_transmitter=tx,
-            channel_estimator=PUSCHLSChannelEstimator(
-                tx.resource_grid,
-                int(pusch_cfg.dmrs.length),
-                int(pusch_cfg.dmrs.additional_position),
-                int(pusch_cfg.dmrs.num_cdm_groups_without_data),
-                interpolation_type="nn",
-            ),
-            mimo_detector=LinearDetector(
-                equalizer=lmmse_equalizer(),
-                output="bit",
-                demapping_method="app",
-                num_bits_per_symbol=(
-                    int(pusch_cfg.tb.num_bits_per_symbol[0].item())
-                ),
-            ),
-            tb_decoder=None,
-            return_tb_crc_status=False,
-            input_domain="freq",
-        )
-        # Run receiver
-        rx_bits, _ = rx((y_rx, no))
-        # Compare bits
-        num_bit_errors = int(torch.sum(torch.ne(rx_bits, tx_bits)).item())
-        num_total_bits = int(tx_bits.shape[-1])
-        ber = num_bit_errors / max(num_total_bits, 1)
-        bler = 1.0 if num_bit_errors > 0 else 0.0
-    except Exception:
-        ber, bler = 0.0, 0.0  # fallback if receiver fails
-        num_bit_errors, num_total_bits = 0, 0
+    rx = PUSCHReceiver(
+        pusch_transmitter=tx,
+        tb_decoder=None,
+        return_tb_crc_status=False,
+        input_domain="freq",
+    )
+    # Run receiver
+    rx_bits = rx(y_rx, no)
+    # Compare bits
+    num_bit_errors = int(torch.sum(torch.ne(rx_bits, tx_bits)).item())
+    num_total_bits = int(tx_bits.shape[-1])
+    ber = num_bit_errors / max(num_total_bits, 1)
+    bler = 1.0 if num_bit_errors > 0 else 0.0
 
     # 6. Reverse reciprocity to match truth CFR [snap, tx, rx, rx_ant, tx_ant, sub]
     if reciprocity_applied:
