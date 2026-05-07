@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+import torch
 
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.phy.nr_mimo_channel import (
@@ -187,3 +189,111 @@ class TestReverseReciprocityCFR:
         ul_cfr2 = reverse_reciprocity_cfr(dl_cfr)
         assert ul_cfr2.shape == ul_cfr.shape
         np.testing.assert_array_equal(ul_cfr, ul_cfr2)
+
+
+class TestChannelBackends:
+    """Tests for ApplyOFDMChannelBackend and CIRDatasetOFDMChannelBackend."""
+
+    def test_apply_ofdm_backend_build(self):
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            ApplyOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+        backend = ApplyOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+        assert backend.num_ul_rx_ant == 4
+        assert backend.num_ul_tx_ant == 4
+        assert backend.cfr.ndim == 6
+
+    def test_cir_dataset_backend_build(self):
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+        backend = CIRDatasetOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+        assert backend.num_ul_rx_ant == 4
+        assert backend.num_ul_tx_ant == 4
+        assert backend.cfr.ndim == 6
+
+    def test_backends_produce_same_perfect_h(self):
+        """Both backends should produce identical perfect-h tensors."""
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            ApplyOFDMChannelBackend,
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+
+        b1 = ApplyOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+        b2 = CIRDatasetOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+
+        h1 = b1.perfect_h(0, 0, 0, 14)
+        h2 = b2.perfect_h(0, 0, 0, 14)
+
+        assert h1.shape == h2.shape
+        assert torch.allclose(h1, h2, rtol=1e-4, atol=1e-6)
+
+    def test_cir_dataset_backend_apply(self):
+        """CIRDataset backend apply() returns correct output shape."""
+        from sionna.phy.ofdm import ResourceGrid
+
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+        backend = CIRDatasetOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+
+        rg = ResourceGrid(
+            num_ofdm_symbols=14,
+            fft_size=48,
+            subcarrier_spacing=30000.0,
+            num_tx=1,
+            num_streams_per_tx=4,
+        )
+        x = torch.randn(1, 1, 4, 14, 48, dtype=torch.complex64)
+        no = torch.tensor(0.01)
+        y = backend.apply(x, no, snap_idx=0, ul_tx_idx=0, ul_rx_idx=0,
+                          num_ofdm_symbols=14, resource_grid=rg)
+        assert y.shape == (1, 1, 4, 14, 48)
+        assert y.dtype == torch.complex64
+
+    def test_backends_cfr_equal(self):
+        """Both backends should produce the same CFR array."""
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            ApplyOFDMChannelBackend,
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+
+        b1 = ApplyOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+        b2 = CIRDatasetOFDMChannelBackend.build(coeff, delays, link, 30000.0, 48)
+
+        np.testing.assert_allclose(b1.cfr, b2.cfr, rtol=1e-4, atol=1e-6)
+
+    def test_factory_creates_correct_backend(self):
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            ApplyOFDMChannelBackend,
+            CIRDatasetOFDMChannelBackend,
+            create_channel_backend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+
+        b1 = create_channel_backend(coeff, delays, link, 30000.0, 48, backend_name="apply_ofdm")
+        b2 = create_channel_backend(
+            coeff, delays, link, 30000.0, 48, backend_name="cir_dataset_ofdm",
+        )
+        assert isinstance(b1, ApplyOFDMChannelBackend)
+        assert isinstance(b2, CIRDatasetOFDMChannelBackend)
+
+        with pytest.raises(NotImplementedError, match="unknown_backend"):
+            create_channel_backend(coeff, delays, link, 30000.0, 48, backend_name="unknown_backend")

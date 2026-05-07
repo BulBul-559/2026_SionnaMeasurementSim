@@ -8,6 +8,8 @@ the current ``ApplyOFDMChannel`` route and the official
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import torch
 
@@ -18,7 +20,7 @@ from sionna_measurement_sim.phy.nr_mimo_channel import (
     cfr_to_pusch_perfect_h,
 )
 
-# ── backend interface (duck-typed, not a strict Protocol) ──────────────
+# ── ApplyOFDMChannel backend (current stable) ───────────────────────────
 
 
 class ApplyOFDMChannelBackend:
@@ -55,7 +57,6 @@ class ApplyOFDMChannelBackend:
 
     @property
     def cfr(self) -> np.ndarray:
-        """6-D CFR in UL convention."""
         return self._channel.cfr
 
     @property
@@ -95,9 +96,8 @@ class ApplyOFDMChannelBackend:
         ul_rx_idx: int = 0,
         num_ofdm_symbols: int = 14,
     ) -> torch.Tensor:
-        """Perfect-CSI tensor for a single (snap, ul_tx, ul_rx) link.
+        """Perfect-CSI tensor for a single link.
 
-        Returns tensor of shape
         ``[1, 1, num_ul_rx_ant, 1, num_ul_tx_ant, num_ofdm_symbols, fft_size]``.
         """
         return cfr_to_pusch_perfect_h(
@@ -116,32 +116,265 @@ class ApplyOFDMChannelBackend:
         ul_tx_idx: int = 0,
         ul_rx_idx: int = 0,
         num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,  # unused by this backend
     ) -> torch.Tensor:
         """Apply MIMO OFDM channel to TX signal ``x``.
 
-        Parameters
-        ----------
-        x : torch.Tensor
-            PUSCH TX signal, shape ``[batch, num_tx, num_streams, num_ofdm_symbols, fft_size]``.
-        no : torch.Tensor
-            Noise power (scalar or broadcastable).
-        snap_idx, ul_tx_idx, ul_rx_idx : int
-            Link indices into the pre-computed CFR.
-        num_ofdm_symbols : int
-            Number of OFDM symbols in the slot.
-
-        Returns
-        -------
-        y : torch.Tensor
-            ``[batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]``.
+        Returns ``[batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]``.
         """
         if self._apply is None:
             from sionna.phy.channel import ApplyOFDMChannel
-
             self._apply = ApplyOFDMChannel()
 
         h = self.perfect_h(snap_idx, ul_tx_idx, ul_rx_idx, num_ofdm_symbols)
         return self._apply(x, h, no)
+
+
+# ── CIRDataset + OFDMChannel backend ──────────────────────────────────
+
+
+class CIRDatasetOFDMChannelBackend:
+    """Channel backend using the official ``CIRDataset + OFDMChannel`` API.
+
+    Follows the Sionna RT link-level tutorial pattern:
+    project CIR → UL conversion → ``CIRDataset`` →
+    ``OFDMChannel(return_channel=True)``.
+
+    The pre-computed CFR (via ``build_mimo_cfr_from_cir``) is still stored
+    for the ``cfr`` property (NMSE, shape consistency).  Channel application
+    goes through ``OFDMChannel`` per (snap, ul_tx, ul_rx) link.
+    """
+
+    def __init__(
+        self,
+        cir_ul: np.ndarray,
+        tau_ul: np.ndarray,
+        cfr: np.ndarray,
+        num_snap: int,
+        num_ul_tx: int,
+        num_ul_rx: int,
+        num_ul_rx_ant: int,
+        num_ul_tx_ant: int,
+        num_paths: int,
+        subcarrier_spacing_hz: float,
+        num_subcarriers: int,
+        reciprocity_applied: bool,
+    ) -> None:
+        self._cir_ul = cir_ul  # UL-convention CIR coefficients
+        self._tau_ul = tau_ul  # UL-convention CIR delays
+        self._cfr = cfr
+        self._num_snap = num_snap
+        self._num_ul_tx = num_ul_tx
+        self._num_ul_rx = num_ul_rx
+        self._num_ul_rx_ant = num_ul_rx_ant
+        self._num_ul_tx_ant = num_ul_tx_ant
+        self._num_paths = num_paths
+        self._sc_spacing_hz = subcarrier_spacing_hz
+        self._num_subcarriers = num_subcarriers
+        self._reciprocity_applied = reciprocity_applied
+
+    # ── factory ──────────────────────────────────────────────────────
+
+    @classmethod
+    def build(
+        cls,
+        cir_coefficients: np.ndarray,
+        cir_delays_s: np.ndarray,
+        link_config: LinkConfig,
+        subcarrier_spacing_hz: float,
+        num_subcarriers: int,
+    ) -> CIRDatasetOFDMChannelBackend:
+        """Build backend from project CIR arrays.
+
+        Converts to UL convention (with or without TDD reciprocity),
+        then stores both the UL CIR and a pre-computed CFR for the
+        ``cfr`` property.
+        """
+        # Apply TDD reciprocity if configured
+        reciprocity_applied = False
+        if (
+            link_config.reciprocity_mode == "transpose_rt_channel"
+            and link_config.reciprocity_applied
+        ):
+            try:
+                from sionna_measurement_sim.phy.reciprocity import (
+                    apply_tdd_reciprocity_cir,
+                )
+                cir_coefficients = apply_tdd_reciprocity_cir(cir_coefficients)
+                cir_delays_s = apply_tdd_reciprocity_cir(cir_delays_s)
+                reciprocity_applied = True
+            except ImportError:
+                pass
+
+        # Convert to UL convention if reciprocity not applied
+        if not reciprocity_applied:
+            cir_ul = np.transpose(cir_coefficients, (0, 2, 1, 4, 3, 5))
+            tau_ul = np.transpose(cir_delays_s, (0, 2, 1, 4, 3, 5))
+        else:
+            cir_ul = cir_coefficients
+            tau_ul = cir_delays_s
+
+        num_snap = cir_ul.shape[0]
+        num_ul_tx = cir_ul.shape[1]
+        num_ul_rx = cir_ul.shape[2]
+        num_ul_rx_ant = cir_ul.shape[3]
+        num_ul_tx_ant = cir_ul.shape[4]
+        num_paths = cir_ul.shape[5]
+
+        # Pre-compute CFR (same as ApplyOFDMChannelBackend path)
+        from sionna_measurement_sim.phy.nr_mimo_channel import (
+            _cir_to_cfr_internal,
+        )
+        cfr = _cir_to_cfr_internal(
+            cir_ul, tau_ul, subcarrier_spacing_hz, num_subcarriers,
+        )
+
+        return cls(
+            cir_ul=cir_ul,
+            tau_ul=tau_ul,
+            cfr=cfr,
+            num_snap=num_snap,
+            num_ul_tx=num_ul_tx,
+            num_ul_rx=num_ul_rx,
+            num_ul_rx_ant=num_ul_rx_ant,
+            num_ul_tx_ant=num_ul_tx_ant,
+            num_paths=num_paths,
+            subcarrier_spacing_hz=subcarrier_spacing_hz,
+            num_subcarriers=num_subcarriers,
+            reciprocity_applied=reciprocity_applied,
+        )
+
+    # ── properties ───────────────────────────────────────────────────
+
+    @property
+    def cfr(self) -> np.ndarray:
+        return self._cfr
+
+    @property
+    def num_snap(self) -> int:
+        return self._num_snap
+
+    @property
+    def num_ul_tx(self) -> int:
+        return self._num_ul_tx
+
+    @property
+    def num_ul_rx(self) -> int:
+        return self._num_ul_rx
+
+    @property
+    def num_ul_tx_ant(self) -> int:
+        return self._num_ul_tx_ant
+
+    @property
+    def num_ul_rx_ant(self) -> int:
+        return self._num_ul_rx_ant
+
+    @property
+    def num_subcarriers(self) -> int:
+        return self._num_subcarriers
+
+    @property
+    def reciprocity_applied(self) -> bool:
+        return self._reciprocity_applied
+
+    # ── channel operations ───────────────────────────────────────────
+
+    def _make_cir_generator(self, snap_idx: int, ul_tx_idx: int, ul_rx_idx: int):
+        """Create a single-batch CIR generator for one (snap, ul_tx, ul_rx)."""
+
+        # Extract CIR slice for this link
+        # UL CIR: [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, path]
+        a_slice = self._cir_ul[
+            snap_idx, ul_tx_idx, ul_rx_idx, ...
+        ]  # [ul_rx_ant, ul_tx_ant, path]
+        tau_slice = self._tau_ul[
+            snap_idx, ul_tx_idx, ul_rx_idx, 0, 0, :
+        ]  # [path] — first antenna pair
+
+        def _gen():
+            # CIRDataset expects:
+            #   a:   [num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]
+            #   tau: [num_rx, num_tx, num_paths]
+            a = torch.as_tensor(a_slice, dtype=torch.complex64)
+            a = a.unsqueeze(0).unsqueeze(2).unsqueeze(-1)
+            # → [1, ul_rx_ant, 1, ul_tx_ant, path, 1]
+            tau = torch.as_tensor(tau_slice, dtype=torch.float32)
+            tau = tau.reshape(1, 1, -1)  # [1, 1, path]
+            yield a, tau
+
+        return _gen
+
+    def perfect_h(
+        self,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+    ) -> torch.Tensor:
+        """Perfect-CSI tensor from pre-computed CFR.
+
+        Uses the same ``cfr_to_pusch_perfect_h`` path as
+        ``ApplyOFDMChannelBackend`` for consistency.
+        """
+        channel = PUSCHMIMOChannel(
+            cfr=self._cfr,
+            num_snap=self._num_snap,
+            num_ul_tx=self._num_ul_tx,
+            num_ul_rx=self._num_ul_rx,
+            num_ul_tx_ant=self._num_ul_tx_ant,
+            num_ul_rx_ant=self._num_ul_rx_ant,
+            num_subcarriers=self._num_subcarriers,
+            reciprocity_applied=self._reciprocity_applied,
+        )
+        return cfr_to_pusch_perfect_h(
+            channel,
+            snap_idx=snap_idx,
+            ul_tx_idx=ul_tx_idx,
+            ul_rx_idx=ul_rx_idx,
+            num_ofdm_symbols=num_ofdm_symbols,
+        )
+
+    def apply(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> torch.Tensor:
+        """Apply MIMO OFDM channel via ``OFDMChannel`` with ``CIRDataset``.
+
+        Creates a fresh ``CIRDataset`` and ``OFDMChannel`` per call
+        (per-link mode).  ``resource_grid`` must be the PUSCH resource grid.
+        """
+        from sionna.phy.channel import CIRDataset, OFDMChannel
+
+        if resource_grid is None:
+            raise ValueError(
+                "CIRDatasetOFDMChannelBackend.apply() requires resource_grid"
+            )
+
+        generator = self._make_cir_generator(snap_idx, ul_tx_idx, ul_rx_idx)
+        dataset = CIRDataset(
+            cir_generator=generator,
+            batch_size=1,
+            num_rx=1,
+            num_rx_ant=self._num_ul_rx_ant,
+            num_tx=1,
+            num_tx_ant=self._num_ul_tx_ant,
+            num_paths=self._num_paths,
+            num_time_steps=1,
+        )
+        ofdm_ch = OFDMChannel(
+            dataset, resource_grid,
+            normalize_channel=False,
+            return_channel=True,
+        )
+        y, _h = ofdm_ch(x, no)
+        return y
 
 
 # ── backend factory ─────────────────────────────────────────────────────
@@ -155,18 +388,24 @@ def create_channel_backend(
     num_subcarriers: int,
     *,
     backend_name: str = "apply_ofdm",
-) -> ApplyOFDMChannelBackend:
+) -> ApplyOFDMChannelBackend | CIRDatasetOFDMChannelBackend:
     """Create a channel backend by name.
 
-    Currently only ``"apply_ofdm"`` is supported.
-    Future: ``"cir_dataset_ofdm"``.
+    Supported backends:
+    - ``"apply_ofdm"`` — :class:`ApplyOFDMChannelBackend` (current stable)
+    - ``"cir_dataset_ofdm"`` — :class:`CIRDatasetOFDMChannelBackend`
     """
     if backend_name == "apply_ofdm":
         return ApplyOFDMChannelBackend.build(
             cir_coefficients, cir_delays_s, link_config,
             subcarrier_spacing_hz, num_subcarriers,
         )
+    if backend_name == "cir_dataset_ofdm":
+        return CIRDatasetOFDMChannelBackend.build(
+            cir_coefficients, cir_delays_s, link_config,
+            subcarrier_spacing_hz, num_subcarriers,
+        )
     raise NotImplementedError(
         f"Unknown channel_backend: {backend_name!r}. "
-        f"Supported: 'apply_ofdm'"
+        f"Supported: 'apply_ofdm', 'cir_dataset_ofdm'"
     )

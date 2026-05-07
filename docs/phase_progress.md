@@ -578,5 +578,33 @@ official ``CIRDataset + OFDMChannel`` route without touching per-link processing
 
 ### Next
 
-- Implement `CIRDatasetOFDMChannelBackend` as an alternative backend.
+- MU-MIMO and full TB/CRC BLER deferred to later phases.
+
+## 2026-05-07 - CIRDataset + OFDMChannel Backend
+
+Implemented the official Sionna ``CIRDataset + OFDMChannel`` channel backend
+alongside the existing ``ApplyOFDMChannel`` backend.
+
+### What was done
+
+- **``CIRDatasetOFDMChannelBackend``**: Properly stores UL-convention CIR, creates
+  per-link ``CIRDataset`` with correct shapes (a: ``[1, rx_ant, 1, tx_ant, path, 1]``,
+  tau: ``[1, 1, path]``), and uses ``OFDMChannel(return_channel=True)`` for
+  channel application.
+- Both backends share the same ``perfect_h()`` implementation (via pre-computed
+  CFR from ``build_mimo_cfr_from_cir``), guaranteeing identical results.
+- ``create_channel_backend()`` factory supports both ``"apply_ofdm"`` and
+  ``"cir_dataset_ofdm"`` names.
+- Added 6 unit tests: build, perfect_h comparison, apply shape, CFR equality,
+  factory dispatch, and unknown-backend error.
+- ``apply()`` now takes an optional ``resource_grid`` parameter (required by
+  ``OFDMChannel``; unused by ``ApplyOFDMChannel``).
+
+### Commands and results
+
+- `uv run pytest`: 172 passed, 2 warnings
+- `uv run ruff check .`: All checks passed
+
+### Next
+
 - MU-MIMO and full TB/CRC BLER deferred to later phases.

@@ -24,7 +24,6 @@ from sionna_measurement_sim.domain.observation import (
     WaveformSpec,
 )
 from sionna_measurement_sim.phy.nr_channel_backend import (
-    ApplyOFDMChannelBackend,
     create_channel_backend,
 )
 from sionna_measurement_sim.phy.nr_mimo_channel import (
@@ -439,7 +438,7 @@ def _process_one_pusch_link(
     snap_idx: int,
     ul_tx_idx: int,
     ul_rx_idx: int,
-    backend: ApplyOFDMChannelBackend,
+    backend: Any,
     tx: Any,
     rx: Any,
     no: torch.Tensor,
@@ -470,6 +469,7 @@ def _process_one_pusch_link(
         ul_tx_idx=ul_tx_idx,
         ul_rx_idx=ul_rx_idx,
         num_ofdm_symbols=num_ofdm_symbols,
+        resource_grid=tx.resource_grid,
     )
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
 
