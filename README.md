@@ -124,6 +124,10 @@ SionnaMeasurementSim/
 | [08_roadmap](docs/08_roadmap_milestones_acceptance.md) | 路线图与验收标准 |
 | [09_testing](docs/09_testing_and_quality_gates.md) | 测试与质量门 |
 | [12_final_checklist](docs/12_final_acceptance_checklist.md) | 最终验收清单 |
+| [13_tdd_reciprocity_nr_pusch](docs/13_tdd_reciprocity_nr_pusch_phy_plan.md) | NR PUSCH 观测 |
+| [14_rt_hardening](docs/14_rt_hardening_before_nr_pusch.md) | RT 加固验收 |
+
+> **执行顺序：先验收 14_rt_hardening，再进入 13_nr_pusch。**
 
 ## 约束
 

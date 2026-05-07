@@ -9,6 +9,8 @@ import numpy as np
 from sionna_measurement_sim.domain.validation import require_shape
 
 _VALID_ORIENTATION_MODES = frozenset({"fixed", "look_at_first_peer", "look_at_centroid"})
+_VALID_PATTERNS = frozenset({"iso", "tr38901"})
+_VALID_POLARIZATIONS = frozenset({"V", "H", "cross", "single"})
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,31 @@ class AntennaSpec:
         ):
             if val not in _VALID_ORIENTATION_MODES:
                 msg = f"{name} must be one of {_VALID_ORIENTATION_MODES}, got {val!r}"
+                raise ValueError(msg)
+
+        # RX orientation must be "fixed" — the RT scene does not apply
+        # look_at modes for the receiver, making them silently incorrect.
+        if self.rx_orientation_mode != "fixed":
+            msg = (
+                f"rx_orientation_mode must be 'fixed', "
+                f"got {self.rx_orientation_mode!r}"
+            )
+            raise ValueError(msg)
+
+        for name, val in (
+            ("tx_pattern", self.tx_pattern),
+            ("rx_pattern", self.rx_pattern),
+        ):
+            if val not in _VALID_PATTERNS:
+                msg = f"{name} must be one of {_VALID_PATTERNS}, got {val!r}"
+                raise ValueError(msg)
+
+        for name, val in (
+            ("tx_polarization", self.tx_polarization),
+            ("rx_polarization", self.rx_polarization),
+        ):
+            if val not in _VALID_POLARIZATIONS:
+                msg = f"{name} must be one of {_VALID_POLARIZATIONS}, got {val!r}"
                 raise ValueError(msg)
 
         object.__setattr__(self, "tx_spacing_lambda", tx_spacing)

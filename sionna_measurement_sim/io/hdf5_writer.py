@@ -236,6 +236,15 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
         ):
             if key in extras:
                 _write_scalar(group, key, np.int32(extras[key]))
+        if "subcarrier_spacing_hz" in extras:
+            _write_scalar(
+                group, "subcarrier_spacing_hz", np.float64(extras["subcarrier_spacing_hz"]),
+            )
+        if "slot_number" in extras:
+            _write_scalar(group, "slot_number", np.int32(extras["slot_number"]))
+        for key in ("cyclic_prefix", "target_coderate", "modulation"):
+            if key in extras:
+                _write_scalar(group, key, str(extras[key]))
 
 
 def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> None:

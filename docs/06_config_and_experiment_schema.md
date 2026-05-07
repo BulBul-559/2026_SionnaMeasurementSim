@@ -133,6 +133,28 @@ phy:
   interpolation: "none"
 ```
 
+### 9a. phy — NR PUSCH example
+
+```yaml
+phy:
+  enabled: true
+  standard: "nr_pusch"
+  snr_db: 30.0
+  perfect_csi: false
+  ebno_db: 10.0
+  num_prb: 16
+  num_layers: 1
+  num_antenna_ports: 4
+  mcs_index: 14
+  mcs_table: 1
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 14
+  pusch_dmrs_config_type: 1
+  pusch_dmrs_length: 1
+  pusch_dmrs_additional_position: 1
+  pusch_num_cdm_groups_without_data: 2
+```
+
 ## 10. impairments
 
 ```yaml

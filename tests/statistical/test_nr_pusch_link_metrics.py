@@ -51,8 +51,10 @@ class TestNRPUSCHLinkMetrics:
         try:
             path_low = _run_nr_pusch(10, tmp_path)
             path_high = _run_nr_pusch(30, tmp_path)
-        except Exception:
+        except ImportError:
             pytest.skip("NR PUSCH receiver not available on this machine")
+        except Exception:
+            pytest.fail("NR PUSCH receiver failed")
 
         with h5py.File(path_low, "r") as h5:
             ber_low = float(h5["evaluation/ber"][()])
@@ -67,8 +69,10 @@ class TestNRPUSCHLinkMetrics:
         """NR PUSCH output has all required fields with finite values."""
         try:
             path = _run_nr_pusch(30, tmp_path)
-        except Exception:
+        except ImportError:
             pytest.skip("NR PUSCH receiver not available on this machine")
+        except Exception:
+            pytest.fail("NR PUSCH receiver failed")
 
         with h5py.File(path, "r") as h5:
             # Waveform group
@@ -112,8 +116,10 @@ class TestNRPUSCHLinkMetrics:
         """Observation CFR shape matches truth CFR shape."""
         try:
             path = _run_nr_pusch(30, tmp_path)
-        except Exception:
+        except ImportError:
             pytest.skip("NR PUSCH receiver not available on this machine")
+        except Exception:
+            pytest.fail("NR PUSCH receiver failed")
 
         with h5py.File(path, "r") as h5:
             cfr_est = h5["observation/cfr_est"]

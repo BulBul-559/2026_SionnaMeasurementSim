@@ -353,3 +353,18 @@ UL/DL frequency grids differ as configured
 ```
 
 完成 TDD uplink PUSCH 后，再开启 FDD 设计与实现。
+
+## 当前实现状态 (updated 2026-05-07)
+
+| 13 要求 | 状态 | 说明 |
+|---------|------|------|
+| LinkConfig (TDD/uplink) | ✅ Done | |
+| Reciprocity transform | ✅ Done | CFR 5D + CIR 6D |
+| PUSCHConfig building | ✅ Done | Via Sionna API |
+| PUSCHTransmitter | ✅ Done | |
+| PUSCHReceiver integration | ⚠️ Partial | Receiver built, real BER/BLER computed; MIMO limited to first antenna pair |
+| cfr_est from receiver | ⚠️ Partial | Currently uses CIR-derived CFR; receiver CSI extraction pending |
+| nmse_db real compute | ⚠️ Partial | Pending real NMSE from H_obs vs H_true |
+| BER/BLER | ⚠️ Partial | Bit-level comparison done; transport-block CRC/BLER pending |
+| perfect vs imperfect CSI | ❌ Gap | |
+| Full MIMO path | ❌ Gap | Uses first (tx,rx,ant) pair only |

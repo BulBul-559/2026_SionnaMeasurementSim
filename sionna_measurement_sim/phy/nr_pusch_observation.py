@@ -2,6 +2,9 @@
 
 Builds Sionna PUSCHConfig from project config, runs PUSCHTransmitter
 and PUSCHReceiver with RT CIR, and computes real BER/BLER.
+
+Current MIMO limitation: uses first TX/RX and antenna pair (0,0) for
+channel. Full 4x4 MIMO path pending GPU-enabled PUSCHReceiver.
 """
 
 from __future__ import annotations
@@ -155,6 +158,69 @@ def _cir_to_cfr(
         ) from exc
 
 
+def _ls_estimate_cfr(
+    y_noisy_np: np.ndarray,
+    pusch_cfg,
+    num_subcarriers: int,
+) -> np.ndarray:
+    """Compute LS channel estimate from DMRS pilot symbols.
+
+    Uses the known DMRS pattern and symbols from the PUSCHConfig to
+    perform a least-squares channel estimate at pilot positions, then
+    interpolates across subcarriers to get the full CFR.
+
+    Args:
+        y_noisy_np: Noisy received frequency-domain signal of shape
+            ``[num_ofdm_symbols, num_subcarriers]``.
+        pusch_cfg: Sionna ``PUSCHConfig`` instance.
+        num_subcarriers: Number of active subcarriers.
+
+    Returns:
+        6-D array ``[1, 1, 1, 1, 1, num_subcarriers]`` with dtype
+        ``complex64`` containing the interpolated LS CFR estimate for
+        the first (tx, rx, tx_ant, rx_ant) link.
+    """
+    dmrs_grid = pusch_cfg.dmrs_grid  # [layers, num_subcarriers, num_ofdm_symbols]
+
+    # Use only positions that carry actual DMRS symbols (non-zero amplitude).
+    # dmrs_mask may include reserved REs with zero-power DMRS (e.g. the
+    # unoccupied comb of a comb-2 pattern), which would cause division by zero.
+    dmrs_positions = np.abs(dmrs_grid[0]) > 1e-10
+    sc_inds, sym_inds = np.where(dmrs_positions)
+    num_pilots = len(sc_inds)
+
+    if num_pilots == 0:
+        return np.zeros(
+            (1, 1, 1, 1, 1, num_subcarriers), dtype=np.complex64,
+        )
+
+    y_dmrs = y_noisy_np[sym_inds, sc_inds].astype(np.complex64)
+    x_dmrs = dmrs_grid[0, sc_inds, sym_inds].astype(np.complex64)
+    h_ls = y_dmrs / x_dmrs
+
+    h_sum = np.zeros(num_subcarriers, dtype=np.complex64)
+    np.add.at(h_sum, sc_inds, h_ls)
+    count = np.bincount(sc_inds, minlength=num_subcarriers)
+
+    sc_with = np.where(count > 0)[0]
+    if len(sc_with) == num_subcarriers:
+        h_est = h_sum / count.astype(np.float32)
+    else:
+        h_dmrs = h_sum[sc_with] / count[sc_with].astype(np.float32)
+        all_sc = np.arange(num_subcarriers)
+        h_real = np.interp(
+            all_sc, sc_with.astype(np.float64), h_dmrs.real.astype(np.float64),
+        )
+        h_imag = np.interp(
+            all_sc, sc_with.astype(np.float64), h_dmrs.imag.astype(np.float64),
+        )
+        h_est = (h_real.astype(np.float32) + 1j * h_imag.astype(np.float32)).astype(
+            np.complex64,
+        )
+
+    return h_est.reshape(1, 1, 1, 1, 1, -1)
+
+
 # ── main entry point ────────────────────────────────────────────────────
 
 
@@ -231,6 +297,8 @@ def run_nr_pusch_observation(
 
     # 3. Convert CIR to CFR  ─────────────────────────────────────────────
     cfr_np = _cir_to_cfr(cir_a_ul, cir_tau_ul, sc_spacing_hz, num_subcarriers)
+    # Save clean CIR-derived CFR as reference for NMSE computation (UL orientation)
+    cfr_clean_ref = cfr_np.copy()
     sample_rate_hz = sc_spacing_hz * num_subcarriers
 
     # 4. Apply channel to PUSCH TX signal + AWGN  ────────────────────────
@@ -281,27 +349,51 @@ def run_nr_pusch_observation(
         return_tb_crc_status=False,
         input_domain="freq",
     )
-    # Run receiver
-    rx_bits = rx(y_rx, no)
+    # Run receiver (wrapped to catch failures gracefully)
+    receiver_failed = False
+    try:
+        rx_bits = rx(y_rx, no)
+    except Exception:
+        rx_bits = torch.zeros_like(tx_bits)
+        receiver_failed = True
     # Compare bits
     num_bit_errors = int(torch.sum(torch.ne(rx_bits, tx_bits)).item())
     num_total_bits = int(tx_bits.shape[-1])
     ber = num_bit_errors / max(num_total_bits, 1)
     bler = 1.0 if num_bit_errors > 0 else 0.0
 
-    # 6. Reverse reciprocity to match truth CFR [snap, tx, rx, rx_ant, tx_ant, sub]
-    if reciprocity_applied:
-        # After CIR reciprocity: [snap, rx, tx, tx_ant, rx_ant, sub]
-        # → reverse: swap axis 1↔2 and 3↔4
-        cfr_np = np.transpose(cfr_np, (0, 2, 1, 4, 3, 5))
+    # 6a. Compute receiver-estimated CFR from DMRS pilots (LS estimate)  ──
+    cfr_est = _ls_estimate_cfr(
+        y_noisy.cpu().numpy(), pusch_cfg, num_subcarriers,
+    )
 
-    cfr_est = cfr_np[0:1].astype(np.complex64)  # [1, tx, rx, rx_ant, tx_ant, sub]
+    # Expand to full CIR link dimensions.  The current PUSCH pipeline only
+    # processes the first (tx,rx,tx_ant,rx_ant) link, so the same SISO LS
+    # estimate is broadcast to all links for shape consistency.
+    if cfr_est.shape != cfr_clean_ref.shape:
+        cfr_est = np.broadcast_to(cfr_est, cfr_clean_ref.shape).copy()
+
+    # 6b. Compute NMSE (before reciprocity reversal, both in UL orientation)
+    error = cfr_est - cfr_clean_ref[0:1]
+    nmse = np.mean(np.abs(error) ** 2, axis=(-3, -2, -1)) / np.clip(
+        np.mean(np.abs(cfr_clean_ref[0:1]) ** 2, axis=(-3, -2, -1)),
+        1e-30,
+        None,
+    )
+    nmse_db = 10.0 * np.log10(nmse)
+
+    # 6c. Reverse reciprocity to match truth CFR [snap, tx, rx, rx_ant, tx_ant, sub]
+    if reciprocity_applied:
+        cfr_np = np.transpose(cfr_np, (0, 2, 1, 4, 3, 5))
+        cfr_est = np.transpose(cfr_est, (0, 2, 1, 4, 3, 5))
+
     link_shape = cfr_est.shape[:3]  # [snap, tx, rx]
+    estimation_success_flag = not receiver_failed
     observation = ObservationResult(
         cfr_est=cfr_est,
         valid_mask=np.ones(link_shape, dtype=np.bool_),
         detection_success=np.ones(link_shape, dtype=np.bool_),
-        estimation_success=np.ones(link_shape, dtype=np.bool_),
+        estimation_success=np.full(link_shape, estimation_success_flag, dtype=np.bool_),
         snr_db=np.full(link_shape, float(snr_db), dtype=np.float32),
         rssi_dbm=np.zeros(link_shape, dtype=np.float32),
         noise_power_dbm=np.zeros(link_shape, dtype=np.float32),
@@ -313,13 +405,13 @@ def run_nr_pusch_observation(
         clipping_flag=np.zeros(link_shape, dtype=np.bool_),
     )
     evaluation = EvaluationResult(
-        nmse_db=np.full(link_shape, -30.0, dtype=np.float32),
-        nmse_db_total=np.full(link_shape, -30.0, dtype=np.float32),
+        nmse_db=nmse_db.astype(np.float32),
+        nmse_db_total=nmse_db.astype(np.float32),
         amplitude_error_db=np.zeros(link_shape, dtype=np.float32),
         phase_error_rad=np.zeros(link_shape, dtype=np.float32),
         correlation=np.ones(link_shape, dtype=np.float32),
         detection_rate=1.0,
-        estimation_failure_rate=0.0,
+        estimation_failure_rate=float(1.0 - estimation_success_flag),
         ber=float(ber),
         bler=float(bler),
         num_bit_errors=num_bit_errors,
@@ -342,6 +434,7 @@ def run_nr_pusch_observation(
     # 8. Assemble result  ─────────────────────────────────────────────────
     result: dict[str, Any] = {
         "cfr_est": cfr_est,
+        "cfr_clean_ref": cfr_clean_ref[0:1],
         "ber": evaluation.ber,
         "bler": evaluation.bler,
         "pusch_config": pusch_config_to_dict(pusch_cfg),

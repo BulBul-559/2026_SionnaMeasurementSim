@@ -361,6 +361,11 @@ def _run_nr_pusch_obs(config, adapter_result):
         "waveform_extras": {
             "num_prb": config.num_prb,
             "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
+            "subcarrier_spacing_hz": config.subcarrier_spacing_khz * 1000.0,
+            "slot_number": 0,
+            "cyclic_prefix": "normal",
+            "target_coderate": 0.54,
+            "modulation": "16QAM",
             "num_layers": config.num_layers,
             "num_antenna_ports": config.num_antenna_ports,
             "mcs_index": config.mcs_index,
