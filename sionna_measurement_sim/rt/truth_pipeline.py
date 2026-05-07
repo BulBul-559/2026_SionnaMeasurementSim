@@ -20,7 +20,6 @@ from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
     DiagnosticsReport,
-    ReceiverSpec,
 )
 from sionna_measurement_sim.domain.results import (
     DeviceState,
@@ -101,6 +100,7 @@ class RTTruthRunConfig:
     mcs_index: int = 14
     mcs_table: int = 1
     perfect_csi: bool = False
+    ebno_db: float | None = None
     pusch_dmrs_config_type: int = 1
     pusch_dmrs_length: int = 1
     pusch_dmrs_additional_position: int = 1
@@ -108,6 +108,12 @@ class RTTruthRunConfig:
     tx_power_dbm: float = 0.0
     num_ofdm_symbols: int = 14
     cp_length: int = 0
+    # MIMO / receiver configuration
+    mimo_mode: str = "su_mimo"
+    channel_backend: str = "apply_ofdm"
+    mimo_detector: str = "lmmse"
+    channel_estimator: str = "pusch_ls"
+    receiver_failure_policy: str = "fail_fast"
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -353,7 +359,7 @@ def _run_nr_pusch_obs(config, adapter_result):
         waveform=nr_result["nr_waveform_spec"],
         observation=nr_result["observation"],
         impairments=nr_result["impairments"],
-        receiver=ReceiverSpec(receiver_type="pusch_receiver"),
+        receiver=nr_result["receiver_spec"],
         evaluation=nr_result["evaluation"],
     )
     return bundle, {
@@ -416,6 +422,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "seed": config.seed,
         "max_tx": config.max_tx,
         "max_rx": config.max_rx,
+        "ebno_db": config.ebno_db,
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
         "link_config": {
@@ -425,4 +432,9 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             "reciprocity_mode": config.link_config.reciprocity_mode,
             "reciprocity_applied": config.link_config.reciprocity_applied,
         },
+        "mimo_mode": config.mimo_mode,
+        "channel_backend": config.channel_backend,
+        "mimo_detector": config.mimo_detector,
+        "channel_estimator": config.channel_estimator,
+        "receiver_failure_policy": config.receiver_failure_policy,
     }

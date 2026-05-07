@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from sionna_measurement_sim.config.schema import CarrierConfig, PHYConfig
 from sionna_measurement_sim.domain.link import LinkConfig
@@ -129,7 +130,8 @@ class TestRunNRPUSCHObservation:
         ).copy()
 
         link = LinkConfig()
-        phy = PHYConfig(num_prb=4, num_ofdm_symbols=14, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, num_ofdm_symbols=14, snr_db=40.0,
+                        num_antenna_ports=2, num_layers=2)
         carrier = CarrierConfig()
 
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
@@ -159,7 +161,7 @@ class TestRunNRPUSCHObservation:
             (num_snapshots, num_tx, num_rx, num_rx_ant, num_tx_ant, num_paths),
         ).copy()
 
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         # Disable reciprocity to keep tx/rx dimensions unchanged
         link = LinkConfig(reciprocity_applied=False)
         carrier = CarrierConfig()
@@ -179,7 +181,7 @@ class TestRunNRPUSCHObservation:
         cir_coeff = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex64)
         cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
 
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         link = LinkConfig()
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
@@ -193,7 +195,7 @@ class TestRunNRPUSCHObservation:
         cir_delays = np.ones((1, 2, 2, 1, 1, 2), dtype=np.float32) * 1e-9
 
         link = LinkConfig(reciprocity_applied=True)
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
 
@@ -204,7 +206,7 @@ class TestRunNRPUSCHObservation:
         cir_delays = np.ones((1, 2, 2, 1, 1, 2), dtype=np.float32) * 1e-9
 
         link = LinkConfig(reciprocity_applied=False)
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
 
@@ -215,7 +217,7 @@ class TestRunNRPUSCHObservation:
         cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
 
         link = LinkConfig()
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
 
@@ -225,10 +227,10 @@ class TestRunNRPUSCHObservation:
         assert ev.detection_rate >= 0.0
 
     def test_pusch_config_snapshot_matches_phy_config(self):
-        cir_coeff = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex64)
-        cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
+        cir_coeff = np.ones((1, 1, 1, 2, 2, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 1, 1, 2, 2, 2), dtype=np.float32) * 1e-9
 
-        phy = PHYConfig(num_prb=8, num_layers=2, mcs_index=20)
+        phy = PHYConfig(num_prb=8, num_layers=2, num_antenna_ports=2, mcs_index=20)
         link = LinkConfig()
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
@@ -243,10 +245,41 @@ class TestRunNRPUSCHObservation:
         cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
 
         link = LinkConfig()
-        phy = PHYConfig(num_prb=4, snr_db=40.0)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
         carrier = CarrierConfig()
         result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
 
         # Skeleton returns 0 for both
         assert result["ber"] == 0.0
         assert result["bler"] == 0.0
+
+    def test_estimated_csi_rejects_unequal_layers_ports(self):
+        """num_layers=1, num_antenna_ports=4 with perfect_csi=False must error.
+
+        CIR has 4 UE antennas (rx_ant=4) and 4 BS antennas (tx_ant=4),
+        so UL: ul_tx_ant=4 matches num_antenna_ports=4.
+        The estimator returns h_hat with num_streams_per_tx=1
+        which must trigger NotImplementedError.
+        """
+        cir_coeff = np.ones((1, 1, 1, 4, 4, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 1, 1, 4, 4, 2), dtype=np.float32) * 1e-9
+
+        link = LinkConfig(reciprocity_applied=False)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_layers=1, num_antenna_ports=4,
+                        perfect_csi=False)
+        carrier = CarrierConfig()
+        with pytest.raises(NotImplementedError, match="num_layers == num_antenna_ports"):
+            run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
+
+    def test_estimated_csi_allowed_when_equal_layers_ports(self):
+        """num_layers=4, num_antenna_ports=4 with perfect_csi=False must succeed."""
+        cir_coeff = np.ones((1, 1, 1, 4, 4, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 1, 1, 4, 4, 2), dtype=np.float32) * 1e-9
+
+        link = LinkConfig(reciprocity_applied=False)
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_layers=4, num_antenna_ports=4,
+                        perfect_csi=False)
+        carrier = CarrierConfig()
+        result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
+        assert result["cfr_est"].shape[3] == 4
+        assert result["cfr_est"].shape[4] == 4

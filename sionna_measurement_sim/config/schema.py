@@ -121,6 +121,12 @@ class PHYConfig(BaseModel):
     pusch_dmrs_length: int = 1
     pusch_dmrs_additional_position: int = 1
     pusch_num_cdm_groups_without_data: int = 2
+    # MIMO / receiver fields (used for NR PUSCH)
+    mimo_mode: str = "su_mimo"
+    channel_backend: str = "apply_ofdm"
+    mimo_detector: str = "lmmse"
+    channel_estimator: str = "pusch_ls"
+    receiver_failure_policy: str = "fail_fast"
 
     @model_validator(mode="after")
     def check_fft_consistent(self) -> PHYConfig:
@@ -173,10 +179,12 @@ class ImpairmentsConfig(BaseModel):
 # ── receiver ─────────────────────────────────────────────────────────
 class ReceiverConfig(BaseModel):
     estimator_type: str = Field(default="ls")
+    channel_estimator: str = Field(default="pusch_ls")
     sync_method: str = Field(default="ideal")
     interpolation_method: str = Field(default="none")
     packet_detection_threshold: float = Field(default=0.0)
     failure_policy: str = Field(default="mark_invalid")
+    mimo_detector: str = Field(default="lmmse")
     calibration_profile_id: str = Field(default="synthetic_default")
 
 

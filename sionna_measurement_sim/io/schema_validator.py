@@ -133,6 +133,7 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
             _require_present(h5, REQUIRED_OBSERVATION_DATASETS, kind=h5py.Dataset)
             _validate_observation_shapes(h5)
+            _validate_nr_pusch_fields_if_applicable(h5)
             if "calibration" in h5:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
         _validate_units(h5)
@@ -371,3 +372,66 @@ def _validate_observation_cfr_est_shape_if_present(h5: h5py.File) -> None:
     if cfr_est.shape[-5:] != truth_cfr.shape[-5:]:
         msg = "/observation/cfr_est shape[-5:] must match /channel/truth/cfr"
         raise SchemaValidationError(msg)
+
+
+NR_PUSCH_REQUIRED_FIELDS = (
+    "waveform/num_prb",
+    "waveform/subcarrier_spacing_khz",
+    "waveform/num_layers",
+    "waveform/num_antenna_ports",
+    "waveform/mcs_index",
+    "waveform/mcs_table",
+    "waveform/dmrs_config_type",
+    "waveform/dmrs_length",
+    "waveform/dmrs_additional_position",
+    "waveform/num_cdm_groups_without_data",
+    "receiver/mimo_detector",
+)
+
+
+def _validate_nr_pusch_fields_if_applicable(h5: h5py.File) -> None:
+    """When waveform/standard == 'nr_pusch', enforce NR-specific fields."""
+    if "waveform/standard" not in h5:
+        return
+    std = h5["waveform/standard"][()]
+    if isinstance(std, bytes):
+        std = std.decode()
+    if std != "nr_pusch":
+        return
+
+    _require_present(
+        h5, NR_PUSCH_REQUIRED_FIELDS, kind=h5py.Dataset,
+    )
+
+    # num_layers >= 1
+    nl = int(h5["waveform/num_layers"][()])
+    if nl < 1:
+        raise SchemaValidationError(
+            f"/waveform/num_layers must be >= 1, got {nl}"
+        )
+
+    # num_antenna_ports >= num_layers
+    nap = int(h5["waveform/num_antenna_ports"][()])
+    if nap < nl:
+        raise SchemaValidationError(
+            f"/waveform/num_antenna_ports ({nap}) must be >= num_layers ({nl})"
+        )
+
+    # mimo_detector must be a recognized value
+    det = h5["receiver/mimo_detector"][()]
+    if isinstance(det, bytes):
+        det = det.decode()
+    if det not in ("lmmse", "kbest"):
+        raise SchemaValidationError(
+            f"/receiver/mimo_detector must be 'lmmse' or 'kbest', got {det!r}"
+        )
+
+    # receiver_type must be pusch_receiver
+    if "receiver/receiver_type" in h5:
+        rt = h5["receiver/receiver_type"][()]
+        if isinstance(rt, bytes):
+            rt = rt.decode()
+        if rt != "pusch_receiver":
+            raise SchemaValidationError(
+                f"/receiver/receiver_type must be 'pusch_receiver' for NR PUSCH, got {rt!r}"
+            )

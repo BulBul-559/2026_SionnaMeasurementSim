@@ -442,3 +442,105 @@ Known issues or blockers:
 - No Phase 8 blockers.
 - All phases (0-8) now complete with 73 passing tests.
 - Existing uncommitted document changes outside this phase were preserved: `docs/README.md` and `docs/12_final_acceptance_checklist.md`.
+
+## 2026-05-07 - NR PUSCH MIMO Fix (Post-Phase-8)
+
+This round addressed the MIMO gap analysis from [docs/15_mimo_phy_gap_analysis.md](15_mimo_phy_gap_analysis.md).
+
+### What was fixed
+
+1. **Created `sionna_measurement_sim/phy/nr_mimo_channel.py`** — MIMO channel bridge
+   - Converts project CIR to Sionna-compatible CFR using `cir_to_ofdm_channel`.
+   - Handles TDD reciprocity and UL→DL convention reversals.
+   - Exports `PUSCHMIMOChannel` dataclass and helper functions.
+
+2. **Refactored `sionna_measurement_sim/phy/nr_pusch_observation.py`** for full MIMO
+   - Added `build_multiuser_pusch_configs()` with per-UE DMRS port sets.
+   - Added `build_stream_management()` and `build_mimo_detector()`.
+   - Replaced manual `tx_freq * h_ch + noise` with `ApplyOFDMChannel` for full MIMO.
+   - PUSCHReceiver now uses real `StreamManagement` + `LinearDetector`/`KBestDetector`.
+   - `perfect_csi=True` path passes physical MIMO `h` to PUSCHReceiver.
+   - `/observation/cfr_est` written from full MIMO `h` (no SISO broadcast).
+   - Per-link iteration over (snap, ul_tx, ul_rx) with independent processing.
+
+3. **Updated config schema**: Added `mimo_detector`, `channel_estimator`, `receiver_failure_policy` to `PHYConfig`, `ReceiverConfig`, and `RTTruthRunConfig`.
+
+4. **Updated schema validator**: NR PUSCH field validation (num_layers, num_antenna_ports, mimo_detector, receiver_type).
+
+5. **Fixed pre-existing bug**: `requir e_shape` typo in `sionna_measurement_sim/domain/motion.py`.
+
+### New tests added
+
+- `tests/unit/test_nr_mimo_channel_bridge.py` — 13 tests for CIR→CFR bridge, shape conversions, reciprocity
+- `tests/unit/test_nr_pusch_mimo_config.py` — 13 tests for multi-user configs, StreamManagement, detector builders
+- `tests/integration/test_nr_pusch_mimo_observation.py` — 6 tests for 4x4 SU-MIMO pipeline (self-generated HDF5, no broadcast check, NMSE, BER/BLER, estimated CSI smoke)
+- `tests/schema/test_nr_pusch_schema.py` — 8 tests for NR PUSCH HDF5 fields
+
+### Commands and results
+
+- `uv run pytest tests/unit/test_nr_mimo_channel_bridge.py tests/unit/test_nr_pusch_mimo_config.py`: 26 passed
+- `uv run pytest tests/integration/test_nr_pusch_mimo_observation.py tests/schema/test_nr_pusch_schema.py`: 14 passed
+- `uv run pytest`: 156 passed, 2 warnings
+- `uv run ruff check .`: All checks passed
+
+### Acceptance criteria met
+
+1. No `h_tensor[0, 0, 0, 0, :]` in NR PUSCH backend — removed.
+2. NR PUSCH 4x4 integration test self-generates HDF5 (does not rely on existing outputs).
+3. `/observation/cfr_est.shape[1:] == /channel/truth/cfr.shape` — verified in tests.
+4. Different antenna pairs have distinct CFR estimates (no SISO broadcast) — verified in `test_4x4_no_siso_broadcast`.
+5. `/receiver/mimo_detector` = "lmmse" matches actual detector used — verified.
+6. `perfect_csi=True` 跑通 4x4 SU-MIMO — verified in `test_4x4_pipeline_self_generated`.
+7. `StreamManagement`, `LinearDetector`, DMRS port sets have unit tests.
+8. HDF5 schema validates NR PUSCH MIMO fields — verified.
+
+### Known limitations
+
+- Estimated CSI (`perfect_csi=False`) requires `num_layers == num_antenna_ports` for correct shape; with codebook precoding and `num_layers < num_antenna_ports`, the estimated effective channel has fewer streams than antenna ports.
+- MU-MIMO (multiple project TX → multiple PUSCHConfigs with different DMRS ports) infrastructure is in place but not yet integration-tested beyond unit tests.
+- BLER/CRC/transport block semantics remain at bit-level comparison (per review.md #4).
+- Only SU-MIMO with single BS (num_rx=1) is integration-tested; multi-BS scenarios are structurally supported but untested.
+
+## 2026-05-07 - NR PUSCH MIMO Fix Round 2 (SU-MIMO Hardening)
+
+This round tightened SU-MIMO boundaries, fixed the estimated CSI zero-padding
+anti-pattern, and added statistical acceptance tests per the execution guide in
+[docs/review.md](review.md).
+
+### What was fixed
+
+1. **SU-MIMO boundaries**: Added `mimo_mode="su_mimo"` and `channel_backend="apply_ofdm"`
+   fields to `PHYConfig`, `ReceiverConfig`, and `RTTruthRunConfig`. fail-fast guard
+   rejects `mimo_mode != "su_mimo"`.
+
+2. **Estimated CSI zero-padding removed**: When `num_layers < num_antenna_ports` and
+   `perfect_csi=False`, the code now raises `NotImplementedError` instead of silently
+   zero-padding the stream-level effective channel estimate into the physical
+   antenna-pair `/observation/cfr_est`. Tests verify both the error case and the
+   allowed case (`num_layers == num_antenna_ports`).
+
+3. **4x4 MIMO statistical test** (`tests/statistical/test_nr_pusch_mimo_metrics.py`):
+   7 tests covering perfect vs estimated CSI NMSE/BER comparison, EB/N0 monotonicity,
+   CFR shape consistency, estimation success, and mimo_detector metadata.
+
+### Commands and results
+
+- `uv run pytest tests/unit/test_nr_mimo_channel_bridge.py tests/unit/test_nr_pusch_mimo_config.py tests/integration/test_nr_pusch_mimo_observation.py tests/schema/test_nr_pusch_schema.py tests/statistical/test_nr_pusch_mimo_metrics.py`: 48 passed
+- `uv run pytest`: 166 passed, 2 warnings
+- `uv run ruff check .`: All checks passed
+
+### Key files changed
+
+- `sionna_measurement_sim/config/schema.py` — added `mimo_mode`, `channel_backend`
+- `sionna_measurement_sim/rt/truth_pipeline.py` — added `ebno_db`, `mimo_mode`, `channel_backend` to run config and snapshot
+- `sionna_measurement_sim/phy/nr_pusch_observation.py` — replaced zero-padding with `NotImplementedError`; relaxed SU-MIMO topology guard
+- `tests/unit/test_nr_pusch_config.py` — added 2 estimated CSI error/allow tests
+- `tests/integration/test_nr_pusch_mimo_observation.py` — added estimated CSI error-case test
+- `tests/statistical/test_nr_pusch_mimo_metrics.py` — new file, 7 statistical tests
+
+### Known limitations (unchanged)
+
+- MU-MIMO not yet implemented (infrastructure ready in `build_multiuser_pusch_configs`).
+- Estimated CSI with `num_layers < num_antenna_ports` (codebook precoding) explicitly rejected for CFR export.
+- BLER/CRC/transport block semantics remain at bit-level comparison.
+- No `CIRDataset + OFDMChannel` backend yet (current backend is `ApplyOFDMChannel`).
