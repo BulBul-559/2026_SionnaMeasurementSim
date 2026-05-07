@@ -301,8 +301,12 @@ def run_nr_pusch_observation(
         ber, bler = 0.0, 0.0  # fallback if receiver fails
         num_bit_errors, num_total_bits = 0, 0
 
-    # 6. Build observation result matching truth CFR antenna dims
-    # Keep full antenna dims from CIR → CFR conversion
+    # 6. Reverse reciprocity to match truth CFR [snap, tx, rx, rx_ant, tx_ant, sub]
+    if reciprocity_applied:
+        # After CIR reciprocity: [snap, rx, tx, tx_ant, rx_ant, sub]
+        # → reverse: swap axis 1↔2 and 3↔4
+        cfr_np = np.transpose(cfr_np, (0, 2, 1, 4, 3, 5))
+
     cfr_est = cfr_np[0:1].astype(np.complex64)  # [1, tx, rx, rx_ant, tx_ant, sub]
     link_shape = cfr_est.shape[:3]  # [snap, tx, rx]
     observation = ObservationResult(

@@ -230,6 +230,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             else None
         ),
         link=config.link_config,
+        waveform_extras=nr_pusch_extra.get("waveform_extras"),
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -355,7 +356,21 @@ def _run_nr_pusch_obs(config, adapter_result):
         receiver=ReceiverSpec(receiver_type="pusch_receiver"),
         evaluation=nr_result["evaluation"],
     )
-    return bundle, {"pusch_config": nr_result["pusch_config"]}
+    return bundle, {
+        "pusch_config": nr_result["pusch_config"],
+        "waveform_extras": {
+            "num_prb": config.num_prb,
+            "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
+            "num_layers": config.num_layers,
+            "num_antenna_ports": config.num_antenna_ports,
+            "mcs_index": config.mcs_index,
+            "mcs_table": config.mcs_table,
+            "dmrs_config_type": config.pusch_dmrs_config_type,
+            "dmrs_length": config.pusch_dmrs_length,
+            "dmrs_additional_position": config.pusch_dmrs_additional_position,
+            "num_cdm_groups_without_data": config.pusch_num_cdm_groups_without_data,
+        },
+    }
 
 
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:

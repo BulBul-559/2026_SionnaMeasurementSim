@@ -156,6 +156,7 @@ class MeasurementSimulationResult:
     calibration: CalibrationResult | None = None
     diagnostics: DiagnosticsReport | None = None
     link: LinkConfig | None = None
+    waveform_extras: dict | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr

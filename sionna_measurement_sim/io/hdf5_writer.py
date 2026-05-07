@@ -225,6 +225,17 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_dataset(group, "data_subcarrier_indices", waveform.data_subcarrier_indices)
     _write_dataset(group, "pilot_symbols", waveform.pilot_symbols, unit="linear_complex")
     _write_scalar(group, "tx_power_dbm", np.float32(waveform.tx_power_dbm))
+    # NR PUSCH extras
+    extras = result.waveform_extras
+    if extras:
+        for key in (
+            "num_prb", "subcarrier_spacing_khz", "num_layers",
+            "num_antenna_ports", "mcs_index", "mcs_table",
+            "dmrs_config_type", "dmrs_length", "dmrs_additional_position",
+            "num_cdm_groups_without_data",
+        ):
+            if key in extras:
+                _write_scalar(group, key, np.int32(extras[key]))
 
 
 def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> None:
