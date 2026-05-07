@@ -93,6 +93,21 @@ class RTTruthRunConfig:
     calibration_enabled: bool = True
     link_config: LinkConfig = LinkConfig()
     phy_standard: str = "custom_ofdm"  # "custom_ofdm" | "nr_pusch"
+    # NR PUSCH fields (used when phy_standard == "nr_pusch")
+    subcarrier_spacing_khz: int = 30
+    num_prb: int = 16
+    num_layers: int = 1
+    num_antenna_ports: int = 4
+    mcs_index: int = 14
+    mcs_table: int = 1
+    perfect_csi: bool = False
+    pusch_dmrs_config_type: int = 1
+    pusch_dmrs_length: int = 1
+    pusch_dmrs_additional_position: int = 1
+    pusch_num_cdm_groups_without_data: int = 2
+    tx_power_dbm: float = 0.0
+    num_ofdm_symbols: int = 14
+    cp_length: int = 0
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
