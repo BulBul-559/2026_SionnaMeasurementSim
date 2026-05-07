@@ -113,6 +113,8 @@ REQUIRED_OBSERVATION_DATASETS = (
     "evaluation/ber",
     "evaluation/bler",
     "evaluation/num_bit_errors",
+    "evaluation/num_bits",
+    "evaluation/num_block_errors",
     "evaluation/num_blocks",
 )
 
@@ -133,6 +135,7 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
             _require_present(h5, REQUIRED_OBSERVATION_DATASETS, kind=h5py.Dataset)
             _validate_observation_shapes(h5)
+            _validate_bler_contract(h5)
             _validate_nr_pusch_fields_if_applicable(h5)
             if "calibration" in h5:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
@@ -435,3 +438,51 @@ def _validate_nr_pusch_fields_if_applicable(h5: h5py.File) -> None:
             raise SchemaValidationError(
                 f"/receiver/receiver_type must be 'pusch_receiver' for NR PUSCH, got {rt!r}"
             )
+
+
+def _validate_bler_contract(h5: h5py.File) -> None:
+    """Validate TB/CRC BLER contract for NR PUSCH output.
+
+    Only enforced when waveform/standard == "nr_pusch" because
+    custom_ofdm uses legacy BLER semantics (num_blocks may be 0).
+    """
+    if "evaluation/num_blocks" not in h5:
+        return
+    if "evaluation/num_block_errors" not in h5:
+        return
+    if "evaluation/bler" not in h5:
+        return
+
+    # Only enforce strict BLER contract for NR PUSCH
+    if "waveform/standard" in h5:
+        std = h5["waveform/standard"][()]
+        if isinstance(std, bytes):
+            std = std.decode()
+        if std != "nr_pusch":
+            return
+    else:
+        return
+
+    num_blocks = int(h5["evaluation/num_blocks"][()])
+    num_block_errors = int(h5["evaluation/num_block_errors"][()])
+    bler = float(h5["evaluation/bler"][()])
+
+    if num_blocks <= 0:
+        raise SchemaValidationError(
+            f"/evaluation/num_blocks must be > 0, got {num_blocks}"
+        )
+    if num_block_errors < 0:
+        raise SchemaValidationError(
+            f"/evaluation/num_block_errors must be >= 0, got {num_block_errors}"
+        )
+    if num_block_errors > num_blocks:
+        raise SchemaValidationError(
+            f"/evaluation/num_block_errors ({num_block_errors}) "
+            f"must be <= num_blocks ({num_blocks})"
+        )
+    expected_bler = num_block_errors / num_blocks
+    if not np.isclose(bler, expected_bler, rtol=1e-4, atol=1e-6):
+        raise SchemaValidationError(
+            f"/evaluation/bler ({bler}) must equal "
+            f"num_block_errors/num_blocks ({expected_bler})"
+        )

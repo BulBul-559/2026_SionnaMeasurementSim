@@ -536,6 +536,8 @@ def _process_mu_mimo(
     estimation_success = np.ones((num_snap, num_ul_tx, num_ul_rx), dtype=np.bool_)
     total_bit_errors = 0
     total_bits = 0
+    total_block_errors = 0
+    total_blocks = 0
     num_receiver_failures = 0
 
     # Wrap CFR in PUSCHMIMOChannel for cfr_to_full_mimo_h
@@ -559,22 +561,16 @@ def _process_mu_mimo(
 
         # 2. Generate TX signal for all UEs
         tx_signal, tx_bits = tx(1)
-        # tx_signal: [1, num_ul_tx, num_streams_per_tx, num_ofdm_symbols, fft_size]
 
-        # 3. Apply MIMO OFDM channel
-        y = backend.apply(
+        # 3. Apply MIMO OFDM channel via backend's full-MIMO path
+        channel_result = backend.apply_full_with_h(
             tx_signal, no,
-            snap_idx=snap_idx, ul_tx_idx=0, ul_rx_idx=0,
+            snap_idx=snap_idx,
             num_ofdm_symbols=num_ofdm_symbols,
             resource_grid=tx.resource_grid,
         )
-        # For MU-MIMO, backend.apply with full h handles multi-TX/RX.
-        # If using ApplyOFDMChannelBackend, it uses per-link h.
-        # For MU-MIMO we bypass backend.apply and use ApplyOFDMChannel directly.
-        from sionna.phy.channel import ApplyOFDMChannel
-
-        apply_ch = ApplyOFDMChannel()
-        y = apply_ch(tx_signal, h_full, no)
+        y = channel_result.y
+        h_full = channel_result.h
 
         # 4. Run PUSCHReceiver
         receiver_failed = False
@@ -646,6 +642,9 @@ def _process_mu_mimo(
             num_block_errs = 0
             joint_bler = 1.0 if int(np.sum(rx_bits_np != tx_bits_np)) > 0 else 0.0
 
+        total_block_errors += num_block_errs
+        total_blocks += num_blocks
+
         for ul_tx_idx in range(num_ul_tx):
             for ul_rx_idx in range(num_ul_rx):
                 bit_errs = int(np.sum(rx_bits_np != tx_bits_np))
@@ -689,6 +688,8 @@ def _process_mu_mimo(
         "estimation_success": estimation_success,
         "total_bit_errors": total_bit_errors,
         "total_bits": total_bits,
+        "total_block_errors": total_block_errors,
+        "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
     }
 
@@ -712,20 +713,11 @@ def _process_one_pusch_link(
 
     Returns a dict with cfr_est_slice, nmse_db, ber, bler, etc.
     """
-    # 1. Build perfect-CSI h for this (snap, ul_tx, ul_rx) link
-    h_perfect = backend.perfect_h(
-        snap_idx=snap_idx,
-        ul_tx_idx=ul_tx_idx,
-        ul_rx_idx=ul_rx_idx,
-        num_ofdm_symbols=num_ofdm_symbols,
-    )
-    # h_perfect: [1, 1, num_rx_ant, 1, num_tx_ant, num_ofdm_symbols, fft_size]
-
-    # 2. Generate TX signal
+    # 1. Generate TX signal
     tx_signal, tx_bits = tx(1)
 
-    # 3. Apply MIMO OFDM channel via backend
-    y = backend.apply(
+    # 2. Apply MIMO OFDM channel via backend — get both y and h
+    channel_result = backend.apply_with_h(
         tx_signal, no,
         snap_idx=snap_idx,
         ul_tx_idx=ul_tx_idx,
@@ -733,9 +725,12 @@ def _process_one_pusch_link(
         num_ofdm_symbols=num_ofdm_symbols,
         resource_grid=tx.resource_grid,
     )
+    y = channel_result.y
+    h_perfect = channel_result.h
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
+    # h_perfect: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, ...]
 
-    # 4. Run PUSCHReceiver and get cfr_est
+    # 3. Run PUSCHReceiver and get cfr_est
     receiver_failed = False
     cfr_est_slice: np.ndarray | None = None
 

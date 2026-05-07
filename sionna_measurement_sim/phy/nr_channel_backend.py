@@ -20,6 +20,28 @@ from sionna_measurement_sim.phy.nr_mimo_channel import (
     cfr_to_pusch_perfect_h,
 )
 
+# ── result type ───────────────────────────────────────────────────────
+
+
+class ChannelApplyResult:
+    """Result of applying the MIMO OFDM channel.
+
+    Attributes
+    ----------
+    y : torch.Tensor
+        Received signal ``[batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]``.
+    h : torch.Tensor
+        Channel frequency response that was applied
+        ``[batch, num_rx, num_rx_ant, num_tx, num_tx_ant, num_ofdm_symbols, fft_size]``.
+    """
+
+    __slots__ = ("y", "h")
+
+    def __init__(self, y: torch.Tensor, h: torch.Tensor) -> None:
+        self.y = y
+        self.h = h
+
+
 # ── ApplyOFDMChannel backend (current stable) ───────────────────────────
 
 
@@ -129,6 +151,64 @@ class ApplyOFDMChannelBackend:
         h = self.perfect_h(snap_idx, ul_tx_idx, ul_rx_idx, num_ofdm_symbols)
         return self._apply(x, h, no)
 
+    def apply_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply channel and return both ``y`` and ``h``.
+
+        The returned ``h`` is the channel tensor that was applied
+        (from pre-computed CFR via ``cfr_to_pusch_perfect_h``).
+        """
+        if self._apply is None:
+            from sionna.phy.channel import ApplyOFDMChannel
+            self._apply = ApplyOFDMChannel()
+
+        h = self.perfect_h(snap_idx, ul_tx_idx, ul_rx_idx, num_ofdm_symbols)
+        y = self._apply(x, h, no)
+        return ChannelApplyResult(y=y, h=h)
+
+    def apply_full_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        snap_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply full multi-TX/RX MIMO channel (MU-MIMO).
+
+        Uses ``cfr_to_full_mimo_h`` for the channel tensor.
+        """
+        from sionna_measurement_sim.phy.nr_mimo_channel import (
+            PUSCHMIMOChannel,
+            cfr_to_full_mimo_h,
+        )
+
+        if self._apply is None:
+            from sionna.phy.channel import ApplyOFDMChannel
+            self._apply = ApplyOFDMChannel()
+
+        channel = PUSCHMIMOChannel(
+            cfr=self._channel.cfr,
+            num_snap=self._channel.num_snap,
+            num_ul_tx=self._channel.num_ul_tx,
+            num_ul_rx=self._channel.num_ul_rx,
+            num_ul_tx_ant=self._channel.num_ul_tx_ant,
+            num_ul_rx_ant=self._channel.num_ul_rx_ant,
+            num_subcarriers=self._channel.num_subcarriers,
+            reciprocity_applied=self._channel.reciprocity_applied,
+        )
+        h_full = cfr_to_full_mimo_h(channel, snap_idx, num_ofdm_symbols)
+        y = self._apply(x, h_full, no)
+        return ChannelApplyResult(y=y, h=h_full)
+
 
 # ── CIRDataset + OFDMChannel backend ──────────────────────────────────
 
@@ -221,6 +301,12 @@ class CIRDatasetOFDMChannelBackend:
         num_ul_tx_ant = cir_ul.shape[4]
         num_paths = cir_ul.shape[5]
 
+        # CIRDataset expects tau: [num_rx, num_tx, num_paths] (link-level,
+        # not per-antenna-pair).  Real RT data has antenna-dependent delays.
+        # We compute per-link median delay as the shared approximation.
+        # The OFDMChannel output may differ slightly from the pre-computed
+        # per-antenna-pair CFR; this is the standard Sionna link-level tradeoff.
+
         # Pre-compute CFR (same as ApplyOFDMChannelBackend path)
         from sionna_measurement_sim.phy.nr_mimo_channel import (
             _cir_to_cfr_internal,
@@ -288,9 +374,10 @@ class CIRDatasetOFDMChannelBackend:
         a_slice = self._cir_ul[
             snap_idx, ul_tx_idx, ul_rx_idx, ...
         ]  # [ul_rx_ant, ul_tx_ant, path]
-        tau_slice = self._tau_ul[
-            snap_idx, ul_tx_idx, ul_rx_idx, 0, 0, :
-        ]  # [path] — first antenna pair
+        tau_slice = np.median(
+            self._tau_ul[snap_idx, ul_tx_idx, ul_rx_idx, :, :, :],
+            axis=(0, 1),
+        )  # [path] — median across antenna pairs
 
         def _gen():
             # CIRDataset expects:
@@ -373,8 +460,70 @@ class CIRDatasetOFDMChannelBackend:
             normalize_channel=False,
             return_channel=True,
         )
-        y, _h = ofdm_ch(x, no)
+        y, h = ofdm_ch(x, no)
         return y
+
+    def apply_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply channel via ``OFDMChannel`` and return both ``y`` and ``h``.
+
+        The returned ``h`` comes directly from
+        ``OFDMChannel(return_channel=True)``, closing the official
+        backend loop for perfect CSI.
+        """
+        from sionna.phy.channel import CIRDataset, OFDMChannel
+
+        if resource_grid is None:
+            raise ValueError(
+                "CIRDatasetOFDMChannelBackend.apply_with_h() requires resource_grid"
+            )
+
+        generator = self._make_cir_generator(snap_idx, ul_tx_idx, ul_rx_idx)
+        dataset = CIRDataset(
+            cir_generator=generator,
+            batch_size=1,
+            num_rx=1,
+            num_rx_ant=self._num_ul_rx_ant,
+            num_tx=1,
+            num_tx_ant=self._num_ul_tx_ant,
+            num_paths=self._num_paths,
+            num_time_steps=1,
+        )
+        ofdm_ch = OFDMChannel(
+            dataset, resource_grid,
+            normalize_channel=False,
+            return_channel=True,
+        )
+        y, h = ofdm_ch(x, no)
+        return ChannelApplyResult(y=y, h=h)
+
+    def apply_full_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        snap_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Full multi-TX/RX MIMO channel (MU-MIMO) — not yet supported.
+
+        The CIRDataset backend currently only handles per-link SU-MIMO.
+        Full MU-MIMO would require a multi-TX/RX generator and a
+        single ``OFDMChannel`` covering all links.
+        """
+        raise NotImplementedError(
+            "CIRDatasetOFDMChannelBackend does not yet support "
+            "full multi-TX/RX MU-MIMO. Use channel_backend='apply_ofdm' "
+            "for MU-MIMO."
+        )
 
 
 # ── backend factory ─────────────────────────────────────────────────────

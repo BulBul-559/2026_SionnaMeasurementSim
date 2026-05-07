@@ -21,6 +21,7 @@ def _run_4x4_mimo_pipeline(
     num_antenna_ports: int = 4,
     perfect_csi: bool = True,
     snr_db: float = 40.0,
+    channel_backend: str = "apply_ofdm",
 ) -> Path:
     """Run NR PUSCH pipeline with 4x4 antenna and return HDF5 path."""
     from sionna_measurement_sim.rt.truth_pipeline import (
@@ -54,6 +55,7 @@ def _run_4x4_mimo_pipeline(
         receiver_failure_policy="fail_fast",
         mimo_detector="lmmse",
         channel_estimator="perfect" if perfect_csi else "pusch_ls",
+        channel_backend=channel_backend,
     )
     return run_rt_truth_pipeline(config)
 
@@ -227,3 +229,25 @@ class TestNRPUSCH4x4MIMO:
                 "Expected NotImplementedError for "
                 "num_layers=1, num_antenna_ports=4 with estimated CSI"
             )
+
+    def test_cir_dataset_ofdm_h_closes_csi_loop(self, tmp_path):
+        """cir_dataset_ofdm backend's returned h must be used for cfr_est."""
+        try:
+            path = _run_4x4_mimo_pipeline(
+                tmp_path, num_layers=4, num_antenna_ports=4,
+                perfect_csi=True, snr_db=40.0,
+                channel_backend="cir_dataset_ofdm",
+            )
+        except ImportError:
+            pytest.skip("NR PUSCH receiver not available")
+        except Exception as exc:
+            pytest.fail(f"cir_dataset_ofdm pipeline failed: {exc}")
+
+        with h5py.File(path, "r") as h5:
+            cfr_est = h5["observation/cfr_est"][()]
+            truth = h5["channel/truth/cfr"][()]
+            assert cfr_est.shape[1:] == truth.shape
+            assert np.all(np.isfinite(cfr_est))
+            # At high SNR with perfect CSI, NMSE should be excellent
+            nmse = h5["evaluation/nmse_db"][()]
+            assert np.all(nmse < -20), f"NMSE too high: {nmse}"

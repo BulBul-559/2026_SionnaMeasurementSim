@@ -627,3 +627,47 @@ Implemented joint multi-UE PUSCH (MU-MIMO) and transport-block CRC BLER.
 **Commands:** ``uv run pytest``: 176 passed, 2 warnings; ``uv run ruff check .``: All checks passed.
 
 **New files:** ``tests/integration/test_nr_pusch_mu_mimo_observation.py`` (4 tests).
+
+## 2026-05-07 - NR PUSCH MIMO Backend Closure (Steps 1-5)
+
+Closed remaining semantic gaps in the MIMO PHY pipeline.
+
+### What was fixed
+
+**Step 1 — cir_dataset_ofdm returned-h loop:**
+- Added ``ChannelApplyResult(y, h)`` dataclass.
+- Added ``apply_with_h()`` to both backends returning both ``y`` and ``h``.
+- ``_process_one_pusch_link`` now uses ``backend.apply_with_h()``, and the
+  returned ``h`` drives perfect CSI, PUSCHReceiver, and ``/observation/cfr_est``.
+- ``CIRDatasetOFDMChannelBackend.apply_with_h()`` returns ``h`` directly from
+  ``OFDMChannel(return_channel=True)``.
+- Added integration test ``test_cir_dataset_ofdm_h_closes_csi_loop``.
+
+**Step 2 — CIRDataset delay semantics:**
+- ``CIRDataset`` requires link-level ``tau: [num_rx, num_tx, num_paths]``,
+  not per-antenna-pair.  Real RT data has antenna-dependent delays.
+- Generator now uses per-link **median** delay across antenna pairs (was
+  hard-coded ``[0, 0]`` first antenna pair).
+- Documented as the standard Sionna link-level approximation.
+
+**Step 3 — MU-MIMO backend bypass removed:**
+- Added ``apply_full_with_h()`` to both backends.
+- ``ApplyOFDMChannelBackend.apply_full_with_h()`` uses ``cfr_to_full_mimo_h``
+  for all TX/RX.
+- ``CIRDatasetOFDMChannelBackend.apply_full_with_h()`` raises
+  ``NotImplementedError`` (full multi-TX/RX not yet supported for CIRDataset).
+- ``_process_mu_mimo`` no longer unconditionally overwrites ``y`` with
+  ``ApplyOFDMChannel``; uses backend's ``apply_full_with_h()``.
+
+**Step 4 — TB/CRC BLER contract strengthened:**
+- ``/evaluation/num_block_errors`` added to schema required fields.
+- New ``_validate_bler_contract()`` enforces for NR PUSCH output:
+  ``num_blocks > 0``, ``0 <= num_block_errors <= num_blocks``,
+  ``bler == num_block_errors / num_blocks``.
+- MU-MIMO processing now properly accumulates ``total_block_errors`` and
+  ``total_blocks``.
+
+### Commands and results
+
+- ``uv run pytest``: 177 passed, 2 warnings
+- ``uv run ruff check .``: All checks passed
