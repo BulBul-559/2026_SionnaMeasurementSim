@@ -544,3 +544,39 @@ anti-pattern, and added statistical acceptance tests per the execution guide in
 - Estimated CSI with `num_layers < num_antenna_ports` (codebook precoding) explicitly rejected for CFR export.
 - BLER/CRC/transport block semantics remain at bit-level comparison.
 - No `CIRDataset + OFDMChannel` backend yet (current backend is `ApplyOFDMChannel`).
+
+## 2026-05-07 - NR PUSCH Channel Backend Abstraction
+
+Extracted channel operations into a pluggable backend to prepare for the
+official ``CIRDataset + OFDMChannel`` route without touching per-link processing.
+
+### What was done
+
+- **Created `sionna_measurement_sim/phy/nr_channel_backend.py`**:
+  - ``ApplyOFDMChannelBackend`` class wrapping the current
+    ``build_mimo_cfr_from_cir + ApplyOFDMChannel`` logic.
+  - ``create_channel_backend()`` factory function for backend selection by name.
+  - Delegates all PUSCHMIMOChannel properties (num_snap, num_ul_tx, cfr, etc.).
+  - ``perfect_h()`` method returns the per-link perfect-CSI tensor.
+  - ``apply()`` method applies the MIMO OFDM channel via ``ApplyOFDMChannel``.
+
+- **Refactored `run_nr_pusch_observation` and `_process_one_pusch_link`**:
+  - Replaced direct ``PUSCHMIMOChannel`` + ``ApplyOFDMChannel`` usage with
+    a single ``backend`` parameter.
+  - Backend selection is config-driven via ``channel_backend`` config field.
+  - All existing tests pass without modification.
+
+### Commands and results
+
+- `uv run pytest`: 166 passed, 2 warnings
+- `uv run ruff check .`: All checks passed
+
+### Key files changed
+
+- `sionna_measurement_sim/phy/nr_channel_backend.py` — new file
+- `sionna_measurement_sim/phy/nr_pusch_observation.py` — uses backend
+
+### Next
+
+- Implement `CIRDatasetOFDMChannelBackend` as an alternative backend.
+- MU-MIMO and full TB/CRC BLER deferred to later phases.

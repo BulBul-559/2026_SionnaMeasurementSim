@@ -23,10 +23,11 @@ from sionna_measurement_sim.domain.observation import (
     ReceiverSpec,
     WaveformSpec,
 )
+from sionna_measurement_sim.phy.nr_channel_backend import (
+    ApplyOFDMChannelBackend,
+    create_channel_backend,
+)
 from sionna_measurement_sim.phy.nr_mimo_channel import (
-    PUSCHMIMOChannel,
-    build_mimo_cfr_from_cir,
-    cfr_to_pusch_perfect_h,
     pusch_h_to_cfr_est,
     reverse_reciprocity_cfr,
 )
@@ -228,19 +229,21 @@ def run_nr_pusch_observation(
             f"mimo_mode={mimo_mode!r} is not supported. Only 'su_mimo' is currently implemented."
         )
 
-    # 1. Build MIMO channel from CIR  ─────────────────────────────────
-    channel = build_mimo_cfr_from_cir(
+    # 1. Build channel backend from CIR  ──────────────────────────────
+    channel_backend_name = getattr(phy_config, "channel_backend", "apply_ofdm")
+    backend = create_channel_backend(
         cir_coefficients, cir_delays, link_config,
         sc_spacing_hz, num_subcarriers,
+        backend_name=channel_backend_name,
     )
 
     # 1a. SU-MIMO guard: each (ul_tx, ul_rx) pair is processed
     #     independently.  Multiple TX (UEs) and RX (BSs) are fine.
     #     MU-MIMO (joint multi-UE per RX) is not yet implemented.
-    cfr_clean_ref = channel.cfr.copy()
-    num_snap = channel.num_snap
-    num_ul_tx = channel.num_ul_tx
-    num_ul_rx = channel.num_ul_rx
+    cfr_clean_ref = backend.cfr.copy()
+    num_snap = backend.num_snap
+    num_ul_tx = backend.num_ul_tx
+    num_ul_rx = backend.num_ul_rx
 
     # 2. Build PUSCH configs and transmitter  ─────────────────────────
     pusch_configs = build_multiuser_pusch_configs(phy_config, carrier_config)
@@ -300,10 +303,6 @@ def run_nr_pusch_observation(
     total_bits = 0
     num_receiver_failures = 0
 
-    from sionna.phy.channel import ApplyOFDMChannel
-
-    apply_ch = ApplyOFDMChannel()
-
     for snap_idx in range(num_snap):
         for ul_tx_idx in range(num_ul_tx):
             for ul_rx_idx in range(num_ul_rx):
@@ -311,10 +310,9 @@ def run_nr_pusch_observation(
                     snap_idx=snap_idx,
                     ul_tx_idx=ul_tx_idx,
                     ul_rx_idx=ul_rx_idx,
-                    channel=channel,
+                    backend=backend,
                     tx=tx,
                     rx=rx,
-                    apply_ch=apply_ch,
                     no=no,
                     perfect_csi=perfect_csi,
                     num_ofdm_symbols=num_ofdm_symbols,
@@ -427,7 +425,7 @@ def run_nr_pusch_observation(
             random_seed=42,
             awgn_config=f'{{"snr_db": {float(snr_db)}}}',
         ),
-        "reciprocity_applied": channel.reciprocity_applied,
+        "reciprocity_applied": backend.reciprocity_applied,
         "num_tx_bits": total_bits,
         "tx_signal_shape": None,
     }
@@ -441,10 +439,9 @@ def _process_one_pusch_link(
     snap_idx: int,
     ul_tx_idx: int,
     ul_rx_idx: int,
-    channel: PUSCHMIMOChannel,
+    backend: ApplyOFDMChannelBackend,
     tx: Any,
     rx: Any,
-    apply_ch: Any,
     no: torch.Tensor,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -455,8 +452,7 @@ def _process_one_pusch_link(
     Returns a dict with cfr_est_slice, nmse_db, ber, bler, etc.
     """
     # 1. Build perfect-CSI h for this (snap, ul_tx, ul_rx) link
-    h_perfect = cfr_to_pusch_perfect_h(
-        channel,
+    h_perfect = backend.perfect_h(
         snap_idx=snap_idx,
         ul_tx_idx=ul_tx_idx,
         ul_rx_idx=ul_rx_idx,
@@ -467,8 +463,14 @@ def _process_one_pusch_link(
     # 2. Generate TX signal
     tx_signal, tx_bits = tx(1)
 
-    # 3. Apply MIMO OFDM channel
-    y = apply_ch(tx_signal, h_perfect, no)
+    # 3. Apply MIMO OFDM channel via backend
+    y = backend.apply(
+        tx_signal, no,
+        snap_idx=snap_idx,
+        ul_tx_idx=ul_tx_idx,
+        ul_rx_idx=ul_rx_idx,
+        num_ofdm_symbols=num_ofdm_symbols,
+    )
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
 
     # 4. Run PUSCHReceiver and get cfr_est
@@ -521,7 +523,7 @@ def _process_one_pusch_link(
         # When num_layers != num_antenna_ports the estimator returns an
         # effective (stream-level) channel that cannot be written into
         # /observation/cfr_est without the precoding matrix.
-        _num_tx_ant = channel.cfr.shape[4]
+        _num_tx_ant = backend.cfr.shape[4]
         h_hat_dim4 = h_hat.shape[4]
         if h_hat_dim4 == _num_tx_ant:
             cfr_est_slice = pusch_h_to_cfr_est(h_hat)
@@ -542,7 +544,7 @@ def _process_one_pusch_link(
     bler = 1.0 if num_bit_errors > 0 else 0.0
 
     # 6. Compute per-link NMSE
-    truth_slice = channel.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
+    truth_slice = backend.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
     error = cfr_est_slice - truth_slice
     signal_power = np.mean(np.abs(truth_slice) ** 2)
     noise_power_est = np.mean(np.abs(error) ** 2)
