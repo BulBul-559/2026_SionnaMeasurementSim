@@ -297,3 +297,105 @@ class TestChannelBackends:
 
         with pytest.raises(NotImplementedError, match="unknown_backend"):
             create_channel_backend(coeff, delays, link, 30000.0, 48, backend_name="unknown_backend")
+
+
+class TestCIRDatasetSharedTau:
+    """P1-1: Verify shared_tau_for_link median semantics."""
+
+    def test_shared_tau_equals_median_over_antenna_pairs(self):
+        """shared_tau_for_link must return median across (rx_ant, tx_ant)."""
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        snap, tx, rx, rx_ant, tx_ant, path = 1, 1, 1, 2, 2, 3
+        coeff, delays = _make_cir(snap, tx, rx, rx_ant, tx_ant, path)
+        # Make delays non-broadcast: add antenna-dependent offsets
+        delays = delays.astype(np.float64).copy()
+        for ra in range(rx_ant):
+            for ta in range(tx_ant):
+                delays[0, 0, 0, ra, ta, :] += (ra * 1e-9 + ta * 2e-9)
+
+        link = LinkConfig(reciprocity_applied=False)
+        backend = CIRDatasetOFDMChannelBackend.build(
+            coeff, delays, link, 30000.0, 48,
+        )
+
+        shared = backend.shared_tau_for_link(0, 0, 0)
+        expected = np.median(delays[0, 0, 0, :, :, :], axis=(0, 1))
+        np.testing.assert_allclose(shared, expected, rtol=1e-6, atol=1e-15)
+
+    def test_shared_tau_4x4_non_broadcast(self):
+        """4x4 non-broadcast delays: shared tau = median over 16 pairs."""
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=5)
+        delays = delays.astype(np.float64).copy()
+        for ra in range(4):
+            for ta in range(4):
+                delays[0, 0, 0, ra, ta, :] += ra * 1e-9 + ta * 2e-9
+
+        link = LinkConfig(reciprocity_applied=False)
+        backend = CIRDatasetOFDMChannelBackend.build(
+            coeff, delays, link, 30000.0, 48,
+        )
+        shared = backend.shared_tau_for_link(0, 0, 0)
+        expected = np.median(delays[0, 0, 0, :, :, :], axis=(0, 1))
+        np.testing.assert_allclose(shared, expected, rtol=1e-6, atol=1e-15)
+
+    def test_cir_dataset_ofdm_h_used_for_csi(self):
+        """apply_with_h returned h must differ from pre-computed CFR path.
+
+        The returned h comes from OFDMChannel which uses shared delays;
+        the pre-computed CFR uses per-antenna delays.  They must both be
+        finite but need not be bitwise identical.
+        """
+        from sionna.phy.ofdm import ResourceGrid
+
+        from sionna_measurement_sim.phy.nr_channel_backend import (
+            CIRDatasetOFDMChannelBackend,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+        backend = CIRDatasetOFDMChannelBackend.build(
+            coeff, delays, link, 30000.0, 48,
+        )
+
+        rg = ResourceGrid(
+            num_ofdm_symbols=14, fft_size=48, subcarrier_spacing=30000.0,
+            num_tx=1, num_streams_per_tx=4,
+        )
+        x = torch.randn(1, 1, 4, 14, 48, dtype=torch.complex64)
+        no = torch.tensor(0.01)
+        result = backend.apply_with_h(
+            x, no, snap_idx=0, ul_tx_idx=0, ul_rx_idx=0,
+            num_ofdm_symbols=14, resource_grid=rg,
+        )
+        assert result.h is not None
+        # OFDMChannel(return_channel=True) returns per-subcarrier h
+        # [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, num_ofdm_symbols, fft_size]
+        assert result.h.ndim == 7
+        assert result.h.shape[2] == 4  # num_rx_ant
+        assert result.h.shape[4] == 4  # num_tx_ant
+        assert torch.all(torch.isfinite(result.h))
+
+    def test_mu_mimo_cir_dataset_ofdm_rejected(self):
+        """P1-2: mu_mimo + cir_dataset_ofdm must fail at entry."""
+        from sionna_measurement_sim.config.schema import CarrierConfig, PHYConfig
+        from sionna_measurement_sim.phy.nr_pusch_observation import (
+            run_nr_pusch_observation,
+        )
+
+        coeff, delays = _make_cir(snap=1, tx=1, rx=2, rx_ant=2, tx_ant=2, path=3)
+        link = LinkConfig(reciprocity_applied=False)
+        phy = PHYConfig(
+            num_prb=4, snr_db=40.0, num_layers=1, num_antenna_ports=2,
+            perfect_csi=True, mimo_mode="mu_mimo",
+            channel_backend="cir_dataset_ofdm",
+        )
+        carrier = CarrierConfig()
+        with pytest.raises(NotImplementedError, match="mu_mimo.*cir_dataset_ofdm.*apply_ofdm"):
+            run_nr_pusch_observation(coeff, delays, link, phy, carrier)

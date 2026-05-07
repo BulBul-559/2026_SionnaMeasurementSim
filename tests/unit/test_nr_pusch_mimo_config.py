@@ -70,9 +70,8 @@ class TestBuildMultiUserPUSCHConfigs:
             mcs_index=14,
             mcs_table=1,
         )
-        object.__setattr__(phy, "num_pusch_tx", 2)
         carrier = CarrierConfig()
-        configs = build_multiuser_pusch_configs(phy, carrier)
+        configs = build_multiuser_pusch_configs(phy, carrier, num_pusch_tx=2)
         assert len(configs) == 2
         assert configs[0].dmrs.dmrs_port_set == [0]
         assert configs[1].dmrs.dmrs_port_set == [1]
@@ -91,9 +90,8 @@ class TestBuildMultiUserPUSCHConfigs:
             num_layers=1,
             num_antenna_ports=4,
         )
-        object.__setattr__(phy, "num_pusch_tx", 4)
         carrier = CarrierConfig()
-        configs = build_multiuser_pusch_configs(phy, carrier)
+        configs = build_multiuser_pusch_configs(phy, carrier, num_pusch_tx=4)
         assert len(configs) == 4
         all_ports = []
         for cfg in configs:
@@ -127,10 +125,9 @@ class TestBuildMultiUserPUSCHConfigs:
         )
 
         phy = PHYConfig(num_layers=4, num_antenna_ports=4)
-        object.__setattr__(phy, "num_pusch_tx", 4)  # 4 × 4 = 16 > 12 ports
         carrier = CarrierConfig()
         with pytest.raises(ValueError, match="DMRS ports"):
-            build_multiuser_pusch_configs(phy, carrier)
+            build_multiuser_pusch_configs(phy, carrier, num_pusch_tx=4)
 
 
 class TestBuildStreamManagement:

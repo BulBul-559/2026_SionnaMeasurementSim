@@ -366,6 +366,22 @@ class CIRDatasetOFDMChannelBackend:
 
     # ── channel operations ───────────────────────────────────────────
 
+    def shared_tau_for_link(
+        self, snap_idx: int = 0, ul_tx_idx: int = 0, ul_rx_idx: int = 0,
+    ) -> np.ndarray:
+        """Return the per-link shared delay used by the CIRDataset backend.
+
+        CIRDataset requires link-level ``tau: [num_rx, num_tx, num_paths]``.
+        Real RT data has antenna-dependent delays; this backend uses the
+        **median across (rx_ant, tx_ant)** as the shared approximation.
+
+        Returns 1-D ``[num_paths]`` float32.
+        """
+        return np.median(
+            self._tau_ul[snap_idx, ul_tx_idx, ul_rx_idx, :, :, :],
+            axis=(0, 1),
+        ).astype(np.float32, copy=False)
+
     def _make_cir_generator(self, snap_idx: int, ul_tx_idx: int, ul_rx_idx: int):
         """Create a single-batch CIR generator for one (snap, ul_tx, ul_rx)."""
 
@@ -374,10 +390,7 @@ class CIRDatasetOFDMChannelBackend:
         a_slice = self._cir_ul[
             snap_idx, ul_tx_idx, ul_rx_idx, ...
         ]  # [ul_rx_ant, ul_tx_ant, path]
-        tau_slice = np.median(
-            self._tau_ul[snap_idx, ul_tx_idx, ul_rx_idx, :, :, :],
-            axis=(0, 1),
-        )  # [path] — median across antenna pairs
+        tau_slice = self.shared_tau_for_link(snap_idx, ul_tx_idx, ul_rx_idx)
 
         def _gen():
             # CIRDataset expects:
@@ -432,36 +445,11 @@ class CIRDatasetOFDMChannelBackend:
         num_ofdm_symbols: int = 14,
         resource_grid: Any = None,
     ) -> torch.Tensor:
-        """Apply MIMO OFDM channel via ``OFDMChannel`` with ``CIRDataset``.
-
-        Creates a fresh ``CIRDataset`` and ``OFDMChannel`` per call
-        (per-link mode).  ``resource_grid`` must be the PUSCH resource grid.
-        """
-        from sionna.phy.channel import CIRDataset, OFDMChannel
-
-        if resource_grid is None:
-            raise ValueError(
-                "CIRDatasetOFDMChannelBackend.apply() requires resource_grid"
-            )
-
-        generator = self._make_cir_generator(snap_idx, ul_tx_idx, ul_rx_idx)
-        dataset = CIRDataset(
-            cir_generator=generator,
-            batch_size=1,
-            num_rx=1,
-            num_rx_ant=self._num_ul_rx_ant,
-            num_tx=1,
-            num_tx_ant=self._num_ul_tx_ant,
-            num_paths=self._num_paths,
-            num_time_steps=1,
-        )
-        ofdm_ch = OFDMChannel(
-            dataset, resource_grid,
-            normalize_channel=False,
-            return_channel=True,
-        )
-        y, h = ofdm_ch(x, no)
-        return y
+        """Apply MIMO OFDM channel (convenience wrapper for ``apply_with_h``)."""
+        return self.apply_with_h(
+            x, no, snap_idx, ul_tx_idx, ul_rx_idx,
+            num_ofdm_symbols, resource_grid,
+        ).y
 
     def apply_with_h(
         self,

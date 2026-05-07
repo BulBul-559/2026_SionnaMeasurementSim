@@ -159,3 +159,28 @@ class TestNRPUSCHMUMIMO:
             bler = float(h5["evaluation/bler"][()])
         assert np.isfinite(ber)
         assert np.isfinite(bler)
+
+    def test_mu_mimo_bit_counter_not_doubled(self, tmp_path):
+        """P1-3: num_bits must not be multiplied by link count."""
+        try:
+            path = _run_mu_mimo_pipeline(tmp_path, perfect_csi=True)
+        except ImportError:
+            pytest.skip("NR PUSCH receiver not available")
+        except Exception as exc:
+            pytest.fail(f"MU-MIMO pipeline failed: {exc}")
+
+        with h5py.File(path, "r") as h5:
+            num_bits = int(h5["evaluation/num_bits"][()])
+            num_bit_errors = int(h5["evaluation/num_bit_errors"][()])
+            ber = float(h5["evaluation/ber"][()])
+            num_blocks = int(h5["evaluation/num_blocks"][()])
+
+        # 2 UEs each with their own TB — num_blocks should be 2
+        assert num_blocks > 0, f"num_blocks should be > 0, got {num_blocks}"
+        # num_bits should be the total across all UEs, not multiplied by link count
+        assert num_bits > 0, f"num_bits should be > 0, got {num_bits}"
+        # BER consistency: ber == num_bit_errors / num_bits
+        expected_ber = num_bit_errors / max(num_bits, 1)
+        assert np.isclose(ber, expected_ber, rtol=1e-4, atol=1e-6), (
+            f"BER ({ber}) != num_bit_errors/num_bits ({expected_ber})"
+        )

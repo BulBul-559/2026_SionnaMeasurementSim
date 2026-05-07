@@ -37,19 +37,24 @@ from sionna_measurement_sim.phy.nr_mimo_channel import (
 def build_multiuser_pusch_configs(
     phy_config,
     carrier_config,
+    *,
+    num_pusch_tx: int | None = None,
 ) -> list[Any]:
     """Build a list of Sionna PUSCHConfig objects for multi-UE uplink.
 
     For SU-MIMO the list contains a single PUSCHConfig.  For MU-MIMO
     the list contains one config per UE with non-overlapping DMRS port sets.
+
+    Parameters
+    ----------
+    num_pusch_tx : int or None
+        Number of PUSCH transmitters (UEs).  If None, defaults to 1 (SU-MIMO).
     """
     from sionna.phy.nr import CarrierConfig as SionnaCarrierConfig
     from sionna.phy.nr import PUSCHConfig as SionnaPUSCHConfig
     from sionna.phy.nr import PUSCHDMRSConfig, TBConfig
 
-    num_tx = getattr(phy_config, "num_pusch_tx", None)
-    if num_tx is None:
-        num_tx = 1  # SU-MIMO default
+    num_tx = num_pusch_tx if num_pusch_tx is not None else 1
 
     num_layers = phy_config.num_layers
     num_antenna_ports = phy_config.num_antenna_ports
@@ -237,15 +242,23 @@ def run_nr_pusch_observation(
         backend_name=channel_backend_name,
     )
 
+    # 1a. Reject unsupported mode/backend combinations  ───────────────
+    if mimo_mode == "mu_mimo" and channel_backend_name == "cir_dataset_ofdm":
+        raise NotImplementedError(
+            "mu_mimo + cir_dataset_ofdm is not yet supported. "
+            "Use channel_backend='apply_ofdm' for MU-MIMO."
+        )
+
     cfr_clean_ref = backend.cfr.copy()
     num_snap = backend.num_snap
     num_ul_tx = backend.num_ul_tx
     num_ul_rx = backend.num_ul_rx
 
     # 2. Build PUSCH configs — auto-derive num_pusch_tx for MU-MIMO ──
-    if mimo_mode == "mu_mimo":
-        object.__setattr__(phy_config, "num_pusch_tx", num_ul_tx)
-    pusch_configs = build_multiuser_pusch_configs(phy_config, carrier_config)
+    _pusch_tx = num_ul_tx if mimo_mode == "mu_mimo" else None
+    pusch_configs = build_multiuser_pusch_configs(
+        phy_config, carrier_config, num_pusch_tx=_pusch_tx,
+    )
     _num_pusch_tx = len(pusch_configs)
     _num_layers = pusch_configs[0].num_layers
     _num_antenna_ports = pusch_configs[0].num_antenna_ports
@@ -629,9 +642,9 @@ def _process_mu_mimo(
                 )
 
         # 6. Compute per-link metrics
-        rx_bits_np = rx_bits.cpu().numpy()
-        tx_bits_np = tx_bits.cpu().numpy()
-        # rx_bits/tx_bits: [batch, num_tx, bits]
+        rx_bits_np = rx_bits.cpu().numpy()  # [batch, num_tx, bits]
+        tx_bits_np = tx_bits.cpu().numpy()  # [batch, num_tx, bits]
+
         # TB CRC: real BLER from CRC status
         if tb_crc_ok is not None:
             num_blocks = int(tb_crc_ok.numel())
@@ -645,15 +658,19 @@ def _process_mu_mimo(
         total_block_errors += num_block_errs
         total_blocks += num_blocks
 
+        # Per-UE bit errors: tx_bits/rx_bits has shape [batch, num_tx, bits].
+        # num_tx corresponds to UL transmitters (UEs).
+        # Accumulate ONCE per UE (not per-link).
+        joint_bit_errs = int(np.sum(rx_bits_np != tx_bits_np))
+        joint_num_bits = int(tx_bits_np.size)
+        total_bit_errors += joint_bit_errs
+        total_bits += joint_num_bits
+        joint_ber = joint_bit_errs / max(joint_num_bits, 1)
+
         for ul_tx_idx in range(num_ul_tx):
             for ul_rx_idx in range(num_ul_rx):
-                bit_errs = int(np.sum(rx_bits_np != tx_bits_np))
-                num_b = int(tx_bits_np.size)
-                total_bit_errors += bit_errs
-                total_bits += num_b
-
-                ber = bit_errs / max(num_b, 1)
-                ber_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = ber
+                # Per-link BER is joint diagnostic (not per-link independent)
+                ber_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = joint_ber
                 bler_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = joint_bler
 
                 truth_slice = cfr_clean_ref[
