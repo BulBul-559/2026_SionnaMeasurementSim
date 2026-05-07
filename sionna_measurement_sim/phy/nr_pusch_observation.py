@@ -221,11 +221,12 @@ def run_nr_pusch_observation(
     if snr_db is None:
         snr_db = getattr(phy_config, "observation_snr_db", 30.0)
 
-    # 0a. Enforce SU-MIMO only  ──────────────────────────────────────
+    # 0a. Validate MIMO mode  ────────────────────────────────────────
     mimo_mode = getattr(phy_config, "mimo_mode", "su_mimo")
-    if mimo_mode != "su_mimo":
+    if mimo_mode not in ("su_mimo", "mu_mimo"):
         raise NotImplementedError(
-            f"mimo_mode={mimo_mode!r} is not supported. Only 'su_mimo' is currently implemented."
+            f"mimo_mode={mimo_mode!r} is not supported. "
+            f"Supported: 'su_mimo', 'mu_mimo'."
         )
 
     # 1. Build channel backend from CIR  ──────────────────────────────
@@ -236,15 +237,14 @@ def run_nr_pusch_observation(
         backend_name=channel_backend_name,
     )
 
-    # 1a. SU-MIMO guard: each (ul_tx, ul_rx) pair is processed
-    #     independently.  Multiple TX (UEs) and RX (BSs) are fine.
-    #     MU-MIMO (joint multi-UE per RX) is not yet implemented.
     cfr_clean_ref = backend.cfr.copy()
     num_snap = backend.num_snap
     num_ul_tx = backend.num_ul_tx
     num_ul_rx = backend.num_ul_rx
 
-    # 2. Build PUSCH configs and transmitter  ─────────────────────────
+    # 2. Build PUSCH configs — auto-derive num_pusch_tx for MU-MIMO ──
+    if mimo_mode == "mu_mimo":
+        object.__setattr__(phy_config, "num_pusch_tx", num_ul_tx)
     pusch_configs = build_multiuser_pusch_configs(phy_config, carrier_config)
     _num_pusch_tx = len(pusch_configs)
     _num_layers = pusch_configs[0].num_layers
@@ -254,10 +254,15 @@ def run_nr_pusch_observation(
 
     tx = PUSCHTransmitter(pusch_configs, output_domain="freq", return_bits=True)
 
-    # 3. StreamManagement and MIMO detector  ──────────────────────────
-    stream_mgmt = build_stream_management(
-        num_rx=1, num_tx=_num_pusch_tx, num_layers=_num_layers,
-    )
+    # 3. StreamManagement and MIMO detector ──────────────────────────
+    if mimo_mode == "mu_mimo":
+        stream_mgmt = build_stream_management(
+            num_rx=num_ul_rx, num_tx=num_ul_tx, num_layers=_num_layers,
+        )
+    else:
+        stream_mgmt = build_stream_management(
+            num_rx=1, num_tx=_num_pusch_tx, num_layers=_num_layers,
+        )
     num_bits_per_symbol = int(pusch_configs[0].tb.num_bits_per_symbol)
     mimo_detector = build_mimo_detector(
         tx.resource_grid, stream_mgmt,
@@ -265,7 +270,7 @@ def run_nr_pusch_observation(
         num_bits_per_symbol=num_bits_per_symbol,
     )
 
-    # 4. Build PUSCH receiver  ────────────────────────────────────────
+    # 4. Build PUSCH receiver ────────────────────────────────────────
     from sionna.phy.nr import PUSCHReceiver
 
     rx = PUSCHReceiver(
@@ -274,11 +279,11 @@ def run_nr_pusch_observation(
         mimo_detector=mimo_detector,
         stream_management=stream_mgmt,
         tb_decoder=None,
-        return_tb_crc_status=False,
+        return_tb_crc_status=True,
         input_domain="freq",
     )
 
-    # 5. Noise power  ─────────────────────────────────────────────────
+    # 5. Noise power ─────────────────────────────────────────────────
     ebno_db = getattr(phy_config, "ebno_db", None)
     if ebno_db is not None:
         from sionna.phy.utils import ebnodb2no
@@ -292,50 +297,36 @@ def run_nr_pusch_observation(
         no_val = 10.0 ** (-snr_db / 10.0)
         no = torch.tensor(no_val, dtype=torch.float32)
 
-    # 6. Process each (snap, ul_tx, ul_rx) link  ──────────────────────
-    cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
-    nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
-    ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
-    bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
-    estimation_success = np.ones((num_snap, num_ul_tx, num_ul_rx), dtype=np.bool_)
-    total_bit_errors = 0
-    total_bits = 0
-    num_receiver_failures = 0
+    # 6. Process links ───────────────────────────────────────────────
+    if mimo_mode == "mu_mimo":
+        proc_result = _process_mu_mimo(
+            backend=backend, tx=tx, rx=rx, no=no,
+            perfect_csi=perfect_csi,
+            num_ofdm_symbols=num_ofdm_symbols,
+            receiver_failure_policy=receiver_failure_policy,
+            cfr_clean_ref=cfr_clean_ref,
+            num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
+        )
+    else:
+        proc_result = _process_su_mimo_per_link(
+            backend=backend, tx=tx, rx=rx, no=no,
+            perfect_csi=perfect_csi,
+            num_ofdm_symbols=num_ofdm_symbols,
+            receiver_failure_policy=receiver_failure_policy,
+            cfr_clean_ref=cfr_clean_ref,
+            num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
+        )
 
-    for snap_idx in range(num_snap):
-        for ul_tx_idx in range(num_ul_tx):
-            for ul_rx_idx in range(num_ul_rx):
-                link_result = _process_one_pusch_link(
-                    snap_idx=snap_idx,
-                    ul_tx_idx=ul_tx_idx,
-                    ul_rx_idx=ul_rx_idx,
-                    backend=backend,
-                    tx=tx,
-                    rx=rx,
-                    no=no,
-                    perfect_csi=perfect_csi,
-                    num_ofdm_symbols=num_ofdm_symbols,
-                    receiver_failure_policy=receiver_failure_policy,
-                )
-                cfr_est_full[
-                    snap_idx, ul_tx_idx, ul_rx_idx, ...
-                ] = link_result["cfr_est_slice"]
-                nmse_db_full[
-                    snap_idx, ul_tx_idx, ul_rx_idx
-                ] = link_result["nmse_db"]
-                ber_per_link[
-                    snap_idx, ul_tx_idx, ul_rx_idx
-                ] = link_result["ber"]
-                bler_per_link[
-                    snap_idx, ul_tx_idx, ul_rx_idx
-                ] = link_result["bler"]
-                estimation_success[
-                    snap_idx, ul_tx_idx, ul_rx_idx
-                ] = link_result["estimation_success"]
-                total_bit_errors += link_result["num_bit_errors"]
-                total_bits += link_result["num_bits"]
-                if link_result.get("receiver_failed", False):
-                    num_receiver_failures += 1
+    cfr_est_full = proc_result["cfr_est_full"]
+    nmse_db_full = proc_result["nmse_db_full"]
+    ber_per_link = proc_result["ber_per_link"]
+    bler_per_link = proc_result["bler_per_link"]
+    estimation_success = proc_result["estimation_success"]
+    total_bit_errors = proc_result["total_bit_errors"]
+    total_bits = proc_result["total_bits"]
+    total_block_errors = proc_result.get("total_block_errors", 0)
+    total_blocks = proc_result.get("total_blocks", 0)
+    num_receiver_failures = proc_result["num_receiver_failures"]
 
     # 7. Reverse UL→DL for HDF5 contract  ────────────────────────────
     # Internal processing always uses UL convention.
@@ -385,6 +376,8 @@ def run_nr_pusch_observation(
         bler=float(aggregate_bler),
         num_bit_errors=total_bit_errors,
         num_bits=total_bits,
+        num_block_errors=total_block_errors,
+        num_blocks=total_blocks,
     )
 
     # 9. WaveformSpec  ────────────────────────────────────────────────
@@ -429,6 +422,275 @@ def run_nr_pusch_observation(
         "tx_signal_shape": None,
     }
     return result
+
+
+# ── SU-MIMO per-link processing ────────────────────────────────────────
+
+
+def _process_su_mimo_per_link(
+    backend: Any,
+    tx: Any,
+    rx: Any,
+    no: torch.Tensor,
+    perfect_csi: bool,
+    num_ofdm_symbols: int,
+    receiver_failure_policy: str,
+    cfr_clean_ref: np.ndarray,
+    num_snap: int,
+    num_ul_tx: int,
+    num_ul_rx: int,
+) -> dict:
+    """Process each (snap, ul_tx, ul_rx) independently (SU-MIMO)."""
+    cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
+    nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    estimation_success = np.ones((num_snap, num_ul_tx, num_ul_rx), dtype=np.bool_)
+    total_bit_errors = 0
+    total_bits = 0
+    total_block_errors = 0
+    total_blocks = 0
+    num_receiver_failures = 0
+
+    for snap_idx in range(num_snap):
+        for ul_tx_idx in range(num_ul_tx):
+            for ul_rx_idx in range(num_ul_rx):
+                link_result = _process_one_pusch_link(
+                    snap_idx=snap_idx,
+                    ul_tx_idx=ul_tx_idx,
+                    ul_rx_idx=ul_rx_idx,
+                    backend=backend,
+                    tx=tx,
+                    rx=rx,
+                    no=no,
+                    perfect_csi=perfect_csi,
+                    num_ofdm_symbols=num_ofdm_symbols,
+                    receiver_failure_policy=receiver_failure_policy,
+                )
+                cfr_est_full[
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = link_result["cfr_est_slice"]
+                nmse_db_full[
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = link_result["nmse_db"]
+                ber_per_link[
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = link_result["ber"]
+                bler_per_link[
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = link_result["bler"]
+                estimation_success[
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = link_result["estimation_success"]
+                total_bit_errors += link_result["num_bit_errors"]
+                total_bits += link_result["num_bits"]
+                total_block_errors += link_result.get("num_block_errors", 0)
+                total_blocks += link_result.get("num_blocks", 0)
+                if link_result.get("receiver_failed", False):
+                    num_receiver_failures += 1
+
+    return {
+        "cfr_est_full": cfr_est_full,
+        "nmse_db_full": nmse_db_full,
+        "ber_per_link": ber_per_link,
+        "bler_per_link": bler_per_link,
+        "estimation_success": estimation_success,
+        "total_bit_errors": total_bit_errors,
+        "total_bits": total_bits,
+        "total_block_errors": total_block_errors,
+        "total_blocks": total_blocks,
+        "num_receiver_failures": num_receiver_failures,
+    }
+
+
+# ── MU-MIMO per-snapshot processing ────────────────────────────────────
+
+
+def _process_mu_mimo(
+    backend: Any,
+    tx: Any,
+    rx: Any,
+    no: torch.Tensor,
+    perfect_csi: bool,
+    num_ofdm_symbols: int,
+    receiver_failure_policy: str,
+    cfr_clean_ref: np.ndarray,
+    num_snap: int,
+    num_ul_tx: int,
+    num_ul_rx: int,
+) -> dict:
+    """Process all TX/RX jointly per snapshot (MU-MIMO).
+
+    Uses :func:`cfr_to_full_mimo_h` to build a multi-TX/RX perfect-CSI
+    tensor and runs a single PUSCHReceiver forward pass for all UEs.
+    """
+    from sionna_measurement_sim.phy.nr_mimo_channel import (
+        PUSCHMIMOChannel,
+        cfr_to_full_mimo_h,
+    )
+
+    cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
+    nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    estimation_success = np.ones((num_snap, num_ul_tx, num_ul_rx), dtype=np.bool_)
+    total_bit_errors = 0
+    total_bits = 0
+    num_receiver_failures = 0
+
+    # Wrap CFR in PUSCHMIMOChannel for cfr_to_full_mimo_h
+    channel = PUSCHMIMOChannel(
+        cfr=cfr_clean_ref,
+        num_snap=num_snap,
+        num_ul_tx=num_ul_tx,
+        num_ul_rx=num_ul_rx,
+        num_ul_tx_ant=backend.num_ul_tx_ant,
+        num_ul_rx_ant=backend.num_ul_rx_ant,
+        num_subcarriers=backend.num_subcarriers,
+        reciprocity_applied=backend.reciprocity_applied,
+    )
+
+    for snap_idx in range(num_snap):
+        # 1. Build full MIMO h for this snapshot
+        h_full = cfr_to_full_mimo_h(
+            channel, snap_idx=snap_idx, num_ofdm_symbols=num_ofdm_symbols,
+        )
+        # h_full: [1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant, ...]
+
+        # 2. Generate TX signal for all UEs
+        tx_signal, tx_bits = tx(1)
+        # tx_signal: [1, num_ul_tx, num_streams_per_tx, num_ofdm_symbols, fft_size]
+
+        # 3. Apply MIMO OFDM channel
+        y = backend.apply(
+            tx_signal, no,
+            snap_idx=snap_idx, ul_tx_idx=0, ul_rx_idx=0,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=tx.resource_grid,
+        )
+        # For MU-MIMO, backend.apply with full h handles multi-TX/RX.
+        # If using ApplyOFDMChannelBackend, it uses per-link h.
+        # For MU-MIMO we bypass backend.apply and use ApplyOFDMChannel directly.
+        from sionna.phy.channel import ApplyOFDMChannel
+
+        apply_ch = ApplyOFDMChannel()
+        y = apply_ch(tx_signal, h_full, no)
+
+        # 4. Run PUSCHReceiver
+        receiver_failed = False
+        tb_crc_ok = None
+        try:
+            if perfect_csi:
+                rx_bits, tb_crc_status = rx(y, no, h_full)
+            else:
+                rx_bits, tb_crc_status = rx(y, no)
+            tb_crc_ok = tb_crc_status
+        except Exception:
+            rx_bits = torch.zeros_like(tx_bits)
+            receiver_failed = True
+            if receiver_failure_policy == "fail_fast":
+                raise
+
+        # 5. Extract cfr_est per link
+        if perfect_csi:
+            # h_full: [1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant, sym, sub]
+            h_np = h_full[0, :, :, :, :, 0, :].cpu().numpy()
+            # → [num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant, subcarrier]
+            # Permute to project UL convention:
+            # [num_ul_tx, num_ul_rx, num_ul_rx_ant, num_ul_tx_ant, subcarrier]
+            h_np = np.transpose(h_np, (2, 0, 1, 3, 4))
+            cfr_est_full[snap_idx, ...] = h_np.astype(np.complex64, copy=False)
+        else:
+            # Estimated CSI: extract per-link from estimator output
+            from sionna.phy.nr import PUSCHLSChannelEstimator
+
+            _estimator = PUSCHLSChannelEstimator(
+                tx.resource_grid,
+                dmrs_length=tx._dmrs_length,
+                dmrs_additional_position=tx._dmrs_additional_position,
+                num_cdm_groups_without_data=tx._num_cdm_groups_without_data,
+                interpolation_type="lin",
+            )
+            try:
+                h_hat, _err_var = _estimator(y, no)
+            except Exception:
+                receiver_failed = True
+                h_hat = h_full
+                if receiver_failure_policy == "fail_fast":
+                    raise
+
+            h_hat_np = h_hat[0, :, :, :, :, 0, :].cpu().numpy()
+            # h_hat: [1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_streams, sym, sub]
+            # Permute to [num_ul_tx, num_ul_rx, num_ul_rx_ant, num_streams, subcarrier]
+            h_hat_np = np.transpose(h_hat_np, (2, 0, 1, 3, 4))
+
+            _num_tx_ant = cfr_clean_ref.shape[4]
+            if h_hat_np.shape[3] == _num_tx_ant:
+                cfr_est_full[snap_idx, ...] = h_hat_np.astype(np.complex64, copy=False)
+            else:
+                raise NotImplementedError(
+                    "MU-MIMO estimated CSI requires num_layers == num_antenna_ports"
+                )
+
+        # 6. Compute per-link metrics
+        rx_bits_np = rx_bits.cpu().numpy()
+        tx_bits_np = tx_bits.cpu().numpy()
+        # rx_bits/tx_bits: [batch, num_tx, bits]
+        # TB CRC: real BLER from CRC status
+        if tb_crc_ok is not None:
+            num_blocks = int(tb_crc_ok.numel())
+            num_block_errs = int(torch.sum(~tb_crc_ok).item())
+            joint_bler = num_block_errs / max(num_blocks, 1)
+        else:
+            num_blocks = 1
+            num_block_errs = 0
+            joint_bler = 1.0 if int(np.sum(rx_bits_np != tx_bits_np)) > 0 else 0.0
+
+        for ul_tx_idx in range(num_ul_tx):
+            for ul_rx_idx in range(num_ul_rx):
+                bit_errs = int(np.sum(rx_bits_np != tx_bits_np))
+                num_b = int(tx_bits_np.size)
+                total_bit_errors += bit_errs
+                total_bits += num_b
+
+                ber = bit_errs / max(num_b, 1)
+                ber_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = ber
+                bler_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = joint_bler
+
+                truth_slice = cfr_clean_ref[
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ]
+                est_slice = cfr_est_full[
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ]
+                # Ensure est_slice matches truth_slice in tx_ant dim
+                if est_slice.shape[1] != truth_slice.shape[1]:
+                    est_slice_padded = np.zeros(truth_slice.shape, dtype=np.complex64)
+                    est_slice_padded[:, :est_slice.shape[1], :] = est_slice
+                    est_slice = est_slice_padded
+                error = est_slice - truth_slice
+                signal_power = np.mean(np.abs(truth_slice) ** 2)
+                noise_power_est = np.mean(np.abs(error) ** 2)
+                nmse_val = noise_power_est / max(signal_power, 1e-30)
+                nmse_db_full[snap_idx, ul_tx_idx, ul_rx_idx] = float(
+                    10.0 * np.log10(max(nmse_val, 1e-30))
+                )
+                estimation_success[snap_idx, ul_tx_idx, ul_rx_idx] = (
+                    not receiver_failed
+                )
+                if receiver_failed:
+                    num_receiver_failures += 1
+
+    return {
+        "cfr_est_full": cfr_est_full,
+        "nmse_db_full": nmse_db_full,
+        "ber_per_link": ber_per_link,
+        "bler_per_link": bler_per_link,
+        "estimation_success": estimation_success,
+        "total_bit_errors": total_bit_errors,
+        "total_bits": total_bits,
+        "num_receiver_failures": num_receiver_failures,
+    }
 
 
 # ── per-link processing ─────────────────────────────────────────────────
@@ -477,14 +739,18 @@ def _process_one_pusch_link(
     receiver_failed = False
     cfr_est_slice: np.ndarray | None = None
 
+    tb_crc_ok = None  # CRC status per transport block
+
     if perfect_csi:
         try:
-            rx_bits = rx(y, no, h_perfect)
+            rx_bits, tb_crc_status = rx(y, no, h_perfect)
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
+            tb_crc_status = torch.zeros(tx_bits.shape[0], dtype=torch.bool)
             receiver_failed = True
             if receiver_failure_policy == "fail_fast":
                 raise
+        tb_crc_ok = tb_crc_status
         # For perfect CSI, cfr_est = physical MIMO channel
         cfr_est_slice = pusch_h_to_cfr_est(h_perfect)
     else:
@@ -512,12 +778,14 @@ def _process_one_pusch_link(
                 raise
 
         try:
-            rx_bits = rx(y, no)
+            rx_bits, tb_crc_status = rx(y, no)
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
+            tb_crc_status = torch.zeros(tx_bits.shape[0], dtype=torch.bool)
             receiver_failed = True
             if receiver_failure_policy == "fail_fast":
                 raise
+        tb_crc_ok = tb_crc_status
 
         # h_hat has num_streams_per_tx in dim 4 (not num_tx_ant).
         # When num_layers != num_antenna_ports the estimator returns an
@@ -537,11 +805,20 @@ def _process_one_pusch_link(
     if cfr_est_slice is None:
         cfr_est_slice = pusch_h_to_cfr_est(h_perfect)
 
-    # 5. Compute BER/BLER
+    # 5. Compute BER/BLER with TB CRC semantics
     num_bit_errors = int(torch.sum(torch.ne(rx_bits, tx_bits)).item())
     num_total_bits = int(tx_bits.shape[-1])
     ber = num_bit_errors / max(num_total_bits, 1)
-    bler = 1.0 if num_bit_errors > 0 else 0.0
+
+    # Real BLER from TB CRC status
+    if tb_crc_ok is not None:
+        num_blocks = int(tb_crc_ok.numel())
+        num_block_errors = int(torch.sum(~tb_crc_ok).item())
+        bler = num_block_errors / max(num_blocks, 1)
+    else:
+        num_blocks = 1
+        num_block_errors = 0
+        bler = 1.0 if num_bit_errors > 0 else 0.0
 
     # 6. Compute per-link NMSE
     truth_slice = backend.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
@@ -559,5 +836,7 @@ def _process_one_pusch_link(
         "estimation_success": not receiver_failed,
         "num_bit_errors": num_bit_errors,
         "num_bits": num_total_bits,
+        "num_block_errors": num_block_errors,
+        "num_blocks": num_blocks,
         "receiver_failed": receiver_failed,
     }

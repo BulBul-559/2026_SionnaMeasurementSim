@@ -578,7 +578,7 @@ official ``CIRDataset + OFDMChannel`` route without touching per-link processing
 
 ### Next
 
-- MU-MIMO and full TB/CRC BLER deferred to later phases.
+- All planned MIMO PHY milestones complete.
 
 ## 2026-05-07 - CIRDataset + OFDMChannel Backend
 
@@ -607,4 +607,23 @@ alongside the existing ``ApplyOFDMChannel`` backend.
 
 ### Next
 
-- MU-MIMO and full TB/CRC BLER deferred to later phases.
+- All planned MIMO PHY milestones complete.
+
+## 2026-05-07 - MU-MIMO and TB/CRC BLER (Steps 6-7)
+
+Implemented joint multi-UE PUSCH (MU-MIMO) and transport-block CRC BLER.
+
+**Step 6 — MU-MIMO:**
+- Added ``cfr_to_full_mimo_h()`` for multi-TX/RX perfect-CSI tensor.
+- Added ``_process_mu_mimo()``: per-snapshot joint processing with full
+  ``StreamManagement`` and single ``PUSCHReceiver`` forward pass.
+- ``mimo_mode="mu_mimo"`` auto-derives ``num_pusch_tx`` from CIR topology.
+
+**Step 7 — TB/CRC BLER:**
+- ``return_tb_crc_status=True`` with default ``TBDecoder``.
+- BLER from ``tb_crc_status`` CRC pass/fail per transport block.
+- ``num_block_errors`` / ``num_blocks`` with real TB semantics.
+
+**Commands:** ``uv run pytest``: 176 passed, 2 warnings; ``uv run ruff check .``: All checks passed.
+
+**New files:** ``tests/integration/test_nr_pusch_mu_mimo_observation.py`` (4 tests).

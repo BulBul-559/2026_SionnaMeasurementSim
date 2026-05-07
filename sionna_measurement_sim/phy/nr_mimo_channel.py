@@ -159,6 +159,36 @@ def cfr_to_pusch_perfect_h(
     return h_t
 
 
+def cfr_to_full_mimo_h(
+    channel: PUSCHMIMOChannel,
+    snap_idx: int = 0,
+    num_ofdm_symbols: int = 14,
+) -> torch.Tensor:
+    """Extract the full multi-TX/RX MIMO CFR and reshape to PUSCH perfect-CSI ``h``.
+
+    Unlike :func:`cfr_to_pusch_perfect_h` which returns a single-link
+    tensor, this returns a tensor covering ALL (ul_tx, ul_rx) pairs
+    simultaneously, suitable for MU-MIMO joint PUSCH processing.
+
+    Returns a tensor of shape
+    ``[1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant,
+      num_ofdm_symbols, num_subcarriers]``.
+    """
+    # channel.cfr: [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, subcarrier]
+    h_full = channel.cfr[snap_idx, ...]  # [ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, subcarrier]
+
+    # Permute to PUSCH h order:
+    # [ul_rx, ul_rx_ant, ul_tx, ul_tx_ant, subcarrier]
+    h_t = torch.as_tensor(h_full, dtype=torch.complex64)
+    h_t = h_t.permute(1, 2, 0, 3, 4)  # ul_rx, ul_rx_ant, ul_tx, ul_tx_ant, sub
+
+    # Add batch and symbol dims
+    h_t = h_t.unsqueeze(0).unsqueeze(-2)  # [1, ul_rx, ul_rx_ant, ul_tx, ul_tx_ant, 1, sub]
+    h_t = h_t.expand(-1, -1, -1, -1, -1, num_ofdm_symbols, -1)
+
+    return h_t
+
+
 def pusch_h_to_cfr_est(
     h: torch.Tensor,
 ) -> np.ndarray:
