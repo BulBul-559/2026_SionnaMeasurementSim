@@ -62,6 +62,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 子载波间隔自动推导 = `bandwidth_hz / num_subcarriers`。
 
+> **NR PUSCH 注意**：NR PUSCH 链路的实际子载波数 = `num_prb * 12`，必须与 `num_subcarriers` 一致。使用 `nr_pusch_mvp.yaml` 模板时两者已对齐（`num_prb=4, num_subcarriers=48`）。
+
 ### `antenna` — 天线阵列
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -202,6 +204,15 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 |------|------|--------|------|
 | `enabled` | bool | true | 是否写 `/calibration` group |
 | `profile_id` | str | "synthetic_default" | 校准 profile ID |
+
+## MIMO Backend 支持矩阵
+
+| mimo_mode | channel_backend | 状态 |
+|-----------|----------------|------|
+| `su_mimo` | `apply_ofdm` | 稳定支持 |
+| `su_mimo` | `cir_dataset_ofdm` | 支持（per-link，shared delay median） |
+| `mu_mimo` | `apply_ofdm` | 支持 |
+| `mu_mimo` | `cir_dataset_ofdm` | 不支持（入口拒绝，提示改用 apply_ofdm） |
 
 ## MIMO 场景配置速查
 

@@ -1,6 +1,13 @@
 # SionnaMeasurementSim – Measurement MVP default config
 # All physical quantities are in SI units unless stated otherwise.
-# Only fields that actually take effect in the pipeline are listed.
+#
+# This config targets the custom OFDM waveform with impairments and Doppler.
+# For NR PUSCH MIMO, use config/defaults/nr_pusch_mvp.yaml instead.
+#
+# IMPORTANT: when switching phy.standard to "nr_pusch", the PUSCH chain
+# uses num_subcarriers = num_prb * 12.  Make sure this matches
+# carrier.num_subcarriers, or use the nr_pusch_mvp.yaml which has them
+# aligned (num_prb=4, num_subcarriers=48).
 
 runtime:
   seed: 42
@@ -66,24 +73,22 @@ phy:
   cp_length: 0
   num_ofdm_symbols: 1
   tx_power_dbm: 0.0
-  # ── MIMO mode (NR PUSCH only) ──
-  mimo_mode: "su_mimo"           # "su_mimo" | "mu_mimo"
-  channel_backend: "apply_ofdm"  # "apply_ofdm" | "cir_dataset_ofdm"
-  # ── NR PUSCH fields ──
+  # ── NR PUSCH fields (only used when standard == "nr_pusch") ──
   perfect_csi: false
   ebno_db: null
-  num_prb: 16
+  num_prb: 16                    # must satisfy num_prb * 12 == num_subcarriers
   num_layers: 1
   num_antenna_ports: 4
   mcs_index: 14
   mcs_table: 1
   subcarrier_spacing_khz: 30
-  num_ofdm_symbols: 14
   pusch_dmrs_config_type: 1
   pusch_dmrs_length: 1
   pusch_dmrs_additional_position: 1
   pusch_num_cdm_groups_without_data: 2
-  # ── MIMO detector ──
+  # ── MIMO / receiver (NR PUSCH) ──
+  mimo_mode: "su_mimo"
+  channel_backend: "apply_ofdm"
   mimo_detector: "lmmse"
   channel_estimator: "pusch_ls"
   receiver_failure_policy: "fail_fast"
@@ -119,11 +124,11 @@ receiver:
   calibration_profile_id: "synthetic_default"
 
 motion:
-  enabled: true
-  mobility_mode: "doppler_synthetic"
-  num_time_steps: 5
-  sampling_frequency_hz: 200.0
-  tx_velocity_mps: [1.0, 0.0, 0.0]
+  enabled: false                  # disable for basic runs; enable for Doppler
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  tx_velocity_mps: [0.0, 0.0, 0.0]
   rx_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:
