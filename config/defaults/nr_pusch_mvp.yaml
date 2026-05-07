@@ -1,5 +1,11 @@
-# SionnaMeasurementSim – NR PUSCH TDD uplink default config
+# SionnaMeasurementSim – NR PUSCH 4x4 SU-MIMO TDD uplink default config
 # All physical quantities are in SI units unless stated otherwise.
+#
+# This config targets a single-BS, single-UE 4x4 SU-MIMO uplink scenario
+# using 5G NR PUSCH with TDD reciprocity.
+#
+# Supported mimo_mode values: "su_mimo" (current), "mu_mimo"
+# Supported channel_backend values: "apply_ofdm" (stable), "cir_dataset_ofdm"
 
 runtime:
   seed: 42
@@ -8,8 +14,8 @@ runtime:
 input:
   label_file: "data/scenes/test/test5.json"
   scene_file: "data/scenes/test/scene.xml"
-  max_tx: 6
-  max_rx: 20
+  max_tx: 1               # 1 BS
+  max_rx: 1               # 1 UE (SU-MIMO)
 
 output:
   root_dir: "outputs"
@@ -19,18 +25,18 @@ output:
 carrier:
   center_frequency_hz: 3500000000.0
   bandwidth_hz: 20000000.0
-  num_subcarriers: 192       # 16 PRB * 12 SC/PRB = 192
+  num_subcarriers: 48        # 4 PRB * 12 SC/PRB = 48
 
 antenna:
   tx_array:
-    num_rows: 2
+    num_rows: 2                # BS: 2x2 = 4 antennas
     num_cols: 2
     polarization: "V"
     pattern: "iso"
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
   rx_array:
-    num_rows: 2
+    num_rows: 2                # UE: 2x2 = 4 antennas
     num_cols: 2
     polarization: "V"
     pattern: "iso"
@@ -38,7 +44,7 @@ antenna:
     orientation_rad: [0.0, 0.0, 0.0]
 
 rt:
-  max_depth: 1
+  max_depth: 3
   los: true
   specular_reflection: true
   diffuse_reflection: false
@@ -54,49 +60,64 @@ link:
   phy_link_direction: "uplink"
   rt_trace_direction: "bs_to_ue"
   reciprocity_mode: "transpose_rt_channel"
+  reciprocity_applied: true
 
 phy:
   enabled: true
   standard: "nr_pusch"
+  # ── MIMO mode ──
+  mimo_mode: "su_mimo"          # "su_mimo" | "mu_mimo"
+  channel_backend: "apply_ofdm" # "apply_ofdm" | "cir_dataset_ofdm"
+  # ── CSI ──
+  perfect_csi: false            # true = receiver uses true channel; false = DMRS LS estimate
   snr_db: 30.0
-  perfect_csi: false
-  ebno_db: 10.0
-  num_prb: 16
-  num_layers: 1
-  num_antenna_ports: 4
+  ebno_db: null                 # Eb/N0 in dB; when set, takes precedence over snr_db
+  # ── NR PUSCH ──
+  num_prb: 4                    # 4 PRB → 48 subcarriers
+  num_layers: 4                 # spatial layers per UE (4 = full rank)
+  num_antenna_ports: 4          # antenna ports per UE (4 = 4x4 MIMO)
   mcs_index: 14
-  mcs_table: 1
+  mcs_table: 1                  # 1 = 64QAM table; 0 = 256QAM
   subcarrier_spacing_khz: 30
   num_ofdm_symbols: 14
   pusch_dmrs_config_type: 1
   pusch_dmrs_length: 1
   pusch_dmrs_additional_position: 1
   pusch_num_cdm_groups_without_data: 2
+  # ── Receiver ──
+  mimo_detector: "lmmse"        # "lmmse" | "kbest"
+  channel_estimator: "pusch_ls" # "pusch_ls" | "perfect"
+  receiver_failure_policy: "fail_fast"  # "fail_fast" | "mark_invalid"
+  tx_power_dbm: 0.0
 
 impairments:
   awgn:
     enabled: true
   cfo:
-    enabled: true
-    cfo_hz: 100.0
+    enabled: false
+    cfo_hz: null
   sfo:
-    enabled: true
-    sfo_ppm: 5.0
+    enabled: false
+    sfo_ppm: null
   phase_noise:
-    enabled: true
-    phase_offset_rad: 0.5
+    enabled: false
+    phase_offset_rad: null
   timing_offset:
-    enabled: true
-    timing_offset_samples: 2.0
+    enabled: false
+    timing_offset_samples: null
   agc_adc:
-    enabled: true
+    enabled: false
     agc_gain_db: 0.0
-    clipping_threshold: 3.0
+    clipping_threshold: null
   impairment_seed: 142
 
 receiver:
-  estimator_type: "ls"
+  estimator_type: "pusch_ls"    # HDF5 /receiver/estimator_type
+  channel_estimator: "pusch_ls"
+  mimo_detector: "lmmse"
   sync_method: "ideal"
+  interpolation_method: "lin"
+  failure_policy: "fail_fast"
   calibration_profile_id: "synthetic_default"
 
 motion:

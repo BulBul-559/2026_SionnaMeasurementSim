@@ -116,7 +116,7 @@ class PHYConfig(BaseModel):
     mcs_index: int = 14
     mcs_table: int = 1
     perfect_csi: bool = False
-    ebno_db: float = 10.0
+    ebno_db: float | None = None
     pusch_dmrs_config_type: int = 1
     pusch_dmrs_length: int = 1
     pusch_dmrs_additional_position: int = 1

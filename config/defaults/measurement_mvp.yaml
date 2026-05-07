@@ -50,13 +50,43 @@ rt:
   normalize_delays: false
   merge_shapes: false
 
+# ── link: TDD uplink configuration (used for NR PUSCH) ──
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+  rt_trace_direction: "bs_to_ue"
+  reciprocity_mode: "transpose_rt_channel"
+  reciprocity_applied: true
+
 phy:
   enabled: true
+  standard: "custom_ofdm"        # "custom_ofdm" | "nr_pusch"
   snr_db: 30.0
   fft_size: 64
   cp_length: 0
   num_ofdm_symbols: 1
   tx_power_dbm: 0.0
+  # ── MIMO mode (NR PUSCH only) ──
+  mimo_mode: "su_mimo"           # "su_mimo" | "mu_mimo"
+  channel_backend: "apply_ofdm"  # "apply_ofdm" | "cir_dataset_ofdm"
+  # ── NR PUSCH fields ──
+  perfect_csi: false
+  ebno_db: null
+  num_prb: 16
+  num_layers: 1
+  num_antenna_ports: 4
+  mcs_index: 14
+  mcs_table: 1
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 14
+  pusch_dmrs_config_type: 1
+  pusch_dmrs_length: 1
+  pusch_dmrs_additional_position: 1
+  pusch_num_cdm_groups_without_data: 2
+  # ── MIMO detector ──
+  mimo_detector: "lmmse"
+  channel_estimator: "pusch_ls"
+  receiver_failure_policy: "fail_fast"
 
 impairments:
   awgn:
@@ -82,6 +112,10 @@ impairments:
 receiver:
   estimator_type: "ls"
   sync_method: "ideal"
+  channel_estimator: "pusch_ls"
+  mimo_detector: "lmmse"
+  interpolation_method: "none"
+  failure_policy: "mark_invalid"
   calibration_profile_id: "synthetic_default"
 
 motion:
