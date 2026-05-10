@@ -2,6 +2,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import json
 
 from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
@@ -18,6 +19,8 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
+            scene_id="fixture_scene",
+            map_id="fixture_map",
         )
     )
 
@@ -38,7 +41,18 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
         assert "runtime/drjit_version" in h5
         assert "runtime/torch_version" in h5
         assert "channel/cfr" not in h5
+        assert "paths/full" not in h5
+        assert h5["scene/scene_id"][()].decode("utf-8") == "fixture_scene"
+        assert h5["scene/map_id"][()].decode("utf-8") == "fixture_map"
+        assert h5["derived/geometric_distance_m"].shape == (1, 1)
+        assert h5["derived/link_valid_mask"].shape == (1, 1)
+        assert h5["derived/path_selection_policy"][()].decode("utf-8")
+        assert np.all(np.isfinite(h5["derived/geometric_distance_m"][()]))
         assert np.any(np.isfinite(h_true[()]))
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["scene_id"] == "fixture_scene"
+    assert manifest["map_id"] == "fixture_map"
 
     readback = read_truth_cfr(results_path)
     assert readback.shape == (1, 1, 1, 1, 8)

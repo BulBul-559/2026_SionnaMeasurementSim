@@ -8,6 +8,7 @@ layers consume them.
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
+from sionna_measurement_sim.domain.derived import DerivedLabels, build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
@@ -32,6 +33,7 @@ __all__ = [
     "AntennaSpec",
     "CIRTruth",
     "DeviceState",
+    "DerivedLabels",
     "EvaluationResult",
     "FrequencyGrid",
     "ImpairmentSpec",
@@ -48,4 +50,5 @@ __all__ = [
     "SceneSpec",
     "Topology",
     "WaveformSpec",
+    "build_derived_labels",
 ]

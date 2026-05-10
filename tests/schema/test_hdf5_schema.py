@@ -54,6 +54,14 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
         assert h5["paths/samples/doppler_hz"].shape == (0, 0)
         assert h5["topology/tx_positions_m"].attrs["unit"] == "m"
         assert h5["frequency/frequencies_hz"].attrs["unit"] == "Hz"
+        assert h5["scene/scene_id"][()].decode("utf-8") == "phase1_minimal"
+        assert h5["scene/map_id"][()].decode("utf-8") == ""
+        assert h5["derived/geometric_distance_m"].shape == (1, 1)
+        assert h5["derived/tx_rx_midpoint_m"].shape == (1, 1, 2)
+        assert h5["derived/path_selection_policy"][()].decode("utf-8")
+        assert h5["derived/geometric_distance_m"][0, 0] == pytest.approx(5.0)
+        assert h5["derived/tx_rx_distance_m"][0, 0] == pytest.approx(5.0)
+        assert np.isnan(h5["derived/first_path_delay_s"][0, 0])
 
 
 def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):

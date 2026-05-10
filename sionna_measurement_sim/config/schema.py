@@ -6,6 +6,8 @@ Validation fails early (before RT/PHY starts) for any schema violation.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -22,10 +24,18 @@ class RuntimeConfig(BaseModel):
 class InputConfig(BaseModel):
     label_file: str = Field(default="data/scenes/test/test5.json")
     scene_file: str = Field(default="data/scenes/test/scene.xml")
+    scene_id: str = ""
+    map_id: str = ""
     label_schema: str = Field(default="simplesionna_v1")
     coordinate_system: str = Field(default="scene_local_xyz_m")
     max_tx: int = Field(default=6, ge=1)
     max_rx: int = Field(default=100, ge=1)
+
+    @model_validator(mode="after")
+    def default_scene_id(self) -> InputConfig:
+        if not self.scene_id:
+            object.__setattr__(self, "scene_id", Path(self.scene_file).stem)
+        return self
 
 
 # ── output ───────────────────────────────────────────────────────────

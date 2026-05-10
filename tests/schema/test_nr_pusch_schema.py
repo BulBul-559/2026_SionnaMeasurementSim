@@ -7,6 +7,7 @@ fields with correct shapes and types.
 from pathlib import Path
 
 import h5py
+import numpy as np
 import pytest
 
 
@@ -87,11 +88,62 @@ class TestNRPUSCHSchema:
                 "waveform/dmrs_length",
                 "waveform/dmrs_additional_position",
                 "waveform/num_cdm_groups_without_data",
+                "waveform/tx_grid",
+                "waveform/rx_grid",
+                "waveform/noise_variance",
+                "array/rx_snapshot_matrix",
+                "array/aoa_label_rad",
+                "array/spatial_spectrum_label",
+                "array/angle_grid_rad",
                 "receiver/mimo_detector",
                 "receiver/receiver_type",
             ]
             for field in required:
                 assert field in h5, f"Missing required NR PUSCH field: /{field}"
+            assert "waveform/tx_time" not in h5
+            assert "waveform/rx_time" not in h5
+
+    def test_waveform_grid_and_array_attrs(self, tmp_path):
+        """NR PUSCH waveform grids and array labels document shapes via attrs."""
+        try:
+            path = _generate_nr_pusch_hdf5(tmp_path)
+        except ImportError:
+            pytest.skip("NR PUSCH receiver not available")
+        except Exception as exc:
+            pytest.fail(f"Pipeline failed: {exc}")
+
+        with h5py.File(path, "r") as h5:
+            tx_grid = h5["waveform/tx_grid"]
+            rx_grid = h5["waveform/rx_grid"]
+            noise_variance = h5["waveform/noise_variance"]
+            assert tx_grid.shape[:3] == rx_grid.shape[:3]
+            assert noise_variance.shape == tx_grid.shape[:3]
+            assert tx_grid.attrs["unit"] == "linear_complex"
+            assert rx_grid.attrs["unit"] == "linear_complex"
+            assert noise_variance.attrs["unit"] == "linear"
+            assert tx_grid.attrs["index_order"] == (
+                "snapshot,ul_tx,ul_rx,ul_tx_ant,ofdm_symbol,subcarrier"
+            )
+            assert rx_grid.attrs["index_order"] == (
+                "snapshot,ul_tx,ul_rx,ul_rx_ant,ofdm_symbol,subcarrier"
+            )
+            assert noise_variance.attrs["index_order"] == "snapshot,ul_tx,ul_rx"
+
+            snapshot_matrix = h5["array/rx_snapshot_matrix"]
+            aoa = h5["array/aoa_label_rad"]
+            spectrum = h5["array/spatial_spectrum_label"]
+            angle_grid = h5["array/angle_grid_rad"]
+            assert snapshot_matrix.shape == (*rx_grid.shape[:3], rx_grid.shape[3], rx_grid.shape[3])
+            assert aoa.shape == (*rx_grid.shape[:3], 2)
+            assert spectrum.shape == (*rx_grid.shape[:3], 91, 181)
+            assert angle_grid.shape == (91, 181, 2)
+            assert snapshot_matrix.attrs["index_order"] == (
+                "snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant"
+            )
+            assert spectrum.attrs["index_order"] == "snapshot,ul_tx,ul_rx,zenith,azimuth"
+            assert angle_grid.attrs["index_order"] == "zenith,azimuth,angle_component"
+            np.testing.assert_allclose(angle_grid[0, 0], [0.0, -np.pi])
+            np.testing.assert_allclose(angle_grid[-1, -1], [np.pi, np.pi])
 
     def test_mimo_detector_not_empty(self, tmp_path):
         try:

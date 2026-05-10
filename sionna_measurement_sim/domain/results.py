@@ -21,6 +21,7 @@ from sionna_measurement_sim.domain.constants import (
     SCHEMA_VERSION,
     UNIT_CONVENTION,
 )
+from sionna_measurement_sim.domain.derived import DerivedLabels, build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
@@ -112,6 +113,8 @@ class SceneSpec:
 
     scene_name: str
     scene_file: str
+    scene_id: str = ""
+    map_id: str = ""
     material_policy: str = "phase1_not_loaded"
 
 
@@ -145,6 +148,7 @@ class MeasurementSimulationResult:
     truth: RTTruthResult
     path_samples: PathSamples
     runtime: RuntimeInfo
+    derived: DerivedLabels | None = None
     path_table: PathTable | None = None
     cir_truth: CIRTruth | None = None
     waveform: WaveformSpec | None = None
@@ -157,6 +161,7 @@ class MeasurementSimulationResult:
     diagnostics: DiagnosticsReport | None = None
     link: LinkConfig | None = None
     waveform_extras: dict | None = None
+    array_outputs: dict | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr
@@ -206,6 +211,14 @@ class MeasurementSimulationResult:
             if self.evaluation.nmse_db.shape != self.observation.valid_mask.shape:
                 msg = "evaluation nmse_db shape must match observation link mask"
                 raise ValueError(msg)
+        if self.derived is None:
+            object.__setattr__(
+                self,
+                "derived",
+                build_derived_labels(
+                    self.topology, self.truth, self.path_table, self.cir_truth
+                ),
+            )
 
 
 def create_phase1_minimal_result() -> MeasurementSimulationResult:
@@ -252,7 +265,7 @@ def create_phase1_minimal_result() -> MeasurementSimulationResult:
         topology=topology,
         devices=DeviceState.static(snapshots=1, tx=topology.num_tx, rx=topology.num_rx),
         antenna=antenna,
-        scene=SceneSpec(scene_name="phase1_minimal", scene_file=""),
+        scene=SceneSpec(scene_name="phase1_minimal", scene_file="", scene_id="phase1_minimal"),
         frequency=frequency,
         truth=RTTruthResult(
             cfr=truth_cfr,

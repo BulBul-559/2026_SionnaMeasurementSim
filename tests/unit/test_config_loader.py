@@ -39,6 +39,42 @@ def test_load_default_mvp_config():
     assert isinstance(cfg, MeasurementConfig)
     assert cfg.runtime.seed == 42
     assert cfg.input.max_tx == 6
+    assert cfg.input.scene_id == "scene"
+    assert cfg.input.map_id == ""
+
+
+def test_input_scene_id_defaults_to_scene_file_stem(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+input:
+  scene_file: "data/scenes/campus/block_a.xml"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.input.scene_id == "block_a"
+    assert cfg.input.map_id == ""
+
+
+def test_input_scene_id_allows_explicit_value(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+input:
+  scene_file: "data/scenes/campus/block_a.xml"
+  scene_id: "campus_block_a_v2"
+  map_id: "campus"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.input.scene_id == "campus_block_a_v2"
+    assert cfg.input.map_id == "campus"
 
 
 def test_reject_non_mapping_config(tmp_path: Path):

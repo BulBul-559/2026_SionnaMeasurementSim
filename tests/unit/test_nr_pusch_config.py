@@ -8,6 +8,7 @@ import pytest
 from sionna_measurement_sim.config.schema import CarrierConfig, PHYConfig
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.phy.nr_pusch_observation import (
+    build_array_outputs_from_waveform,
     build_nr_pusch_config,
     pusch_config_to_dict,
     run_nr_pusch_observation,
@@ -140,6 +141,7 @@ class TestRunNRPUSCHObservation:
             "cfr_est", "ber", "bler", "pusch_config", "waveform_spec",
             "nr_waveform_spec", "receiver_spec", "evaluation", "observation",
             "impairments", "reciprocity_applied", "num_tx_bits", "tx_signal_shape",
+            "waveform_grids", "array_outputs",
         }
         missing = expected_keys - result.keys()
         assert expected_keys.issubset(result.keys()), f"Missing keys: {missing}"
@@ -189,6 +191,49 @@ class TestRunNRPUSCHObservation:
         nr_wv = result["nr_waveform_spec"]
         assert nr_wv.standard == "nr_pusch"
         assert nr_wv.fft_size == phy.num_prb * 12
+
+    def test_waveform_grids_are_actual_frequency_domain_outputs(self):
+        cir_coeff = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
+
+        phy = PHYConfig(num_prb=4, snr_db=40.0, num_antenna_ports=1, num_layers=1)
+        link = LinkConfig()
+        carrier = CarrierConfig()
+        result = run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
+
+        grids = result["waveform_grids"]
+        assert grids["tx_grid"].shape == (1, 1, 1, 1, 14, 48)
+        assert grids["rx_grid"].shape == (1, 1, 1, 1, 14, 48)
+        assert grids["noise_variance"].shape == (1, 1, 1)
+        assert grids["tx_grid"].dtype == np.complex64
+        assert grids["rx_grid"].dtype == np.complex64
+        assert np.any(np.abs(grids["tx_grid"]) > 0.0)
+        assert np.any(np.abs(grids["rx_grid"]) > 0.0)
+        np.testing.assert_allclose(grids["noise_variance"], 1e-4, rtol=1e-5)
+
+    def test_array_outputs_have_deterministic_fallback_shapes(self):
+        rx_grid = np.zeros((1, 2, 3, 4, 14, 48), dtype=np.complex64)
+
+        arrays = build_array_outputs_from_waveform(rx_grid)
+
+        assert arrays["rx_snapshot_matrix"].shape == (1, 2, 3, 4, 4)
+        assert arrays["aoa_label_rad"].shape == (1, 2, 3, 2)
+        assert arrays["spatial_spectrum_label"].shape == (1, 2, 3, 91, 181)
+        assert arrays["angle_grid_rad"].shape == (91, 181, 2)
+        assert np.all(arrays["spatial_spectrum_label"] == 0.0)
+        np.testing.assert_allclose(arrays["angle_grid_rad"][0, 0], [0.0, -np.pi])
+        np.testing.assert_allclose(arrays["angle_grid_rad"][-1, -1], [np.pi, np.pi])
+
+    def test_array_outputs_accept_aoa_label_hook(self):
+        rx_grid = np.ones((1, 1, 1, 2, 2, 2), dtype=np.complex64)
+        aoa = np.array([[[[np.pi / 2.0, 0.0]]]], dtype=np.float32)
+
+        arrays = build_array_outputs_from_waveform(rx_grid, aoa_label_rad=aoa)
+
+        spectrum = arrays["spatial_spectrum_label"]
+        assert np.count_nonzero(spectrum) == 1
+        assert spectrum[0, 0, 0, 45, 90] == 1.0
+        np.testing.assert_allclose(arrays["aoa_label_rad"], aoa)
 
     def test_reciprocity_applied_flag(self):
         cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)

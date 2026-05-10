@@ -266,6 +266,7 @@ def run_nr_pusch_observation(
     from sionna.phy.nr import PUSCHTransmitter
 
     tx = PUSCHTransmitter(pusch_configs, output_domain="freq", return_bits=True)
+    num_ofdm_symbols = int(tx.resource_grid.num_ofdm_symbols)
 
     # 3. StreamManagement and MIMO detector ──────────────────────────
     if mimo_mode == "mu_mimo":
@@ -331,6 +332,7 @@ def run_nr_pusch_observation(
         )
 
     cfr_est_full = proc_result["cfr_est_full"]
+    waveform_grids = proc_result["waveform_grids"]
     nmse_db_full = proc_result["nmse_db_full"]
     ber_per_link = proc_result["ber_per_link"]
     bler_per_link = proc_result["bler_per_link"]
@@ -432,7 +434,11 @@ def run_nr_pusch_observation(
         ),
         "reciprocity_applied": backend.reciprocity_applied,
         "num_tx_bits": total_bits,
-        "tx_signal_shape": None,
+        "tx_signal_shape": waveform_grids["tx_grid"].shape,
+        "waveform_grids": waveform_grids,
+        "array_outputs": build_array_outputs_from_waveform(
+            waveform_grids["rx_grid"],
+        ),
     }
     return result
 
@@ -455,6 +461,15 @@ def _process_su_mimo_per_link(
 ) -> dict:
     """Process each (snap, ul_tx, ul_rx) independently (SU-MIMO)."""
     cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
+    waveform_grids = _empty_waveform_grids(
+        num_snap=num_snap,
+        num_ul_tx=num_ul_tx,
+        num_ul_rx=num_ul_rx,
+        num_ul_tx_ant=backend.num_ul_tx_ant,
+        num_ul_rx_ant=backend.num_ul_rx_ant,
+        num_ofdm_symbols=num_ofdm_symbols,
+        num_subcarriers=backend.num_subcarriers,
+    )
     nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
     ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
     bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
@@ -483,6 +498,15 @@ def _process_su_mimo_per_link(
                 cfr_est_full[
                     snap_idx, ul_tx_idx, ul_rx_idx, ...
                 ] = link_result["cfr_est_slice"]
+                waveform_grids["tx_grid"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = link_result["tx_grid_slice"]
+                waveform_grids["rx_grid"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = link_result["rx_grid_slice"]
+                waveform_grids["noise_variance"][
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = link_result["noise_variance"]
                 nmse_db_full[
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = link_result["nmse_db"]
@@ -504,6 +528,7 @@ def _process_su_mimo_per_link(
 
     return {
         "cfr_est_full": cfr_est_full,
+        "waveform_grids": waveform_grids,
         "nmse_db_full": nmse_db_full,
         "ber_per_link": ber_per_link,
         "bler_per_link": bler_per_link,
@@ -543,6 +568,15 @@ def _process_mu_mimo(
     )
 
     cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
+    waveform_grids = _empty_waveform_grids(
+        num_snap=num_snap,
+        num_ul_tx=num_ul_tx,
+        num_ul_rx=num_ul_rx,
+        num_ul_tx_ant=backend.num_ul_tx_ant,
+        num_ul_rx_ant=backend.num_ul_rx_ant,
+        num_ofdm_symbols=num_ofdm_symbols,
+        num_subcarriers=backend.num_subcarriers,
+    )
     nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
     ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
     bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
@@ -584,6 +618,24 @@ def _process_mu_mimo(
         )
         y = channel_result.y
         h_full = channel_result.h
+        for ul_tx_idx in range(num_ul_tx):
+            for ul_rx_idx in range(num_ul_rx):
+                tx_slice, rx_slice, no_value = _extract_waveform_link_slices(
+                    tx_signal=tx_signal,
+                    y=y,
+                    no=no,
+                    pusch_tx_idx=ul_tx_idx,
+                    pusch_rx_idx=ul_rx_idx,
+                )
+                waveform_grids["tx_grid"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = tx_slice
+                waveform_grids["rx_grid"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = rx_slice
+                waveform_grids["noise_variance"][
+                    snap_idx, ul_tx_idx, ul_rx_idx
+                ] = no_value
 
         # 4. Run PUSCHReceiver
         receiver_failed = False
@@ -699,6 +751,7 @@ def _process_mu_mimo(
 
     return {
         "cfr_est_full": cfr_est_full,
+        "waveform_grids": waveform_grids,
         "nmse_db_full": nmse_db_full,
         "ber_per_link": ber_per_link,
         "bler_per_link": bler_per_link,
@@ -744,6 +797,13 @@ def _process_one_pusch_link(
     )
     y = channel_result.y
     h_perfect = channel_result.h
+    tx_grid_slice, rx_grid_slice, noise_variance = _extract_waveform_link_slices(
+        tx_signal=tx_signal,
+        y=y,
+        no=no,
+        pusch_tx_idx=0,
+        pusch_rx_idx=0,
+    )
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
     # h_perfect: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, ...]
 
@@ -842,6 +902,9 @@ def _process_one_pusch_link(
 
     return {
         "cfr_est_slice": cfr_est_slice,
+        "tx_grid_slice": tx_grid_slice,
+        "rx_grid_slice": rx_grid_slice,
+        "noise_variance": noise_variance,
         "nmse_db": nmse_db,
         "ber": ber,
         "bler": bler,
@@ -852,3 +915,140 @@ def _process_one_pusch_link(
         "num_blocks": num_blocks,
         "receiver_failed": receiver_failed,
     }
+
+
+# ── waveform grid and array-label helpers ──────────────────────────────
+
+
+def _empty_waveform_grids(
+    *,
+    num_snap: int,
+    num_ul_tx: int,
+    num_ul_rx: int,
+    num_ul_tx_ant: int,
+    num_ul_rx_ant: int,
+    num_ofdm_symbols: int,
+    num_subcarriers: int,
+) -> dict[str, np.ndarray]:
+    """Allocate NR PUSCH frequency-domain waveform export arrays."""
+    return {
+        "tx_grid": np.zeros(
+            (
+                num_snap,
+                num_ul_tx,
+                num_ul_rx,
+                num_ul_tx_ant,
+                num_ofdm_symbols,
+                num_subcarriers,
+            ),
+            dtype=np.complex64,
+        ),
+        "rx_grid": np.zeros(
+            (
+                num_snap,
+                num_ul_tx,
+                num_ul_rx,
+                num_ul_rx_ant,
+                num_ofdm_symbols,
+                num_subcarriers,
+            ),
+            dtype=np.complex64,
+        ),
+        "noise_variance": np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32),
+    }
+
+
+def _extract_waveform_link_slices(
+    *,
+    tx_signal: Any,
+    y: Any,
+    no: Any,
+    pusch_tx_idx: int,
+    pusch_rx_idx: int,
+) -> tuple[np.ndarray, np.ndarray, np.float32]:
+    """Extract one link's actual Sionna frequency-domain TX/RX grids."""
+    tx_np = _to_numpy(tx_signal)
+    y_np = _to_numpy(y)
+    if tx_np.ndim != 5:
+        raise ValueError(f"tx_signal must be rank 5, got {tx_np.shape}")
+    if y_np.ndim != 5:
+        raise ValueError(f"y must be rank 5, got {y_np.shape}")
+
+    tx_index = pusch_tx_idx if tx_np.shape[1] > 1 else 0
+    rx_index = pusch_rx_idx if y_np.shape[1] > 1 else 0
+    tx_slice = tx_np[0, tx_index, ...].astype(np.complex64, copy=False)
+    rx_slice = y_np[0, rx_index, ...].astype(np.complex64, copy=False)
+    return tx_slice, rx_slice, np.float32(_noise_variance_scalar(no))
+
+
+def build_array_outputs_from_waveform(
+    rx_grid: np.ndarray,
+    *,
+    aoa_label_rad: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    """Build deterministic first-version `/array` outputs from RX grids.
+
+    `aoa_label_rad` is a forward-compatible hook for derived first-path AoA
+    labels with shape [snapshot, ul_tx, ul_rx, 2] = [zenith, azimuth].
+    Missing or non-finite labels keep the corresponding spectrum all zero.
+    """
+    rx = np.asarray(rx_grid, dtype=np.complex64)
+    if rx.ndim != 6:
+        raise ValueError(f"rx_grid must be rank 6, got {rx.shape}")
+
+    link_shape = rx.shape[:3]
+    num_rx_ant = rx.shape[3]
+    snapshot_matrix = np.zeros((*link_shape, num_rx_ant, num_rx_ant), dtype=np.complex64)
+    for index in np.ndindex(link_shape):
+        samples = rx[index].reshape(num_rx_ant, -1)
+        if samples.shape[1] > 0:
+            snapshot_matrix[index] = (
+                samples @ np.conjugate(samples.T)
+            ) / np.float32(samples.shape[1])
+
+    angle_grid = _fixed_angle_grid_rad()
+    labels = np.zeros((*link_shape, 2), dtype=np.float32)
+    spectrum = np.zeros((*link_shape, 91, 181), dtype=np.float32)
+    if aoa_label_rad is not None:
+        aoa = np.asarray(aoa_label_rad, dtype=np.float32)
+        if aoa.shape != labels.shape:
+            raise ValueError(
+                f"aoa_label_rad must have shape {labels.shape}, got {aoa.shape}"
+            )
+        labels[...] = np.nan_to_num(aoa, nan=0.0)
+        zenith_grid = angle_grid[:, 0, 0]
+        azimuth_grid = angle_grid[0, :, 1]
+        for index in np.ndindex(link_shape):
+            zenith, azimuth = aoa[index]
+            if not (np.isfinite(zenith) and np.isfinite(azimuth)):
+                continue
+            zenith_idx = int(np.argmin(np.abs(zenith_grid - zenith)))
+            azimuth_idx = int(np.argmin(np.abs(azimuth_grid - azimuth)))
+            spectrum[index + (zenith_idx, azimuth_idx)] = 1.0
+
+    return {
+        "rx_snapshot_matrix": snapshot_matrix,
+        "aoa_label_rad": labels,
+        "spatial_spectrum_label": spectrum,
+        "angle_grid_rad": angle_grid,
+    }
+
+
+def _fixed_angle_grid_rad() -> np.ndarray:
+    azimuth = np.linspace(-np.pi, np.pi, 181, dtype=np.float32)
+    zenith = np.linspace(0.0, np.pi, 91, dtype=np.float32)
+    zz, aa = np.meshgrid(zenith, azimuth, indexing="ij")
+    return np.stack((zz, aa), axis=-1).astype(np.float32, copy=False)
+
+
+def _to_numpy(value: Any) -> np.ndarray:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def _noise_variance_scalar(no: Any) -> float:
+    arr = _to_numpy(no).astype(np.float32, copy=False)
+    if arr.size == 0:
+        return 0.0
+    return float(np.ravel(arr)[0])

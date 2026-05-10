@@ -31,11 +31,13 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_antenna(h5, result)
         _write_scene(h5, result)
         _write_frequency(h5, result)
+        _write_derived(h5, result)
         _write_truth(h5, result)
         _write_path_samples(h5, result)
         _write_path_full(h5, result)
         _write_cir_truth(h5, result)
         _write_waveform(h5, result)
+        _write_array(h5, result)
         _write_observation(h5, result)
         _write_impairments(h5, result)
         _write_receiver(h5, result)
@@ -122,6 +124,8 @@ def _write_scene(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     group = h5.require_group("scene")
     _write_scalar(group, "scene_name", scene.scene_name)
     _write_scalar(group, "scene_file", scene.scene_file)
+    _write_scalar(group, "scene_id", scene.scene_id)
+    _write_scalar(group, "map_id", scene.map_id)
     _write_scalar(group, "material_policy", scene.material_policy)
 
 
@@ -133,6 +137,80 @@ def _write_frequency(h5: h5py.File, result: MeasurementSimulationResult) -> None
     _write_scalar(group, "num_subcarriers", np.int32(frequency.num_subcarriers))
     _write_scalar(group, "subcarrier_spacing_hz", np.float64(frequency.subcarrier_spacing_hz))
     _write_dataset(group, "frequencies_hz", frequency.frequencies_hz, unit="Hz")
+
+
+def _write_derived(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    derived = result.derived
+    if derived is None:
+        return
+    group = h5.require_group("derived")
+    link_order = "tx,rx"
+    _write_dataset(
+        group, "geometric_distance_m", derived.geometric_distance_m,
+        unit="m", index_order=link_order,
+    )
+    _write_dataset(
+        group, "los_distance_m", derived.los_distance_m,
+        unit="m", index_order=link_order,
+    )
+    _write_dataset(
+        group, "first_path_delay_s", derived.first_path_delay_s,
+        unit="s", index_order=link_order,
+    )
+    _write_dataset(
+        group, "strongest_path_delay_s", derived.strongest_path_delay_s,
+        unit="s", index_order=link_order,
+    )
+    _write_dataset(
+        group, "rtt_like_m", derived.rtt_like_m, unit="m", index_order=link_order,
+    )
+    _write_dataset(
+        group, "rtt_like_s", derived.rtt_like_s, unit="s", index_order=link_order,
+    )
+    _write_dataset(
+        group, "los_aoa_azimuth_rad", derived.los_aoa_azimuth_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "los_aoa_zenith_rad", derived.los_aoa_zenith_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "strongest_aoa_azimuth_rad", derived.strongest_aoa_azimuth_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "strongest_aoa_zenith_rad", derived.strongest_aoa_zenith_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "first_path_aoa_azimuth_rad", derived.first_path_aoa_azimuth_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "first_path_aoa_zenith_rad", derived.first_path_aoa_zenith_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(group, "los_flag", derived.los_flag, index_order=link_order)
+    _write_dataset(group, "nlos_flag", derived.nlos_flag, index_order=link_order)
+    _write_dataset(group, "path_count", derived.path_count, index_order=link_order)
+    _write_dataset(
+        group, "path_power_db", derived.path_power_db, unit="dB", index_order=link_order,
+    )
+    _write_dataset(group, "link_valid_mask", derived.link_valid_mask, index_order=link_order)
+    _write_dataset(
+        group, "tx_rx_midpoint_m", derived.tx_rx_midpoint_m,
+        unit="m", index_order="tx,rx,xy",
+    )
+    _write_dataset(
+        group, "tx_rx_bearing_rad", derived.tx_rx_bearing_rad,
+        unit="rad", index_order=link_order,
+    )
+    _write_dataset(
+        group, "tx_rx_distance_m", derived.tx_rx_distance_m,
+        unit="m", index_order=link_order,
+    )
+    _write_scalar(group, "path_selection_policy", derived.path_selection_policy)
 
 
 def _write_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
@@ -245,6 +323,72 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
         for key in ("cyclic_prefix", "target_coderate", "modulation"):
             if key in extras:
                 _write_scalar(group, key, str(extras[key]))
+        if waveform.standard == "nr_pusch":
+            if "tx_grid" in extras:
+                _write_dataset(
+                    group,
+                    "tx_grid",
+                    extras["tx_grid"],
+                    unit="linear_complex",
+                    index_order="snapshot,ul_tx,ul_rx,ul_tx_ant,ofdm_symbol,subcarrier",
+                )
+            if "rx_grid" in extras:
+                _write_dataset(
+                    group,
+                    "rx_grid",
+                    extras["rx_grid"],
+                    unit="linear_complex",
+                    index_order="snapshot,ul_tx,ul_rx,ul_rx_ant,ofdm_symbol,subcarrier",
+                )
+            if "noise_variance" in extras:
+                _write_dataset(
+                    group,
+                    "noise_variance",
+                    extras["noise_variance"],
+                    unit="linear",
+                    index_order="snapshot,ul_tx,ul_rx",
+                )
+        # TODO: export custom OFDM tx_grid/rx_grid only after that path carries
+        # real generated frequency-domain waveform tensors.
+
+
+def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    outputs = result.array_outputs
+    if not outputs:
+        return
+    group = h5.require_group("array")
+    if "rx_snapshot_matrix" in outputs:
+        _write_dataset(
+            group,
+            "rx_snapshot_matrix",
+            outputs["rx_snapshot_matrix"],
+            unit="linear_complex",
+            index_order="snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant",
+        )
+    if "aoa_label_rad" in outputs:
+        _write_dataset(
+            group,
+            "aoa_label_rad",
+            outputs["aoa_label_rad"],
+            unit="rad",
+            index_order="snapshot,ul_tx,ul_rx,angle_component",
+        )
+    if "spatial_spectrum_label" in outputs:
+        _write_dataset(
+            group,
+            "spatial_spectrum_label",
+            outputs["spatial_spectrum_label"],
+            unit="linear",
+            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
+        )
+    if "angle_grid_rad" in outputs:
+        _write_dataset(
+            group,
+            "angle_grid_rad",
+            outputs["angle_grid_rad"],
+            unit="rad",
+            index_order="zenith,azimuth,angle_component",
+        )
 
 
 def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> None:

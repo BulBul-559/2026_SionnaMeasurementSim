@@ -20,6 +20,7 @@ REQUIRED_TRUTH_GROUPS = (
     "antenna",
     "scene",
     "frequency",
+    "derived",
     "channel/truth",
     "paths/samples",
     "runtime",
@@ -40,7 +41,30 @@ REQUIRED_TRUTH_DATASETS = (
     "devices/rx_orientation_rad",
     "antenna/tx_polarization",
     "antenna/rx_polarization",
+    "scene/scene_id",
+    "scene/map_id",
     "frequency/frequencies_hz",
+    "derived/geometric_distance_m",
+    "derived/los_distance_m",
+    "derived/first_path_delay_s",
+    "derived/strongest_path_delay_s",
+    "derived/rtt_like_m",
+    "derived/rtt_like_s",
+    "derived/los_aoa_azimuth_rad",
+    "derived/los_aoa_zenith_rad",
+    "derived/strongest_aoa_azimuth_rad",
+    "derived/strongest_aoa_zenith_rad",
+    "derived/first_path_aoa_azimuth_rad",
+    "derived/first_path_aoa_zenith_rad",
+    "derived/los_flag",
+    "derived/nlos_flag",
+    "derived/path_count",
+    "derived/path_power_db",
+    "derived/link_valid_mask",
+    "derived/tx_rx_midpoint_m",
+    "derived/tx_rx_bearing_rad",
+    "derived/tx_rx_distance_m",
+    "derived/path_selection_policy",
     "channel/truth/cfr",
     "channel/truth/geometric_path_count",
     "channel/truth/los_exists",
@@ -129,6 +153,7 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
         _require_present(h5, PATH_SAMPLE_DATASETS, kind=h5py.Dataset)
         _validate_truth_shapes(h5)
+        _validate_derived_shapes(h5)
         _validate_path_sample_shapes(h5)
         if _observation_enabled(h5):
             _validate_observation_cfr_est_shape_if_present(h5)
@@ -187,6 +212,39 @@ def _validate_truth_shapes(h5: h5py.File) -> None:
             raise SchemaValidationError(msg)
 
     _validate_cir_shapes(h5, cfr.shape[0], cfr.shape[1])
+
+
+def _validate_derived_shapes(h5: h5py.File) -> None:
+    tx = h5["topology/tx_positions_m"].shape[0]
+    rx = h5["topology/rx_positions_m"].shape[0]
+    link_shape = (tx, rx)
+    for dataset_path in (
+        "derived/geometric_distance_m",
+        "derived/los_distance_m",
+        "derived/first_path_delay_s",
+        "derived/strongest_path_delay_s",
+        "derived/rtt_like_m",
+        "derived/rtt_like_s",
+        "derived/los_aoa_azimuth_rad",
+        "derived/los_aoa_zenith_rad",
+        "derived/strongest_aoa_azimuth_rad",
+        "derived/strongest_aoa_zenith_rad",
+        "derived/first_path_aoa_azimuth_rad",
+        "derived/first_path_aoa_zenith_rad",
+        "derived/los_flag",
+        "derived/nlos_flag",
+        "derived/path_count",
+        "derived/path_power_db",
+        "derived/link_valid_mask",
+        "derived/tx_rx_bearing_rad",
+        "derived/tx_rx_distance_m",
+    ):
+        if h5[dataset_path].shape != link_shape:
+            msg = f"/{dataset_path} must match [tx, rx]"
+            raise SchemaValidationError(msg)
+    if h5["derived/tx_rx_midpoint_m"].shape != (*link_shape, 2):
+        msg = "/derived/tx_rx_midpoint_m must match [tx, rx, 2]"
+        raise SchemaValidationError(msg)
 
 
 def _validate_cir_shapes(
@@ -282,6 +340,13 @@ def _validate_units(h5: h5py.File) -> None:
         "paths/samples/vertices_m",
         "paths/samples/doppler_hz",
         "paths/samples/tau_s",
+        "derived/geometric_distance_m",
+        "derived/first_path_delay_s",
+        "derived/rtt_like_m",
+        "derived/rtt_like_s",
+        "derived/tx_rx_midpoint_m",
+        "derived/tx_rx_bearing_rad",
+        "derived/tx_rx_distance_m",
     ):
         if "unit" not in h5[dataset_path].attrs:
             msg = f"Missing unit attribute on /{dataset_path}"
@@ -388,6 +453,13 @@ NR_PUSCH_REQUIRED_FIELDS = (
     "waveform/dmrs_length",
     "waveform/dmrs_additional_position",
     "waveform/num_cdm_groups_without_data",
+    "waveform/tx_grid",
+    "waveform/rx_grid",
+    "waveform/noise_variance",
+    "array/rx_snapshot_matrix",
+    "array/aoa_label_rad",
+    "array/spatial_spectrum_label",
+    "array/angle_grid_rad",
     "receiver/mimo_detector",
 )
 
@@ -438,6 +510,74 @@ def _validate_nr_pusch_fields_if_applicable(h5: h5py.File) -> None:
             raise SchemaValidationError(
                 f"/receiver/receiver_type must be 'pusch_receiver' for NR PUSCH, got {rt!r}"
             )
+    _validate_nr_pusch_waveform_grid_shapes(h5)
+    _validate_nr_pusch_array_shapes(h5)
+
+
+def _validate_nr_pusch_waveform_grid_shapes(h5: h5py.File) -> None:
+    tx_grid = h5["waveform/tx_grid"]
+    rx_grid = h5["waveform/rx_grid"]
+    noise_variance = h5["waveform/noise_variance"]
+    if tx_grid.ndim != 6:
+        msg = f"/waveform/tx_grid must be rank 6, got {tx_grid.shape}"
+        raise SchemaValidationError(msg)
+    if rx_grid.ndim != 6:
+        msg = f"/waveform/rx_grid must be rank 6, got {rx_grid.shape}"
+        raise SchemaValidationError(msg)
+    if noise_variance.ndim != 3:
+        msg = f"/waveform/noise_variance must be rank 3, got {noise_variance.shape}"
+        raise SchemaValidationError(msg)
+    if tx_grid.shape[:3] != rx_grid.shape[:3]:
+        msg = "/waveform/tx_grid and /waveform/rx_grid link dimensions must match"
+        raise SchemaValidationError(msg)
+    if noise_variance.shape != tx_grid.shape[:3]:
+        msg = "/waveform/noise_variance must match waveform grid [snapshot,ul_tx,ul_rx]"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "waveform/tx_grid",
+        "waveform/rx_grid",
+        "waveform/noise_variance",
+    ):
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
+    rx_grid = h5["waveform/rx_grid"]
+    snapshot_matrix = h5["array/rx_snapshot_matrix"]
+    aoa = h5["array/aoa_label_rad"]
+    spectrum = h5["array/spatial_spectrum_label"]
+    angle_grid = h5["array/angle_grid_rad"]
+    link_shape = rx_grid.shape[:3]
+    num_rx_ant = rx_grid.shape[3]
+
+    if snapshot_matrix.shape != (*link_shape, num_rx_ant, num_rx_ant):
+        msg = (
+            "/array/rx_snapshot_matrix must match "
+            "[snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant]"
+        )
+        raise SchemaValidationError(msg)
+    if aoa.shape != (*link_shape, 2):
+        msg = "/array/aoa_label_rad must match [snapshot,ul_tx,ul_rx,angle_component]"
+        raise SchemaValidationError(msg)
+    if angle_grid.shape != (91, 181, 2):
+        msg = "/array/angle_grid_rad must have shape [91,181,2]"
+        raise SchemaValidationError(msg)
+    if spectrum.shape != (*link_shape, 91, 181):
+        msg = "/array/spatial_spectrum_label must match [snapshot,ul_tx,ul_rx,91,181]"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "array/rx_snapshot_matrix",
+        "array/aoa_label_rad",
+        "array/spatial_spectrum_label",
+        "array/angle_grid_rad",
+    ):
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
 
 
 def _validate_bler_contract(h5: h5py.File) -> None:

@@ -14,6 +14,7 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
     run_sionna_rt_truth,
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
+from sionna_measurement_sim.domain.derived import build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
@@ -49,6 +50,8 @@ class RTTruthRunConfig:
     label_file: Path
     scene_file: Path
     output_dir: Path
+    scene_id: str = ""
+    map_id: str = ""
     center_frequency_hz: float = 3.5e9
     bandwidth_hz: float = 20e6
     num_subcarriers: int = 8
@@ -183,6 +186,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             observation_bundle = _run_custom_ofdm_obs(config, adapter_result)
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
+    scene_id = config.scene_id or config.scene_file.stem
+    derived = build_derived_labels(
+        topology, adapter_result.truth, adapter_result.path_table, adapter_result.cir_truth
+    )
     result = MeasurementSimulationResult(
         metadata=Metadata(
             run_id=output_dir.name,
@@ -209,6 +216,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         scene=SceneSpec(
             scene_name=config.scene_file.stem,
             scene_file=config.scene_file.as_posix(),
+            scene_id=scene_id,
+            map_id=config.map_id,
             material_policy="sionna_rt_scene_materials",
         ),
         frequency=frequency,
@@ -224,6 +233,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             elapsed_seconds=elapsed_seconds,
         ),
         cir_truth=adapter_result.cir_truth,
+        derived=derived,
         path_table=adapter_result.path_table if config.save_full_paths else None,
         waveform=observation_bundle.waveform if observation_bundle else None,
         observation=observation_bundle.observation if observation_bundle else None,
@@ -237,6 +247,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         ),
         link=config.link_config,
         waveform_extras=nr_pusch_extra.get("waveform_extras"),
+        array_outputs=nr_pusch_extra.get("array_outputs"),
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -255,6 +266,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         "results_h5": results_path.as_posix(),
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
+        "scene_id": scene_id,
+        "map_id": config.map_id,
         "config_snapshot": _config_snapshot(config),
         "software_versions": adapter_result.runtime_versions,
         "raw_cfr_shape": adapter_result.raw_cfr_shape,
@@ -380,7 +393,9 @@ def _run_nr_pusch_obs(config, adapter_result):
             "dmrs_length": config.pusch_dmrs_length,
             "dmrs_additional_position": config.pusch_dmrs_additional_position,
             "num_cdm_groups_without_data": config.pusch_num_cdm_groups_without_data,
+            **nr_result["waveform_grids"],
         },
+        "array_outputs": nr_result["array_outputs"],
     }
 
 
@@ -388,6 +403,8 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
     return {
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
+        "scene_id": config.scene_id or config.scene_file.stem,
+        "map_id": config.map_id,
         "center_frequency_hz": config.center_frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
         "num_subcarriers": config.num_subcarriers,
