@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.derived import SPEED_OF_LIGHT_MPS, build_derived_labels
+from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.path import PathTable
 from sionna_measurement_sim.domain.results import create_phase1_minimal_result
 from sionna_measurement_sim.domain.topology import Topology

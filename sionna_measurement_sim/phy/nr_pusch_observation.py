@@ -213,6 +213,7 @@ def run_nr_pusch_observation(
     -------
     dict
     """
+    torch.manual_seed(int(getattr(phy_config, "seed", 42)))
     # 0. Extract config  ──────────────────────────────────────────────
     sc_spacing_hz = float(phy_config.subcarrier_spacing_khz) * 1000.0
     num_prb = phy_config.num_prb

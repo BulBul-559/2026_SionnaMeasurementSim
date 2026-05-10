@@ -1,8 +1,8 @@
+import json
 from pathlib import Path
 
 import h5py
 import numpy as np
-import json
 
 from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
