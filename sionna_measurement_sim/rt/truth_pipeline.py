@@ -190,6 +190,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     derived = build_derived_labels(
         topology, adapter_result.truth, adapter_result.path_table, adapter_result.cir_truth
     )
+    if nr_pusch_extra.get("waveform_extras"):
+        _attach_nr_array_outputs(nr_pusch_extra, derived)
     result = MeasurementSimulationResult(
         metadata=Metadata(
             run_id=output_dir.name,
@@ -397,6 +399,33 @@ def _run_nr_pusch_obs(config, adapter_result):
         },
         "array_outputs": nr_result["array_outputs"],
     }
+
+
+def _attach_nr_array_outputs(nr_pusch_extra: dict, derived) -> None:
+    waveform_extras = nr_pusch_extra.get("waveform_extras") or {}
+    rx_grid = waveform_extras.get("rx_grid")
+    if rx_grid is None:
+        return
+    from sionna_measurement_sim.phy.nr_pusch_observation import (
+        build_array_outputs_from_waveform,
+    )
+
+    rx_grid = np.asarray(rx_grid)
+    num_snap = rx_grid.shape[0]
+    # NR PUSCH waveform grids use UL convention:
+    # ul_tx == DL rx (UE), ul_rx == DL tx (BS).
+    aoa_2d = np.stack(
+        (
+            derived.first_path_aoa_zenith_rad.T,
+            derived.first_path_aoa_azimuth_rad.T,
+        ),
+        axis=-1,
+    ).astype(np.float32, copy=False)
+    aoa = np.broadcast_to(aoa_2d[np.newaxis, ...], (num_snap, *aoa_2d.shape))
+    nr_pusch_extra["array_outputs"] = build_array_outputs_from_waveform(
+        rx_grid,
+        aoa_label_rad=aoa,
+    )
 
 
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:

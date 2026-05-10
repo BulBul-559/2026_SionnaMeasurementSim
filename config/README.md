@@ -41,6 +41,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 |------|------|--------|------|
 | `label_file` | str | data/scenes/test/test5.json | TX/RX 位置标签 JSON |
 | `scene_file` | str | data/scenes/test/scene.xml | Mitsuba 场景 XML |
+| `scene_id` | str | scene 文件名 stem | 与平面图/地图系统对齐的稳定场景 ID |
+| `map_id` | str | "" | 可选地图版本 ID |
 | `max_tx` | int (>=1) | 6 | TX 数量上限 |
 | `max_rx` | int (>=1) | 100 | RX 数量上限 |
 

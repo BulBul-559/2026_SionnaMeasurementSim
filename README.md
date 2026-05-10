@@ -108,12 +108,15 @@ path = run_rt_truth_pipeline(config)
 | `/meta` | schema 版本、运行 ID、随机种子、配置快照 |
 | `/input` | 标签文件、场景文件 |
 | `/topology` | TX/RX 三维位置 |
+| `/scene` | 场景文件、`scene_id`、`map_id` |
 | `/antenna` | 阵列类型、极化、天线数 |
 | `/frequency` | 中心频率、带宽、子载波 |
 | `/channel/truth` | 真值 CFR `[tx, rx, rx_ant, tx_ant, subcarrier]`、CIR、LoS/NLoS |
+| `/derived` | 距离、ToA/RTT-like、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、互易性 |
-| `/waveform` | OFDM/NR PUSCH 波形（standard、num_prb、num_layers 等） |
+| `/waveform` | OFDM/NR PUSCH 波形；NR PUSCH 额外保存频域 `tx_grid`、`rx_grid`、`noise_variance` |
+| `/array` | NR PUSCH 阵列 snapshot、AoA 标签、空间谱标签 |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/receiver` | 估计器类型、MIMO 检测器 |
 | `/evaluation` | NMSE、BER、BLER（TB CRC）、num_block_errors/num_blocks |
