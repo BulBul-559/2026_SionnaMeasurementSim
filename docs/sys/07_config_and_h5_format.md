@@ -51,10 +51,12 @@ calibration:   # 校准 (profile_id)
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
 |------|------|--------|------|------|
 | `seed` | int | 42 | ≥0 | 全局随机种子 |
-| `device` | str | `"cpu"` | — | PyTorch 设备 |
+| `device` | str | `"cpu"` | — | PyTorch 设备；NR PUSCH 支持 `"cpu"`、`"cuda"`、`"cuda:0"` 等 |
 | `require_gpu` | bool | false | — | 是否要求 GPU |
 | `precision` | str | `"single"` | — | 浮点精度 |
 | `torch_deterministic` | bool | false | — | PyTorch 确定性模式 |
+
+当前依赖锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装。`runtime.device: "cuda"` 会驱动 NR PUSCH 的 PyTorch/Sionna 频域链路在 CUDA 设备上执行；如果 CUDA 不可用则报错，不自动回退到 CPU。
 
 #### `input` — 输入数据
 

@@ -41,6 +41,7 @@ from sionna_measurement_sim.phy.observation_pipeline import (
     PHYObservationBundle,
     run_awgn_ls_observation,
 )
+from sionna_measurement_sim.preflight.system import collect_basic_environment
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class RTTruthRunConfig:
     bandwidth_hz: float = 20e6
     num_subcarriers: int = 8
     seed: int = 1
+    device: str = "cpu"
     max_tx: int = 1
     max_rx: int = 1
     max_depth: int = 1
@@ -177,6 +179,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         ),
     )
     elapsed_seconds = time.perf_counter() - start
+    environment = collect_basic_environment()
     observation_bundle = None
     nr_pusch_extra: dict = {}
     if config.observation_snr_db is not None:
@@ -231,6 +234,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             torch_version=adapter_result.runtime_versions["torch"],
             mitsuba_version=adapter_result.runtime_versions["mitsuba"],
             drjit_version=adapter_result.runtime_versions["drjit"],
+            cuda_available=bool(environment["cuda_available"]),
+            cuda_device_name=str(environment["cuda_device_name"]),
             command_line="run-rt-truth",
             elapsed_seconds=elapsed_seconds,
         ),
@@ -437,6 +442,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "center_frequency_hz": config.center_frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
         "num_subcarriers": config.num_subcarriers,
+        "device": config.device,
         "max_depth": config.max_depth,
         "los": config.los,
         "specular_reflection": config.specular_reflection,

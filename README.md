@@ -38,6 +38,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 uv run python -m sionna_measurement_sim.app.cli run-full --help
 ```
 
+项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
+
 > `--config` 参数会加载 YAML 配置文件；CLI 的 `--snr-db`、`--max-tx`等参数可覆盖 YAML 中的对应值。
 
 ## 命令行
@@ -127,9 +129,9 @@ path = run_rt_truth_pipeline(config)
 ## 开发
 
 ```bash
-uv sync                  # 安装依赖
+uv sync                  # 安装依赖（含 PyTorch CUDA 12.8 wheel）
 uv run ruff check .      # 代码检查
-uv run pytest            # 运行全部测试（182 tests）
+uv run pytest            # 运行全部测试
 
 # 按类别运行
 uv run pytest tests/unit -q                        # 单元测试

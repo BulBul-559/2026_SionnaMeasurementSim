@@ -245,6 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 bandwidth_hz=cfg.carrier.bandwidth_hz,
                 num_subcarriers=_nsub,
                 seed=cfg.runtime.seed,
+                device=cfg.runtime.device,
                 max_depth=cfg.rt.max_depth,
                 los=cfg.rt.los,
                 specular_reflection=cfg.rt.specular_reflection,

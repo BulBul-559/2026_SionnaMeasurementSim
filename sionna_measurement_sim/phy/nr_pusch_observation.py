@@ -10,6 +10,7 @@ broadcasting from a single SISO estimate.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -32,6 +33,25 @@ from sionna_measurement_sim.phy.nr_mimo_channel import (
 )
 
 # ── PUSCH config helpers ────────────────────────────────────────────────
+
+
+@contextmanager
+def _torch_default_device(device_name: str):
+    requested = str(device_name or "cpu").strip()
+    if requested in ("", "cpu"):
+        yield torch.device("cpu")
+        return
+    if requested.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"runtime.device={requested!r} requires CUDA, but torch.cuda.is_available() is false"
+        )
+
+    previous = torch.get_default_device()
+    torch.set_default_device(requested)
+    try:
+        yield torch.device(requested)
+    finally:
+        torch.set_default_device(previous)
 
 
 def build_multiuser_pusch_configs(
@@ -191,6 +211,24 @@ def build_mimo_detector(
 
 
 def run_nr_pusch_observation(
+    cir_coefficients: np.ndarray,
+    cir_delays: np.ndarray,
+    link_config: LinkConfig,
+    phy_config,
+    carrier_config,
+) -> dict:
+    device = getattr(phy_config, "device", "cpu")
+    with _torch_default_device(device):
+        return _run_nr_pusch_observation_impl(
+            cir_coefficients=cir_coefficients,
+            cir_delays=cir_delays,
+            link_config=link_config,
+            phy_config=phy_config,
+            carrier_config=carrier_config,
+        )
+
+
+def _run_nr_pusch_observation_impl(
     cir_coefficients: np.ndarray,
     cir_delays: np.ndarray,
     link_config: LinkConfig,

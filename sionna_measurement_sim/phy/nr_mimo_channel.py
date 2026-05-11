@@ -265,4 +265,4 @@ def _cir_to_cfr_internal(
     # Back to project convention: permute (0,3,1,2,4,5)
     # -> [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, subcarrier]
     h_f = h_f.permute(0, 3, 1, 2, 4, 5)
-    return h_f.numpy()
+    return h_f.detach().cpu().numpy()

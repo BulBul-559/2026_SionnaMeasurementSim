@@ -33,7 +33,9 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `seed` | int (>=0) | 42 | 全局随机种子 |
-| `device` | str | "cpu" | PyTorch 设备 |
+| `device` | str | "cpu" | PyTorch 设备；NR PUSCH 支持 `"cpu"`、`"cuda"`、`"cuda:0"` 等 PyTorch 设备字符串 |
+
+项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
 ### `input` — 输入数据
 
