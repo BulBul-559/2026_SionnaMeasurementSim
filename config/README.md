@@ -37,6 +37,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
+大规模 NR PUSCH 目前仍是单进程逐链路 SU-MIMO 调度。`3 BS × 3000 UE × 4x4` 已验证可在单卡 GPU 上完成；`6 BS × 8884 UE × 4x4` 会进入 GPU 路径，但单进程效率较低，生产运行建议按 UE/BS shard 拆分到多 GPU。
+
 ### `input` — 输入数据
 
 | 字段 | 类型 | 默认值 | 说明 |

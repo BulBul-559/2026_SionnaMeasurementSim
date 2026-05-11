@@ -58,6 +58,8 @@ calibration:   # 校准 (profile_id)
 
 当前依赖锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装。`runtime.device: "cuda"` 会驱动 NR PUSCH 的 PyTorch/Sionna 频域链路在 CUDA 设备上执行；如果 CUDA 不可用则报错，不自动回退到 CPU。
 
+当前 pipeline 实际驱动设备选择的是 `device` 字段；`require_gpu`、`precision`、`torch_deterministic` 是 schema 保留字段，尚未完整接入所有执行路径。
+
 #### `input` — 输入数据
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
@@ -594,6 +596,8 @@ results.h5
 | `noise_variance` | float32 [snap, ul_tx, ul_rx] | 信道施加时使用的噪声方差 |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
+
+大规模 NR PUSCH 输出建议按 shard 生成：单进程 SU-MIMO 路径按 `(snapshot, BS, UE)` 逐链路运行，`3 BS × 3000 UE × 4x4` 已验证可完成，`6 BS × 8884 UE × 4x4` 单进程会进入 GPU 路径但难以高效写完。生产级全量建议使用多进程/多 GPU 分片，并在下游按 shard 对齐或合并。
 
 ### 2.16 `/array` — 阵列观测与标签（NR PUSCH）
 

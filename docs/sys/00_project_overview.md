@@ -30,7 +30,7 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
-**分层原则**（详见 `docs/02_architecture.md`）：
+**分层原则**（详见本目录的分层文档）：
 - **app** 层只做编排，不直接访问 Sionna API
 - **domain** 层定义纯 Python 数据模型，零 Sionna 依赖
 - **adapters** 层封装所有 Sionna 调用，输出 domain 对象
@@ -93,7 +93,7 @@ Path scalars:  [tx, rx, rx_ant, tx_ant, path]
 Derived:       [tx, rx]
 ```
 
-完整约定见 `docs/03_data_contract_hdf5.md`。
+完整约定见 [07_config_and_h5_format.md](07_config_and_h5_format.md)。
 
 ## 核心约束
 
@@ -125,7 +125,7 @@ Derived:       [tx, rx]
 | NR PUSCH 频域 tx/rx grid 与 `/array` 标签 | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
-| 测试覆盖 (182 tests) | ✅ |
+| 测试覆盖 (190 collected / 188 passed / 2 skipped) | ✅ |
 
 ## 外部参考
 

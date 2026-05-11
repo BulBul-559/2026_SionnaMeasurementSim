@@ -13,7 +13,7 @@
 - TDD 互易性（DL RT trace → UL PUSCH）
 - HDF5 schema 强校验（含 NR PUSCH MIMO 必填字段）
 - 批量实验（多 seed/SNR 自动分批）
-- 182 个测试覆盖（单元 / schema / adapter / 集成 / 统计）
+- 190 个测试收集项（单元 / schema / adapter / 集成 / 统计）
 
 ## 快速开始
 
@@ -58,12 +58,12 @@ uv run python -m sionna_measurement_sim.app.cli run-full --help
 NR PUSCH 的 MIMO 参数（天线数、层数、检测器、backend 等）通过 YAML 配置文件控制，CLI 不提供独立开关。推荐使用专用模板：
 
 ```bash
-# 4x4 SU-MIMO perfect CSI（使用 nr_pusch_mvp.yaml）
+# 4x4 SU-MIMO estimated CSI（使用 nr_pusch_mvp.yaml 默认配置）
 uv run python -m sionna_measurement_sim.app.cli run-full \
     --config config/defaults/nr_pusch_mvp.yaml \
     --output-dir outputs/nr_pusch_su_mimo
 
-# 4x4 SU-MIMO estimated CSI（修改 YAML 中 phy.perfect_csi = false）
+# 4x4 SU-MIMO perfect CSI：修改 YAML 中 phy.perfect_csi = true
 # MU-MIMO：设置 phy.mimo_mode = "mu_mimo" 且 input.max_rx > 1
 ```
 
@@ -124,7 +124,20 @@ path = run_rt_truth_pipeline(config)
 | `/evaluation` | NMSE、BER、BLER（TB CRC）、num_block_errors/num_blocks |
 | `/runtime` | 软件版本、耗时 |
 
-完整数据契约见 [docs/03_data_contract_hdf5.md](docs/03_data_contract_hdf5.md)。
+完整数据契约见 [docs/sys/07_config_and_h5_format.md](docs/sys/07_config_and_h5_format.md)。
+
+## GPU 与大规模 PUSCH
+
+`runtime.device: "cuda"` 会让 NR PUSCH 的 PyTorch/Sionna 频域链路在 GPU 上运行。当前 SU-MIMO PUSCH 实现按 `(snapshot, BS, UE)` 逐链路调用接收机，因此大规模场景主要受 Python 单进程调度和小 kernel 启动开销限制。
+
+已验证的参考规模：
+
+| 场景 | 结果 |
+|------|------|
+| `3 BS × 3000 UE × 4x4 PUSCH` | GPU 运行完成，HDF5 schema 通过，结果文件约 380 MB |
+| `6 BS × 8884 UE × 4x4 PUSCH` | 能进入 GPU 路径，但单进程 30 分钟未进入写盘阶段 |
+
+生产级大规模 PUSCH 建议按 UE/BS shard 拆分到多进程和多 GPU，并按 shard 输出或后处理合并 HDF5。
 
 ## 开发
 
@@ -169,16 +182,14 @@ SionnaMeasurementSim/
 
 | 文档 | 内容 |
 |------|------|
-| [00_global_constraints](docs/00_global_constraints_and_official_references.md) | 全局约束与官方参考 |
-| [02_architecture](docs/02_architecture.md) | 系统架构与分层 |
-| [03_data_contract_hdf5](docs/03_data_contract_hdf5.md) | HDF5 数据契约 |
-| [04_sionna_rt_adapter](docs/04_sionna_rt_adapter_and_path_data.md) | Sionna RT 适配 |
-| [06_config_schema](docs/06_config_and_experiment_schema.md) | 配置 schema |
-| [08_roadmap](docs/08_roadmap_milestones_acceptance.md) | 路线图与验收 |
-| [09_testing](docs/09_testing_and_quality_gates.md) | 测试与质量门 |
-| [15_mimo_phy_gap_analysis](docs/15_mimo_phy_gap_analysis.md) | NR PUSCH MIMO 分析 |
-| [review](docs/review.md) | MIMO 修复复核 |
-| [phase_progress](docs/phase_progress.md) | 各阶段开发记录 |
+| [00_project_overview](docs/sys/00_project_overview.md) | 项目总览 |
+| [01_app_and_config](docs/sys/01_app_and_config.md) | CLI、配置加载和批量实验 |
+| [02_domain_models](docs/sys/02_domain_models.md) | 领域模型 |
+| [03_adapters](docs/sys/03_adapters.md) | Sionna RT 适配 |
+| [04_rt_pipeline](docs/sys/04_rt_pipeline.md) | RT pipeline |
+| [05_phy_observation](docs/sys/05_phy_observation.md) | PHY 观测与 NR PUSCH |
+| [06_io_and_testing](docs/sys/06_io_and_testing.md) | HDF5 I/O、schema 和测试 |
+| [07_config_and_h5_format](docs/sys/07_config_and_h5_format.md) | 配置与 HDF5 数据契约 |
 
 ## 约束
 
