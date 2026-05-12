@@ -49,6 +49,45 @@ class OutputConfig(BaseModel):
     save_raw_waveform: bool = False
 
 
+class SpectrumConfig(BaseModel):
+    enabled: bool = False
+    sources: list[str] = Field(default_factory=lambda: ["truth_cfr", "rx_grid"])
+    method: str = Field(default="bartlett")
+    zenith_bins: int = Field(default=91, ge=2)
+    azimuth_bins: int = Field(default=181, ge=2)
+    zenith_min_rad: float = 0.0
+    zenith_max_rad: float = 3.141592653589793
+    azimuth_min_rad: float = -3.141592653589793
+    azimuth_max_rad: float = 3.141592653589793
+    normalize: str = Field(default="per_link_max")
+    aggregate_subcarriers: str = Field(default="mean")
+    aggregate_symbols: str = Field(default="mean")
+
+    @model_validator(mode="after")
+    def check_supported_values(self) -> SpectrumConfig:
+        allowed_sources = {"truth_cfr", "rx_grid"}
+        unknown_sources = set(self.sources) - allowed_sources
+        if unknown_sources:
+            raise ValueError(f"Unsupported spectrum sources: {sorted(unknown_sources)}")
+        if self.method != "bartlett":
+            raise ValueError("Only spectrum method 'bartlett' is supported")
+        if self.normalize != "per_link_max":
+            raise ValueError("Only spectrum normalize 'per_link_max' is supported")
+        if self.aggregate_subcarriers != "mean":
+            raise ValueError("Only aggregate_subcarriers 'mean' is supported")
+        if self.aggregate_symbols != "mean":
+            raise ValueError("Only aggregate_symbols 'mean' is supported")
+        if self.zenith_max_rad <= self.zenith_min_rad:
+            raise ValueError("zenith_max_rad must be greater than zenith_min_rad")
+        if self.azimuth_max_rad <= self.azimuth_min_rad:
+            raise ValueError("azimuth_max_rad must be greater than azimuth_min_rad")
+        return self
+
+
+class ArrayConfig(BaseModel):
+    spectrum: SpectrumConfig = Field(default_factory=SpectrumConfig)
+
+
 # ── carrier / frequency ─────────────────────────────────────────────
 class CarrierConfig(BaseModel):
     center_frequency_hz: float = Field(default=3.5e9, gt=0)
@@ -244,6 +283,7 @@ class MeasurementConfig(BaseModel):
     antenna: AntennaConfig = Field(default_factory=AntennaConfig)
     rt: RTConfig = Field(default_factory=RTConfig)
     phy: PHYConfig = Field(default_factory=PHYConfig)
+    array: ArrayConfig = Field(default_factory=ArrayConfig)
     impairments: ImpairmentsConfig = Field(default_factory=ImpairmentsConfig)
     receiver: ReceiverConfig = Field(default_factory=ReceiverConfig)
     motion: MotionConfig = Field(default_factory=MotionConfig)

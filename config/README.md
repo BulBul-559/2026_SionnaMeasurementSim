@@ -88,6 +88,24 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 > 4x4 MIMO：设置 `tx_num_rows=2, tx_num_cols=2, rx_num_rows=2, rx_num_cols=2` 得到 4 TX 天线 × 4 RX 天线。
 
+### `array.spectrum` — 空间谱输出
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以控制 HDF5 体积 |
+| `sources` | list[str] | ["truth_cfr", "rx_grid"] | `truth_cfr` 生成理想谱；`rx_grid` 生成 NR PUSCH 观测谱 |
+| `method` | str | "bartlett" | 第一版仅支持 Bartlett |
+| `zenith_bins` | int | 91 | zenith 分辨率 |
+| `azimuth_bins` | int | 181 | azimuth 分辨率 |
+| `zenith_min_rad/max_rad` | float | [0, pi] | zenith 默认全空间扫描 |
+| `azimuth_min_rad/max_rad` | float | [-pi, pi] | azimuth 默认全向扫描 |
+| `normalize` | str | "per_link_max" | 每条 link 最大值归一化 |
+| `aggregate_subcarriers` | str | "mean" | 子载波聚合方式 |
+| `aggregate_symbols` | str | "mean" | OFDM symbol 聚合方式 |
+
+`/paths/nlos_truth` 默认始终保存所有 NLoS path 的 AoA/AoD、功率、延迟和类型；
+`/paths/full` 仍只由 `output.save_full_paths` 控制。
+
 ### `rt` — 射线追踪
 
 | 字段 | 类型 | 默认值 | 说明 |

@@ -116,6 +116,24 @@ calibration:   # 校准 (profile_id)
 
 天线数 = `num_rows × num_cols`。4x4 MIMO 需两侧均为 2×2。
 
+#### `array.spectrum` — 空间谱输出
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以避免大规模输出膨胀 |
+| `sources` | list[str] | `["truth_cfr", "rx_grid"]` | 可选 `truth_cfr`、`rx_grid` |
+| `method` | str | `"bartlett"` | 第一版仅支持 Bartlett 扫描 |
+| `zenith_bins` | int | 91 | zenith 方向网格数 |
+| `azimuth_bins` | int | 181 | azimuth 方向网格数 |
+| `zenith_min_rad/max_rad` | float | `[0, pi]` | zenith 扫描范围，默认全空间 |
+| `azimuth_min_rad/max_rad` | float | `[-pi, pi]` | azimuth 扫描范围，默认全向 |
+| `normalize` | str | `"per_link_max"` | 每条 link 最大值归一到 1 |
+| `aggregate_subcarriers` | str | `"mean"` | 子载波聚合口径 |
+| `aggregate_symbols` | str | `"mean"` | OFDM symbol 聚合口径 |
+
+这里的“全向”指扫描角度范围覆盖完整方向域；天线方向图仍由
+`antenna.*.pattern` 控制，默认模板使用 `iso`。
+
 #### `rt` — 射线追踪
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
@@ -548,7 +566,25 @@ results.h5
 | `path_type` | [tx, rx, rx_ant, tx_ant, path] | string | — | 路径类型 |
 | `path_depth` | [tx, rx, rx_ant, tx_ant, path] | int32 | — | 有效交互数 |
 
-### 2.14 `/link` — 链路配置
+### 2.14 `/paths/nlos_truth` — NLoS 路径 AoA/AoD 真值
+
+始终写入，独立于 `output.save_full_paths`。它是面向空间谱/多径监督的轻量路径真值，
+只保留 NLoS path；LoS 或 invalid 位置的角度、功率、延迟写 `NaN`，`path_type` 写
+`"invalid"`。
+
+| Dataset | Shape | Dtype | Unit | 说明 |
+|---------|-------|-------|------|------|
+| `valid` | [tx, rx, rx_ant, tx_ant, path] | bool | — | `PathTable.valid & path_type != "los"` |
+| `aoa_zenith_rad` | [tx, rx, rx_ant, tx_ant, path] | float32 | rad | NLoS AoA 天顶角 |
+| `aoa_azimuth_rad` | [tx, rx, rx_ant, tx_ant, path] | float32 | rad | NLoS AoA 方位角 |
+| `aod_zenith_rad` | [tx, rx, rx_ant, tx_ant, path] | float32 | rad | NLoS AoD 天顶角 |
+| `aod_azimuth_rad` | [tx, rx, rx_ant, tx_ant, path] | float32 | rad | NLoS AoD 方位角 |
+| `path_power_db` | [tx, rx, rx_ant, tx_ant, path] | float32 | dB | `10*log10(abs(a)^2)` |
+| `delay_s` | [tx, rx, rx_ant, tx_ant, path] | float32 | s | 路径延迟 |
+| `path_depth` | [tx, rx, rx_ant, tx_ant, path] | int32 | — | 有效交互数 |
+| `path_type` | [tx, rx, rx_ant, tx_ant, path] | string | — | NLoS 类型或 `"invalid"` |
+
+### 2.15 `/link` — 链路配置
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -558,7 +594,7 @@ results.h5
 | `reciprocity_mode` | string | 互易性模式 |
 | `reciprocity_applied` | bool | 是否应用互易性 |
 
-### 2.15 `/waveform` — 波形参数（PHY 启用时）
+### 2.16 `/waveform` — 波形参数（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -599,16 +635,23 @@ results.h5
 
 大规模 NR PUSCH 输出建议按 shard 生成：单进程 SU-MIMO 路径按 `(snapshot, BS, UE)` 逐链路运行，`3 BS × 3000 UE × 4x4` 已验证可完成，`6 BS × 8884 UE × 4x4` 单进程会进入 GPU 路径但难以高效写完。生产级全量建议使用多进程/多 GPU 分片，并在下游按 shard 对齐或合并。
 
-### 2.16 `/array` — 阵列观测与标签（NR PUSCH）
+### 2.17 `/array` — 阵列观测与标签
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
-| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
+| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | NR PUSCH 中由 `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
 | `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` AoA 标签；缺失时为 0 |
-| `spatial_spectrum_label` | [snap, ul_tx, ul_rx, 91, 181] | linear | 固定角度网格上的空间谱标签；缺失 AoA 时全 0 |
-| `angle_grid_rad` | [91, 181, 2] | rad | zenith `[0, pi]`，azimuth `[-pi, pi]` |
+| `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
+| `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
+| `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
+| `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
+| `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
+| `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
-### 2.17 `/observation` — 观测结果（PHY 启用时）
+默认即使 `array.spectrum.enabled=false`，NR PUSCH 仍写 `aoa_heatmap_label` /
+`spatial_spectrum_label` 作为轻量监督标签；真实 Bartlett 谱只在显式开启时写入。
+
+### 2.18 `/observation` — 观测结果（PHY 启用时）
 
 | Dataset | Shape | Dtype | Unit | Index Order |
 |---------|-------|-------|------|-------------|

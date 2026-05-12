@@ -4,7 +4,7 @@ import pytest
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.derived import SPEED_OF_LIGHT_MPS, build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
-from sionna_measurement_sim.domain.path import PathTable
+from sionna_measurement_sim.domain.path import PathTable, build_nlos_path_truth
 from sionna_measurement_sim.domain.results import create_phase1_minimal_result
 from sionna_measurement_sim.domain.topology import Topology
 
@@ -104,3 +104,41 @@ def test_derived_labels_select_paths_globally_over_antennas():
     assert derived.strongest_aoa_zenith_rad[0, 0] == pytest.approx(2.7)
     assert derived.los_aoa_azimuth_rad[0, 0] == pytest.approx(0.8)
     assert derived.los_aoa_zenith_rad[0, 0] == pytest.approx(0.7)
+
+
+def test_nlos_truth_masks_los_and_invalid_paths():
+    shape = (1, 1, 1, 1, 3)
+    valid = np.array([[[[[True, True, False]]]]], dtype=np.bool_)
+    coeff = np.zeros(shape, dtype=np.complex64)
+    coeff[0, 0, 0, 0, 0] = 1.0 + 0.0j
+    coeff[0, 0, 0, 0, 1] = 0.1 + 0.0j
+    path_type = np.array([[[[["los", "reflection", "invalid"]]]]], dtype=object)
+    table = PathTable(
+        valid=valid,
+        a=coeff,
+        tau_s=np.array([[[[[1e-9, 2e-9, 0.0]]]]], dtype=np.float32),
+        doppler_hz=np.zeros(shape, dtype=np.float32),
+        theta_t_rad=np.array([[[[[0.1, 0.2, 0.0]]]]], dtype=np.float32),
+        phi_t_rad=np.array([[[[[0.3, 0.4, 0.0]]]]], dtype=np.float32),
+        theta_r_rad=np.array([[[[[0.5, 0.6, 0.0]]]]], dtype=np.float32),
+        phi_r_rad=np.array([[[[[0.7, 0.8, 0.0]]]]], dtype=np.float32),
+        interaction_type=np.zeros((*shape, 1), dtype=np.uint32),
+        object_id=np.zeros((*shape, 1), dtype=np.uint32),
+        primitive_id=np.zeros((*shape, 1), dtype=np.uint32),
+        vertices_m=np.zeros((*shape, 1, 3), dtype=np.float32),
+        path_type=path_type,
+        path_depth=np.array([[[[[0, 1, 0]]]]], dtype=np.int32),
+    )
+
+    truth = build_nlos_path_truth(table)
+
+    assert truth.valid.tolist() == [[[[[False, True, False]]]]]
+    assert np.isnan(truth.aoa_zenith_rad[0, 0, 0, 0, 0])
+    assert truth.aoa_zenith_rad[0, 0, 0, 0, 1] == pytest.approx(0.6)
+    assert truth.aoa_azimuth_rad[0, 0, 0, 0, 1] == pytest.approx(0.8)
+    assert truth.aod_zenith_rad[0, 0, 0, 0, 1] == pytest.approx(0.2)
+    assert truth.delay_s[0, 0, 0, 0, 1] == pytest.approx(2e-9)
+    assert truth.path_power_db[0, 0, 0, 0, 1] == pytest.approx(-20.0)
+    assert truth.path_depth[0, 0, 0, 0, 1] == 1
+    assert truth.path_type[0, 0, 0, 0, 0] == "invalid"
+    assert truth.path_type[0, 0, 0, 0, 1] == "reflection"

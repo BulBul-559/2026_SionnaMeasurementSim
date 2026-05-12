@@ -200,6 +200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.config:
             from sionna_measurement_sim.config.loader import load_config_or_exit
+            from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 
             cfg = load_config_or_exit(args.config)
             # CLI overrides (non-default wins)
@@ -300,6 +301,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 hdf5_filename=cfg.output.hdf5_filename,
                 save_full_paths=cfg.output.save_full_paths,
                 calibration_enabled=cfg.calibration.enabled,
+                spectrum_config=ArraySpectrumConfig(
+                    enabled=cfg.array.spectrum.enabled,
+                    sources=tuple(cfg.array.spectrum.sources),
+                    method=cfg.array.spectrum.method,
+                    zenith_bins=cfg.array.spectrum.zenith_bins,
+                    azimuth_bins=cfg.array.spectrum.azimuth_bins,
+                    zenith_min_rad=cfg.array.spectrum.zenith_min_rad,
+                    zenith_max_rad=cfg.array.spectrum.zenith_max_rad,
+                    azimuth_min_rad=cfg.array.spectrum.azimuth_min_rad,
+                    azimuth_max_rad=cfg.array.spectrum.azimuth_max_rad,
+                    normalize=cfg.array.spectrum.normalize,
+                    aggregate_subcarriers=cfg.array.spectrum.aggregate_subcarriers,
+                    aggregate_symbols=cfg.array.spectrum.aggregate_symbols,
+                ),
                 tx_velocity_mps=(
                     cfg.motion.tx_velocity_mps[0],
                     cfg.motion.tx_velocity_mps[1],

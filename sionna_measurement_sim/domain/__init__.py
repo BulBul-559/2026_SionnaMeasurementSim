@@ -6,6 +6,7 @@ layers consume them.
 """
 
 from sionna_measurement_sim.domain.antenna import AntennaSpec
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.derived import DerivedLabels, build_derived_labels
@@ -18,7 +19,12 @@ from sionna_measurement_sim.domain.observation import (
     ReceiverSpec,
     WaveformSpec,
 )
-from sionna_measurement_sim.domain.path import PathSamples, PathTable
+from sionna_measurement_sim.domain.path import (
+    NLoSPathTruth,
+    PathSamples,
+    PathTable,
+    build_nlos_path_truth,
+)
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -31,6 +37,7 @@ from sionna_measurement_sim.domain.topology import Topology
 
 __all__ = [
     "AntennaSpec",
+    "ArraySpectrumConfig",
     "CIRTruth",
     "DeviceState",
     "DerivedLabels",
@@ -43,6 +50,7 @@ __all__ = [
     "Metadata",
     "PathSamples",
     "PathTable",
+    "NLoSPathTruth",
     "ObservationResult",
     "ReceiverSpec",
     "RTTruthResult",
@@ -51,4 +59,5 @@ __all__ = [
     "Topology",
     "WaveformSpec",
     "build_derived_labels",
+    "build_nlos_path_truth",
 ]

@@ -1,0 +1,58 @@
+import numpy as np
+
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
+from sionna_measurement_sim.phy.spatial_spectrum import (
+    build_angle_grid_rad,
+    build_bartlett_spectrum,
+)
+
+
+def test_bartlett_spectrum_peak_matches_synthetic_direction():
+    config = ArraySpectrumConfig(
+        enabled=True,
+        zenith_bins=5,
+        azimuth_bins=5,
+        zenith_min_rad=0.0,
+        zenith_max_rad=np.pi,
+        azimuth_min_rad=-np.pi,
+        azimuth_max_rad=np.pi,
+    )
+    angle_grid = build_angle_grid_rad(config)
+    target_zenith_idx = 2
+    target_azimuth_idx = 3
+    zenith, azimuth = angle_grid[target_zenith_idx, target_azimuth_idx]
+
+    rows, cols = 2, 2
+    row = np.arange(rows, dtype=np.float32) - (rows - 1) / 2.0
+    col = np.arange(cols, dtype=np.float32) - (cols - 1) / 2.0
+    rr, cc = np.meshgrid(row, col, indexing="ij")
+    direction_y = np.sin(zenith) * np.sin(azimuth)
+    direction_z = np.cos(zenith)
+    phase = np.pi * (cc.reshape(-1) * direction_y + rr.reshape(-1) * direction_z)
+    steering = np.exp(1j * phase).astype(np.complex64) / np.sqrt(np.float32(rows * cols))
+    samples = np.repeat(steering[:, np.newaxis], 8, axis=1)
+    samples = samples.reshape(1, 1, 1, rows * cols, 8)
+
+    spectrum = build_bartlett_spectrum(
+        samples,
+        rx_num_rows=rows,
+        rx_num_cols=cols,
+        rx_spacing_lambda=(0.5, 0.5),
+        config=config,
+    )
+
+    assert spectrum[0, 0, 0, target_zenith_idx, target_azimuth_idx] == np.float32(1.0)
+
+
+def test_bartlett_spectrum_zero_input_is_zero():
+    config = ArraySpectrumConfig(enabled=True, zenith_bins=3, azimuth_bins=4)
+    spectrum = build_bartlett_spectrum(
+        np.zeros((1, 2, 1, 4, 3), dtype=np.complex64),
+        rx_num_rows=2,
+        rx_num_cols=2,
+        rx_spacing_lambda=(0.5, 0.5),
+        config=config,
+    )
+
+    assert spectrum.shape == (1, 2, 1, 3, 4)
+    assert np.all(spectrum == 0.0)

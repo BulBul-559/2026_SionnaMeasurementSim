@@ -52,6 +52,12 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
         assert h5["channel/truth/cfr"].dtype == np.dtype("complex64")
         assert h5["paths/samples/vertices_m"].shape == (0, 0, 0, 3)
         assert h5["paths/samples/doppler_hz"].shape == (0, 0)
+        assert "paths/full" not in h5
+        assert h5["paths/nlos_truth/valid"].shape == (1, 1, 1, 1, 0)
+        assert h5["paths/nlos_truth/aoa_zenith_rad"].attrs["unit"] == "rad"
+        assert h5["paths/nlos_truth/path_type"].attrs["index_order"] == (
+            "tx,rx,rx_ant,tx_ant,path"
+        )
         assert h5["topology/tx_positions_m"].attrs["unit"] == "m"
         assert h5["frequency/frequencies_hz"].attrs["unit"] == "Hz"
         assert h5["scene/scene_id"][()].decode("utf-8") == "phase1_minimal"

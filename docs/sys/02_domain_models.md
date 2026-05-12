@@ -118,6 +118,30 @@ class PathSamples:
     doppler_hz, tau_s, path_type
 ```
 
+### `NLoSPathTruth` (`path.py`)
+
+默认写入的轻量 NLoS 路径真值（`/paths/nlos_truth`），独立于
+`output.save_full_paths`：
+
+```python
+@dataclass(frozen=True)
+class NLoSPathTruth:
+    valid: np.ndarray            # [tx, rx, rx_ant, tx_ant, path] bool
+    aoa_zenith_rad: np.ndarray   # NLoS AoA zenith; invalid/LoS -> NaN
+    aoa_azimuth_rad: np.ndarray  # NLoS AoA azimuth; invalid/LoS -> NaN
+    aod_zenith_rad: np.ndarray
+    aod_azimuth_rad: np.ndarray
+    path_power_db: np.ndarray    # 10*log10(abs(a)^2)
+    delay_s: np.ndarray
+    path_depth: np.ndarray
+    path_type: np.ndarray        # NLoS type or "invalid"
+```
+
+### `ArraySpectrumConfig` (`array.py`)
+
+空间谱输出配置。默认关闭 Bartlett 空间谱，角度网格默认覆盖 zenith `[0, pi]`、
+azimuth `[-pi, pi]`；开启后可分别从 truth CFR 和 NR PUSCH `rx_grid` 生成谱。
+
 ### `ObservationResult` (`observation.py`)
 
 ```python

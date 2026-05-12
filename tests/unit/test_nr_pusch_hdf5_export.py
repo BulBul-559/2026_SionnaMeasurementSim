@@ -101,5 +101,7 @@ def test_nr_pusch_hdf5_writes_waveform_grids_and_array_outputs(tmp_path):
             "snapshot,ul_tx,ul_rx,ul_rx_ant,ofdm_symbol,subcarrier"
         )
         assert h5["array/rx_snapshot_matrix"].shape == (1, 1, 1, 1, 1)
+        assert h5["array/aoa_heatmap_label"].shape == (1, 1, 1, 91, 181)
         assert h5["array/spatial_spectrum_label"].shape == (1, 1, 1, 91, 181)
         assert h5["array/angle_grid_rad"].shape == (91, 181, 2)
+        assert h5["array/spectrum_policy"][()].decode("utf-8").startswith("method=bartlett")

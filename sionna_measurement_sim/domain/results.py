@@ -34,7 +34,12 @@ from sionna_measurement_sim.domain.observation import (
     ReceiverSpec,
     WaveformSpec,
 )
-from sionna_measurement_sim.domain.path import PathSamples, PathTable
+from sionna_measurement_sim.domain.path import (
+    NLoSPathTruth,
+    PathSamples,
+    PathTable,
+    build_nlos_path_truth,
+)
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.domain.validation import require_shape
 
@@ -150,6 +155,7 @@ class MeasurementSimulationResult:
     runtime: RuntimeInfo
     derived: DerivedLabels | None = None
     path_table: PathTable | None = None
+    nlos_path_truth: NLoSPathTruth | None = None
     cir_truth: CIRTruth | None = None
     waveform: WaveformSpec | None = None
     observation: ObservationResult | None = None
@@ -218,6 +224,17 @@ class MeasurementSimulationResult:
                 build_derived_labels(
                     self.topology, self.truth, self.path_table, self.cir_truth
                 ),
+            )
+        if self.nlos_path_truth is None:
+            nlos_path_truth = (
+                build_nlos_path_truth(self.path_table)
+                if self.path_table is not None
+                else NLoSPathTruth.empty(tx, rx, rx_ant, tx_ant)
+            )
+            object.__setattr__(
+                self,
+                "nlos_path_truth",
+                nlos_path_truth,
             )
 
 

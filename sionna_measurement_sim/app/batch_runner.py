@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from sionna_measurement_sim.domain.batch import (
@@ -31,25 +32,11 @@ def run_batch_experiment(
         batch_dir = base_config.output_dir / batch_id
         batch_seed = base_config.seed + batch_idx * _BATCH_SEED_STRIDE
 
-        batch_run_config = RTTruthRunConfig(
-            label_file=base_config.label_file,
-            scene_file=base_config.scene_file,
+        batch_run_config = replace(
+            base_config,
             output_dir=batch_dir,
-            center_frequency_hz=base_config.center_frequency_hz,
-            bandwidth_hz=base_config.bandwidth_hz,
-            num_subcarriers=base_config.num_subcarriers,
             seed=batch_seed,
-            max_tx=base_config.max_tx,
-            max_rx=base_config.max_rx,
-            max_depth=base_config.max_depth,
-            specular_reflection=base_config.specular_reflection,
-            observation_snr_db=base_config.observation_snr_db,
             observation_seed=base_config.observation_seed + batch_idx * _BATCH_SEED_STRIDE,
-            impairment_config=base_config.impairment_config,
-            num_time_steps=base_config.num_time_steps,
-            sampling_frequency_hz=base_config.sampling_frequency_hz,
-            tx_velocity_mps=base_config.tx_velocity_mps,
-            rx_velocity_mps=base_config.rx_velocity_mps,
         )
 
         try:

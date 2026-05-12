@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
@@ -30,6 +31,12 @@ from sionna_measurement_sim.phy.nr_channel_backend import (
 from sionna_measurement_sim.phy.nr_mimo_channel import (
     pusch_h_to_cfr_est,
     reverse_reciprocity_cfr,
+)
+from sionna_measurement_sim.phy.spatial_spectrum import (
+    build_angle_grid_rad,
+    build_aoa_heatmap_label,
+    build_bartlett_spectrum,
+    build_rx_snapshot_matrix,
 )
 
 # ── PUSCH config helpers ────────────────────────────────────────────────
@@ -1024,60 +1031,63 @@ def build_array_outputs_from_waveform(
     rx_grid: np.ndarray,
     *,
     aoa_label_rad: np.ndarray | None = None,
-) -> dict[str, np.ndarray]:
+    spectrum_config: ArraySpectrumConfig | None = None,
+    rx_num_rows: int = 1,
+    rx_num_cols: int | None = None,
+    rx_spacing_lambda: tuple[float, float] = (0.5, 0.5),
+    truth_spectrum_samples: np.ndarray | None = None,
+) -> dict[str, Any]:
     """Build deterministic first-version `/array` outputs from RX grids.
 
     `aoa_label_rad` is a forward-compatible hook for derived first-path AoA
     labels with shape [snapshot, ul_tx, ul_rx, 2] = [zenith, azimuth].
     Missing or non-finite labels keep the corresponding spectrum all zero.
     """
+    config = spectrum_config or ArraySpectrumConfig()
     rx = np.asarray(rx_grid, dtype=np.complex64)
     if rx.ndim != 6:
         raise ValueError(f"rx_grid must be rank 6, got {rx.shape}")
 
     link_shape = rx.shape[:3]
     num_rx_ant = rx.shape[3]
-    snapshot_matrix = np.zeros((*link_shape, num_rx_ant, num_rx_ant), dtype=np.complex64)
-    for index in np.ndindex(link_shape):
-        samples = rx[index].reshape(num_rx_ant, -1)
-        if samples.shape[1] > 0:
-            snapshot_matrix[index] = (
-                samples @ np.conjugate(samples.T)
-            ) / np.float32(samples.shape[1])
+    if rx_num_cols is None:
+        rx_num_cols = num_rx_ant // int(rx_num_rows)
+    snapshot_matrix = build_rx_snapshot_matrix(rx)
 
-    angle_grid = _fixed_angle_grid_rad()
-    labels = np.zeros((*link_shape, 2), dtype=np.float32)
-    spectrum = np.zeros((*link_shape, 91, 181), dtype=np.float32)
-    if aoa_label_rad is not None:
-        aoa = np.asarray(aoa_label_rad, dtype=np.float32)
-        if aoa.shape != labels.shape:
-            raise ValueError(
-                f"aoa_label_rad must have shape {labels.shape}, got {aoa.shape}"
-            )
-        labels[...] = np.nan_to_num(aoa, nan=0.0)
-        zenith_grid = angle_grid[:, 0, 0]
-        azimuth_grid = angle_grid[0, :, 1]
-        for index in np.ndindex(link_shape):
-            zenith, azimuth = aoa[index]
-            if not (np.isfinite(zenith) and np.isfinite(azimuth)):
-                continue
-            zenith_idx = int(np.argmin(np.abs(zenith_grid - zenith)))
-            azimuth_idx = int(np.argmin(np.abs(azimuth_grid - azimuth)))
-            spectrum[index + (zenith_idx, azimuth_idx)] = 1.0
+    angle_grid = build_angle_grid_rad(config)
+    labels, spectrum = build_aoa_heatmap_label(aoa_label_rad, angle_grid, link_shape)
 
-    return {
+    outputs: dict[str, np.ndarray | str] = {
         "rx_snapshot_matrix": snapshot_matrix,
         "aoa_label_rad": labels,
+        "aoa_heatmap_label": spectrum,
         "spatial_spectrum_label": spectrum,
         "angle_grid_rad": angle_grid,
+        "spectrum_policy": config.policy,
     }
+
+    if config.enabled and "rx_grid" in config.sources:
+        outputs["spatial_spectrum_observation"] = build_bartlett_spectrum(
+            rx,
+            rx_num_rows=rx_num_rows,
+            rx_num_cols=rx_num_cols,
+            rx_spacing_lambda=rx_spacing_lambda,
+            config=config,
+        )
+    if config.enabled and "truth_cfr" in config.sources and truth_spectrum_samples is not None:
+        outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
+            truth_spectrum_samples,
+            rx_num_rows=rx_num_rows,
+            rx_num_cols=rx_num_cols,
+            rx_spacing_lambda=rx_spacing_lambda,
+            config=config,
+        )
+
+    return outputs
 
 
 def _fixed_angle_grid_rad() -> np.ndarray:
-    azimuth = np.linspace(-np.pi, np.pi, 181, dtype=np.float32)
-    zenith = np.linspace(0.0, np.pi, 91, dtype=np.float32)
-    zz, aa = np.meshgrid(zenith, azimuth, indexing="ij")
-    return np.stack((zz, aa), axis=-1).astype(np.float32, copy=False)
+    return build_angle_grid_rad(ArraySpectrumConfig())
 
 
 def _to_numpy(value: Any) -> np.ndarray:

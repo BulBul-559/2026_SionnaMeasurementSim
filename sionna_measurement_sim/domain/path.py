@@ -91,6 +91,93 @@ class PathTable:
 
 
 @dataclass(frozen=True)
+class NLoSPathTruth:
+    """Default lightweight NLoS path AoA/AoD truth export."""
+
+    valid: np.ndarray
+    aoa_zenith_rad: np.ndarray
+    aoa_azimuth_rad: np.ndarray
+    aod_zenith_rad: np.ndarray
+    aod_azimuth_rad: np.ndarray
+    path_power_db: np.ndarray
+    delay_s: np.ndarray
+    path_depth: np.ndarray
+    path_type: np.ndarray
+
+    def __post_init__(self) -> None:
+        valid = np.asarray(self.valid, dtype=np.bool_)
+        require_shape("valid", valid, (None, None, None, None, None))
+        scalar_shape = valid.shape
+        for name in (
+            "aoa_zenith_rad",
+            "aoa_azimuth_rad",
+            "aod_zenith_rad",
+            "aod_azimuth_rad",
+            "path_power_db",
+            "delay_s",
+        ):
+            value = np.asarray(getattr(self, name), dtype=np.float32)
+            require_shape(name, value, scalar_shape)
+            object.__setattr__(self, name, value)
+        path_depth = np.asarray(self.path_depth, dtype=np.int32)
+        path_type = np.asarray(self.path_type, dtype=object)
+        require_shape("path_depth", path_depth, scalar_shape)
+        require_shape("path_type", path_type, scalar_shape)
+        object.__setattr__(self, "valid", valid)
+        object.__setattr__(self, "path_depth", path_depth)
+        object.__setattr__(self, "path_type", path_type)
+
+    @classmethod
+    def empty(cls, num_tx: int, num_rx: int, num_rx_ant: int, num_tx_ant: int) -> NLoSPathTruth:
+        shape = (num_tx, num_rx, num_rx_ant, num_tx_ant, 0)
+        return cls(
+            valid=np.zeros(shape, dtype=np.bool_),
+            aoa_zenith_rad=np.zeros(shape, dtype=np.float32),
+            aoa_azimuth_rad=np.zeros(shape, dtype=np.float32),
+            aod_zenith_rad=np.zeros(shape, dtype=np.float32),
+            aod_azimuth_rad=np.zeros(shape, dtype=np.float32),
+            path_power_db=np.zeros(shape, dtype=np.float32),
+            delay_s=np.zeros(shape, dtype=np.float32),
+            path_depth=np.zeros(shape, dtype=np.int32),
+            path_type=np.empty(shape, dtype=object),
+        )
+
+
+def build_nlos_path_truth(table: PathTable) -> NLoSPathTruth:
+    """Build default NLoS AoA/AoD truth from a full path table."""
+
+    valid = table.valid & (table.path_type != "los")
+    float_shape = table.valid.shape
+    path_type = np.empty(float_shape, dtype=object)
+    path_type[:, :, :, :, :] = "invalid"
+    path_type[valid] = table.path_type[valid]
+
+    def masked_float(values: np.ndarray) -> np.ndarray:
+        out = np.full(float_shape, np.nan, dtype=np.float32)
+        out[valid] = np.asarray(values, dtype=np.float32)[valid]
+        return out
+
+    power = np.full(float_shape, np.nan, dtype=np.float32)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        power[valid] = 10.0 * np.log10(np.maximum(np.abs(table.a[valid]) ** 2, 1e-30))
+
+    path_depth = np.zeros(float_shape, dtype=np.int32)
+    path_depth[valid] = table.path_depth[valid]
+
+    return NLoSPathTruth(
+        valid=valid,
+        aoa_zenith_rad=masked_float(table.theta_r_rad),
+        aoa_azimuth_rad=masked_float(table.phi_r_rad),
+        aod_zenith_rad=masked_float(table.theta_t_rad),
+        aod_azimuth_rad=masked_float(table.phi_t_rad),
+        path_power_db=power,
+        delay_s=masked_float(table.tau_s),
+        path_depth=path_depth,
+        path_type=path_type,
+    )
+
+
+@dataclass(frozen=True)
 class PathSamples:
     """Lightweight path samples for HDF5 `/paths/samples`."""
 

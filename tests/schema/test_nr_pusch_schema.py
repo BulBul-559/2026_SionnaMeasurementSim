@@ -10,6 +10,9 @@ import h5py
 import numpy as np
 import pytest
 
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
+from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
+
 
 def _generate_nr_pusch_hdf5(tmp_path: Path, **kw) -> Path:
     """Run a minimal NR PUSCH pipeline and return the HDF5 path."""
@@ -93,8 +96,10 @@ class TestNRPUSCHSchema:
                 "waveform/noise_variance",
                 "array/rx_snapshot_matrix",
                 "array/aoa_label_rad",
+                "array/aoa_heatmap_label",
                 "array/spatial_spectrum_label",
                 "array/angle_grid_rad",
+                "array/spectrum_policy",
                 "receiver/mimo_detector",
                 "receiver/receiver_type",
             ]
@@ -131,19 +136,51 @@ class TestNRPUSCHSchema:
 
             snapshot_matrix = h5["array/rx_snapshot_matrix"]
             aoa = h5["array/aoa_label_rad"]
+            heatmap = h5["array/aoa_heatmap_label"]
             spectrum = h5["array/spatial_spectrum_label"]
             angle_grid = h5["array/angle_grid_rad"]
             assert snapshot_matrix.shape == (*rx_grid.shape[:3], rx_grid.shape[3], rx_grid.shape[3])
             assert aoa.shape == (*rx_grid.shape[:3], 2)
-            assert spectrum.shape == (*rx_grid.shape[:3], 91, 181)
             assert angle_grid.shape == (91, 181, 2)
+            assert heatmap.shape == (*rx_grid.shape[:3], *angle_grid.shape[:2])
+            assert spectrum.shape == (*rx_grid.shape[:3], *angle_grid.shape[:2])
             assert snapshot_matrix.attrs["index_order"] == (
                 "snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant"
             )
+            assert heatmap.attrs["index_order"] == "snapshot,ul_tx,ul_rx,zenith,azimuth"
             assert spectrum.attrs["index_order"] == "snapshot,ul_tx,ul_rx,zenith,azimuth"
             assert angle_grid.attrs["index_order"] == "zenith,azimuth,angle_component"
             np.testing.assert_allclose(angle_grid[0, 0], [0.0, -np.pi])
             np.testing.assert_allclose(angle_grid[-1, -1], [np.pi, np.pi])
+
+    def test_spectrum_enabled_writes_truth_and_observation_spectra(self, tmp_path):
+        try:
+            path = _generate_nr_pusch_hdf5(
+                tmp_path,
+                spectrum_config=ArraySpectrumConfig(
+                    enabled=True,
+                    sources=("truth_cfr", "rx_grid"),
+                    zenith_bins=5,
+                    azimuth_bins=7,
+                ),
+            )
+        except ImportError:
+            pytest.skip("NR PUSCH receiver not available")
+        except Exception as exc:
+            pytest.fail(f"Pipeline failed: {exc}")
+
+        validate_hdf5_contract(path)
+        with h5py.File(path, "r") as h5:
+            link_shape = h5["waveform/rx_grid"].shape[:3]
+            assert h5["array/angle_grid_rad"].shape == (5, 7, 2)
+            assert h5["array/aoa_heatmap_label"].shape == (*link_shape, 5, 7)
+            assert h5["array/spatial_spectrum_truth"].shape == (*link_shape, 5, 7)
+            assert h5["array/spatial_spectrum_observation"].shape == (
+                *link_shape,
+                5,
+                7,
+            )
+            assert np.all(np.isfinite(h5["array/spatial_spectrum_observation"][()]))
 
     def test_mimo_detector_not_empty(self, tmp_path):
         try:

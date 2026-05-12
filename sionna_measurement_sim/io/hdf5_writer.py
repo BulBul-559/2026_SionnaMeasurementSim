@@ -34,6 +34,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
         _write_derived(h5, result)
         _write_truth(h5, result)
         _write_path_samples(h5, result)
+        _write_nlos_path_truth(h5, result)
         _write_path_full(h5, result)
         _write_cir_truth(h5, result)
         _write_waveform(h5, result)
@@ -267,6 +268,33 @@ def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> N
     _write_dataset(group, "tau_s", samples.tau_s, unit="s")
 
 
+def _write_nlos_path_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    truth = result.nlos_path_truth
+    if truth is None:
+        return
+
+    group = h5.require_group("paths").require_group("nlos_truth")
+    order = "tx,rx,rx_ant,tx_ant,path"
+    _write_dataset(group, "valid", truth.valid, index_order=order)
+    _write_dataset(
+        group, "aoa_zenith_rad", truth.aoa_zenith_rad, unit="rad", index_order=order,
+    )
+    _write_dataset(
+        group, "aoa_azimuth_rad", truth.aoa_azimuth_rad, unit="rad", index_order=order,
+    )
+    _write_dataset(
+        group, "aod_zenith_rad", truth.aod_zenith_rad, unit="rad", index_order=order,
+    )
+    _write_dataset(
+        group, "aod_azimuth_rad", truth.aod_azimuth_rad, unit="rad", index_order=order,
+    )
+    _write_dataset(group, "path_power_db", truth.path_power_db, unit="dB", index_order=order)
+    _write_dataset(group, "delay_s", truth.delay_s, unit="s", index_order=order)
+    _write_dataset(group, "path_depth", truth.path_depth, index_order=order)
+    _write_string_array(group, "path_type", truth.path_type)
+    group["path_type"].attrs["index_order"] = order
+
+
 def _write_path_full(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     table = result.path_table
     if table is None:
@@ -381,6 +409,30 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+    if "aoa_heatmap_label" in outputs:
+        _write_dataset(
+            group,
+            "aoa_heatmap_label",
+            outputs["aoa_heatmap_label"],
+            unit="linear",
+            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
+        )
+    if "spatial_spectrum_truth" in outputs:
+        _write_dataset(
+            group,
+            "spatial_spectrum_truth",
+            outputs["spatial_spectrum_truth"],
+            unit="linear",
+            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
+        )
+    if "spatial_spectrum_observation" in outputs:
+        _write_dataset(
+            group,
+            "spatial_spectrum_observation",
+            outputs["spatial_spectrum_observation"],
+            unit="linear",
+            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
+        )
     if "angle_grid_rad" in outputs:
         _write_dataset(
             group,
@@ -389,6 +441,8 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             unit="rad",
             index_order="zenith,azimuth,angle_component",
         )
+    if "spectrum_policy" in outputs:
+        _write_scalar(group, "spectrum_policy", str(outputs["spectrum_policy"]))
 
 
 def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +14,7 @@ from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
     run_sionna_rt_truth,
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.derived import build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
@@ -22,6 +23,7 @@ from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
     DiagnosticsReport,
 )
+from sionna_measurement_sim.domain.path import build_nlos_path_truth
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
@@ -96,6 +98,7 @@ class RTTruthRunConfig:
     save_full_paths: bool = False
     calibration_enabled: bool = True
     link_config: LinkConfig = LinkConfig()
+    spectrum_config: ArraySpectrumConfig = field(default_factory=ArraySpectrumConfig)
     phy_standard: str = "custom_ofdm"  # "custom_ofdm" | "nr_pusch"
     # NR PUSCH fields (used when phy_standard == "nr_pusch")
     subcarrier_spacing_khz: int = 30
@@ -193,8 +196,13 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     derived = build_derived_labels(
         topology, adapter_result.truth, adapter_result.path_table, adapter_result.cir_truth
     )
+    nlos_path_truth = build_nlos_path_truth(adapter_result.path_table)
     if nr_pusch_extra.get("waveform_extras"):
-        _attach_nr_array_outputs(nr_pusch_extra, derived)
+        _attach_nr_array_outputs(nr_pusch_extra, derived, config, adapter_result.truth.cfr)
+    elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
+        nr_pusch_extra["array_outputs"] = _build_truth_array_outputs(
+            config, derived, adapter_result.truth.cfr
+        )
     result = MeasurementSimulationResult(
         metadata=Metadata(
             run_id=output_dir.name,
@@ -242,6 +250,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         cir_truth=adapter_result.cir_truth,
         derived=derived,
         path_table=adapter_result.path_table if config.save_full_paths else None,
+        nlos_path_truth=nlos_path_truth,
         waveform=observation_bundle.waveform if observation_bundle else None,
         observation=observation_bundle.observation if observation_bundle else None,
         impairments=observation_bundle.impairments if observation_bundle else None,
@@ -406,7 +415,7 @@ def _run_nr_pusch_obs(config, adapter_result):
     }
 
 
-def _attach_nr_array_outputs(nr_pusch_extra: dict, derived) -> None:
+def _attach_nr_array_outputs(nr_pusch_extra: dict, derived, config, truth_cfr: np.ndarray) -> None:
     waveform_extras = nr_pusch_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
     if rx_grid is None:
@@ -430,7 +439,54 @@ def _attach_nr_array_outputs(nr_pusch_extra: dict, derived) -> None:
     nr_pusch_extra["array_outputs"] = build_array_outputs_from_waveform(
         rx_grid,
         aoa_label_rad=aoa,
+        spectrum_config=config.spectrum_config,
+        rx_num_rows=config.tx_num_rows,
+        rx_num_cols=config.tx_num_cols,
+        rx_spacing_lambda=config.tx_spacing_lambda,
+        truth_spectrum_samples=_truth_cfr_to_ul_receiver_samples(truth_cfr),
     )
+
+
+def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
+    from sionna_measurement_sim.phy.spatial_spectrum import (
+        build_angle_grid_rad,
+        build_aoa_heatmap_label,
+        build_bartlett_spectrum,
+    )
+
+    samples = _truth_cfr_to_ul_receiver_samples(truth_cfr)
+    link_shape = samples.shape[:3]
+    aoa_2d = np.stack(
+        (
+            derived.first_path_aoa_zenith_rad.T,
+            derived.first_path_aoa_azimuth_rad.T,
+        ),
+        axis=-1,
+    ).astype(np.float32, copy=False)
+    aoa = np.broadcast_to(aoa_2d[np.newaxis, ...], (link_shape[0], *aoa_2d.shape))
+    angle_grid = build_angle_grid_rad(config.spectrum_config)
+    labels, heatmap = build_aoa_heatmap_label(aoa, angle_grid, link_shape)
+    outputs: dict[str, object] = {
+        "aoa_label_rad": labels,
+        "aoa_heatmap_label": heatmap,
+        "spatial_spectrum_label": heatmap,
+        "angle_grid_rad": angle_grid,
+        "spectrum_policy": config.spectrum_config.policy,
+    }
+    outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
+        samples,
+        rx_num_rows=config.tx_num_rows,
+        rx_num_cols=config.tx_num_cols,
+        rx_spacing_lambda=config.tx_spacing_lambda,
+        config=config.spectrum_config,
+    )
+    return outputs
+
+
+def _truth_cfr_to_ul_receiver_samples(truth_cfr: np.ndarray) -> np.ndarray:
+    # DL truth CFR [bs, ue, ue_ant, bs_ant, subcarrier] becomes UL receiver
+    # samples [snapshot, ue, bs, bs_ant, ue_ant, subcarrier].
+    return np.transpose(np.asarray(truth_cfr), (1, 0, 3, 2, 4))[np.newaxis, ...]
 
 
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
@@ -459,6 +515,20 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "rx_num_cols": config.rx_num_cols,
         "tx_spacing_lambda": list(config.tx_spacing_lambda),
         "rx_spacing_lambda": list(config.rx_spacing_lambda),
+        "spectrum_config": {
+            "enabled": config.spectrum_config.enabled,
+            "sources": list(config.spectrum_config.sources),
+            "method": config.spectrum_config.method,
+            "zenith_bins": config.spectrum_config.zenith_bins,
+            "azimuth_bins": config.spectrum_config.azimuth_bins,
+            "zenith_min_rad": config.spectrum_config.zenith_min_rad,
+            "zenith_max_rad": config.spectrum_config.zenith_max_rad,
+            "azimuth_min_rad": config.spectrum_config.azimuth_min_rad,
+            "azimuth_max_rad": config.spectrum_config.azimuth_max_rad,
+            "normalize": config.spectrum_config.normalize,
+            "aggregate_subcarriers": config.spectrum_config.aggregate_subcarriers,
+            "aggregate_symbols": config.spectrum_config.aggregate_symbols,
+        },
         "tx_pattern": config.tx_pattern,
         "rx_pattern": config.rx_pattern,
         "tx_polarization": config.tx_polarization,

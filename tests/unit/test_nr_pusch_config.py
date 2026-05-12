@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from sionna_measurement_sim.config.schema import CarrierConfig, PHYConfig
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.phy.nr_pusch_observation import (
     build_array_outputs_from_waveform,
@@ -218,8 +219,10 @@ class TestRunNRPUSCHObservation:
 
         assert arrays["rx_snapshot_matrix"].shape == (1, 2, 3, 4, 4)
         assert arrays["aoa_label_rad"].shape == (1, 2, 3, 2)
+        assert arrays["aoa_heatmap_label"].shape == (1, 2, 3, 91, 181)
         assert arrays["spatial_spectrum_label"].shape == (1, 2, 3, 91, 181)
         assert arrays["angle_grid_rad"].shape == (91, 181, 2)
+        assert "spatial_spectrum_observation" not in arrays
         assert np.all(arrays["spatial_spectrum_label"] == 0.0)
         np.testing.assert_allclose(arrays["angle_grid_rad"][0, 0], [0.0, -np.pi])
         np.testing.assert_allclose(arrays["angle_grid_rad"][-1, -1], [np.pi, np.pi])
@@ -234,6 +237,27 @@ class TestRunNRPUSCHObservation:
         assert np.count_nonzero(spectrum) == 1
         assert spectrum[0, 0, 0, 45, 90] == 1.0
         np.testing.assert_allclose(arrays["aoa_label_rad"], aoa)
+
+    def test_array_outputs_respect_spectrum_resolution_config(self):
+        rx_grid = np.ones((1, 1, 1, 4, 2, 2), dtype=np.complex64)
+        config = ArraySpectrumConfig(
+            enabled=True,
+            sources=("rx_grid",),
+            zenith_bins=7,
+            azimuth_bins=9,
+        )
+
+        arrays = build_array_outputs_from_waveform(
+            rx_grid,
+            spectrum_config=config,
+            rx_num_rows=2,
+            rx_num_cols=2,
+        )
+
+        assert arrays["angle_grid_rad"].shape == (7, 9, 2)
+        assert arrays["spatial_spectrum_label"].shape == (1, 1, 1, 7, 9)
+        assert arrays["spatial_spectrum_observation"].shape == (1, 1, 1, 7, 9)
+        assert np.all(np.isfinite(arrays["spatial_spectrum_observation"]))
 
     def test_reciprocity_applied_flag(self):
         cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)

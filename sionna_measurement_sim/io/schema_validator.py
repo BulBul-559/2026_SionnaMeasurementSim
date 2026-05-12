@@ -23,6 +23,7 @@ REQUIRED_TRUTH_GROUPS = (
     "derived",
     "channel/truth",
     "paths/samples",
+    "paths/nlos_truth",
     "runtime",
     "link",
 )
@@ -75,6 +76,15 @@ REQUIRED_TRUTH_DATASETS = (
     "paths/samples/primitive_id",
     "paths/samples/doppler_hz",
     "paths/samples/tau_s",
+    "paths/nlos_truth/valid",
+    "paths/nlos_truth/aoa_zenith_rad",
+    "paths/nlos_truth/aoa_azimuth_rad",
+    "paths/nlos_truth/aod_zenith_rad",
+    "paths/nlos_truth/aod_azimuth_rad",
+    "paths/nlos_truth/path_power_db",
+    "paths/nlos_truth/delay_s",
+    "paths/nlos_truth/path_depth",
+    "paths/nlos_truth/path_type",
 )
 
 PATH_SAMPLE_DATASETS = (
@@ -155,6 +165,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _validate_truth_shapes(h5)
         _validate_derived_shapes(h5)
         _validate_path_sample_shapes(h5)
+        _validate_nlos_truth_shapes(h5)
+        _validate_array_outputs_if_present(h5)
         if _observation_enabled(h5):
             _validate_observation_cfr_est_shape_if_present(h5)
             _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
@@ -331,6 +343,31 @@ def _validate_path_sample_shapes(h5: h5py.File) -> None:
         raise SchemaValidationError(msg)
 
 
+def _validate_nlos_truth_shapes(h5: h5py.File) -> None:
+    truth_cfr = h5["channel/truth/cfr"]
+    expected_prefix = truth_cfr.shape[:4]
+    valid = h5["paths/nlos_truth/valid"]
+    if valid.ndim != 5:
+        msg = f"/paths/nlos_truth/valid must be rank 5, got {valid.shape}"
+        raise SchemaValidationError(msg)
+    if valid.shape[:4] != expected_prefix:
+        msg = "/paths/nlos_truth dimensions must match [tx,rx,rx_ant,tx_ant,path]"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "paths/nlos_truth/aoa_zenith_rad",
+        "paths/nlos_truth/aoa_azimuth_rad",
+        "paths/nlos_truth/aod_zenith_rad",
+        "paths/nlos_truth/aod_azimuth_rad",
+        "paths/nlos_truth/path_power_db",
+        "paths/nlos_truth/delay_s",
+        "paths/nlos_truth/path_depth",
+        "paths/nlos_truth/path_type",
+    ):
+        if h5[dataset_path].shape != valid.shape:
+            msg = f"/{dataset_path} must match /paths/nlos_truth/valid shape"
+            raise SchemaValidationError(msg)
+
+
 def _validate_units(h5: h5py.File) -> None:
     for dataset_path in (
         "topology/tx_positions_m",
@@ -340,6 +377,12 @@ def _validate_units(h5: h5py.File) -> None:
         "paths/samples/vertices_m",
         "paths/samples/doppler_hz",
         "paths/samples/tau_s",
+        "paths/nlos_truth/aoa_zenith_rad",
+        "paths/nlos_truth/aoa_azimuth_rad",
+        "paths/nlos_truth/aod_zenith_rad",
+        "paths/nlos_truth/aod_azimuth_rad",
+        "paths/nlos_truth/path_power_db",
+        "paths/nlos_truth/delay_s",
         "derived/geometric_distance_m",
         "derived/first_path_delay_s",
         "derived/rtt_like_m",
@@ -458,8 +501,10 @@ NR_PUSCH_REQUIRED_FIELDS = (
     "waveform/noise_variance",
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
+    "array/aoa_heatmap_label",
     "array/spatial_spectrum_label",
     "array/angle_grid_rad",
+    "array/spectrum_policy",
     "receiver/mimo_detector",
 )
 
@@ -548,6 +593,7 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
     rx_grid = h5["waveform/rx_grid"]
     snapshot_matrix = h5["array/rx_snapshot_matrix"]
     aoa = h5["array/aoa_label_rad"]
+    heatmap = h5["array/aoa_heatmap_label"]
     spectrum = h5["array/spatial_spectrum_label"]
     angle_grid = h5["array/angle_grid_rad"]
     link_shape = rx_grid.shape[:3]
@@ -562,18 +608,95 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
     if aoa.shape != (*link_shape, 2):
         msg = "/array/aoa_label_rad must match [snapshot,ul_tx,ul_rx,angle_component]"
         raise SchemaValidationError(msg)
-    if angle_grid.shape != (91, 181, 2):
-        msg = "/array/angle_grid_rad must have shape [91,181,2]"
+    if angle_grid.ndim != 3 or angle_grid.shape[-1] != 2:
+        msg = "/array/angle_grid_rad must have shape [zenith,azimuth,2]"
         raise SchemaValidationError(msg)
-    if spectrum.shape != (*link_shape, 91, 181):
-        msg = "/array/spatial_spectrum_label must match [snapshot,ul_tx,ul_rx,91,181]"
+    spectrum_shape = (*link_shape, *angle_grid.shape[:2])
+    if heatmap.shape != spectrum_shape:
+        msg = "/array/aoa_heatmap_label must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
         raise SchemaValidationError(msg)
+    if spectrum.shape != spectrum_shape:
+        msg = (
+            "/array/spatial_spectrum_label must match "
+            "[snapshot,ul_tx,ul_rx,zenith,azimuth]"
+        )
+        raise SchemaValidationError(msg)
+    for optional_path in (
+        "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_observation",
+    ):
+        if optional_path in h5 and h5[optional_path].shape != spectrum_shape:
+            msg = f"/{optional_path} must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
+            raise SchemaValidationError(msg)
     for dataset_path in (
         "array/rx_snapshot_matrix",
         "array/aoa_label_rad",
+        "array/aoa_heatmap_label",
         "array/spatial_spectrum_label",
+        "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_observation",
         "array/angle_grid_rad",
     ):
+        if dataset_path not in h5:
+            continue
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_array_outputs_if_present(h5: h5py.File) -> None:
+    if "array" not in h5:
+        return
+    group = h5["array"]
+    if "angle_grid_rad" not in group:
+        return
+
+    angle_grid = group["angle_grid_rad"]
+    if angle_grid.ndim != 3 or angle_grid.shape[-1] != 2:
+        msg = "/array/angle_grid_rad must have shape [zenith,azimuth,2]"
+        raise SchemaValidationError(msg)
+
+    link_shape = None
+    if "aoa_label_rad" in group:
+        aoa = group["aoa_label_rad"]
+        if aoa.ndim != 4 or aoa.shape[-1] != 2:
+            msg = "/array/aoa_label_rad must match [snapshot,ul_tx,ul_rx,angle_component]"
+            raise SchemaValidationError(msg)
+        link_shape = aoa.shape[:3]
+
+    for dataset_path in (
+        "array/aoa_heatmap_label",
+        "array/spatial_spectrum_label",
+        "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_observation",
+    ):
+        if dataset_path not in h5:
+            continue
+        ds = h5[dataset_path]
+        if ds.ndim != 5:
+            msg = f"/{dataset_path} must have rank 5"
+            raise SchemaValidationError(msg)
+        if ds.shape[-2:] != angle_grid.shape[:2]:
+            msg = f"/{dataset_path} angle dimensions must match /array/angle_grid_rad"
+            raise SchemaValidationError(msg)
+        if link_shape is None:
+            link_shape = ds.shape[:3]
+        elif ds.shape[:3] != link_shape:
+            msg = f"/{dataset_path} link dimensions must match /array/aoa_label_rad"
+            raise SchemaValidationError(msg)
+
+    for dataset_path in (
+        "array/rx_snapshot_matrix",
+        "array/aoa_label_rad",
+        "array/aoa_heatmap_label",
+        "array/spatial_spectrum_label",
+        "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_observation",
+        "array/angle_grid_rad",
+    ):
+        if dataset_path not in h5:
+            continue
         ds = h5[dataset_path]
         if "unit" not in ds.attrs or "index_order" not in ds.attrs:
             msg = f"Missing unit/index_order attribute on /{dataset_path}"

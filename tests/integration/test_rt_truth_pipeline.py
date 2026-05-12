@@ -4,7 +4,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
+from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 from sionna_measurement_sim.visualization.path_plots import plot_path_samples
 
@@ -42,6 +44,8 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
         assert "runtime/torch_version" in h5
         assert "channel/cfr" not in h5
         assert "paths/full" not in h5
+        assert "paths/nlos_truth" in h5
+        assert h5["paths/nlos_truth/valid"].shape[:4] == h_true.shape[:4]
         assert h5["scene/scene_id"][()].decode("utf-8") == "fixture_scene"
         assert h5["scene/map_id"][()].decode("utf-8") == "fixture_map"
         assert h5["derived/geometric_distance_m"].shape == (1, 1)
@@ -57,6 +61,39 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
     readback = read_truth_cfr(results_path)
     assert readback.shape == (1, 1, 1, 1, 8)
     assert readback.dtype == np.dtype("complex64")
+
+
+def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):
+    output_dir = tmp_path / "phase2_rt_truth_spectrum"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("data/scenes/test/test5.json"),
+            scene_file=Path("data/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_depth=1,
+            specular_reflection=True,
+            tx_num_rows=2,
+            tx_num_cols=2,
+            spectrum_config=ArraySpectrumConfig(
+                enabled=True,
+                sources=("truth_cfr",),
+                zenith_bins=5,
+                azimuth_bins=7,
+            ),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert h5["array/angle_grid_rad"].shape == (5, 7, 2)
+        assert h5["array/aoa_heatmap_label"].shape == (1, 1, 1, 5, 7)
+        assert h5["array/spatial_spectrum_label"].shape == (1, 1, 1, 5, 7)
+        assert h5["array/spatial_spectrum_truth"].shape == (1, 1, 1, 5, 7)
+        assert "array/spatial_spectrum_observation" not in h5
+        assert "array/rx_snapshot_matrix" not in h5
 
 
 def test_path_pipeline_writes_samples_full_paths_and_plot(tmp_path: Path):
