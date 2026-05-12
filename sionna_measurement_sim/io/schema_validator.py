@@ -623,6 +623,7 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
         raise SchemaValidationError(msg)
     for optional_path in (
         "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
     ):
         if optional_path in h5 and h5[optional_path].shape != spectrum_shape:
@@ -634,6 +635,7 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
         "array/aoa_heatmap_label",
         "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
         "array/angle_grid_rad",
     ):
@@ -669,6 +671,7 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
         "array/aoa_heatmap_label",
         "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
     ):
         if dataset_path not in h5:
@@ -692,6 +695,7 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
         "array/aoa_heatmap_label",
         "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
+        "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
         "array/angle_grid_rad",
     ):

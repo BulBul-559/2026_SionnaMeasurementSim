@@ -153,13 +153,13 @@ class TestNRPUSCHSchema:
             np.testing.assert_allclose(angle_grid[0, 0], [0.0, -np.pi])
             np.testing.assert_allclose(angle_grid[-1, -1], [np.pi, np.pi])
 
-    def test_spectrum_enabled_writes_truth_and_observation_spectra(self, tmp_path):
+    def test_spectrum_enabled_writes_truth_cfr_est_and_observation_spectra(self, tmp_path):
         try:
             path = _generate_nr_pusch_hdf5(
                 tmp_path,
                 spectrum_config=ArraySpectrumConfig(
                     enabled=True,
-                    sources=("truth_cfr", "rx_grid"),
+                    sources=("truth_cfr", "cfr_est", "rx_grid"),
                     zenith_bins=5,
                     azimuth_bins=7,
                 ),
@@ -175,11 +175,13 @@ class TestNRPUSCHSchema:
             assert h5["array/angle_grid_rad"].shape == (5, 7, 2)
             assert h5["array/aoa_heatmap_label"].shape == (*link_shape, 5, 7)
             assert h5["array/spatial_spectrum_truth"].shape == (*link_shape, 5, 7)
+            assert h5["array/spatial_spectrum_cfr_est"].shape == (*link_shape, 5, 7)
             assert h5["array/spatial_spectrum_observation"].shape == (
                 *link_shape,
                 5,
                 7,
             )
+            assert np.all(np.isfinite(h5["array/spatial_spectrum_cfr_est"][()]))
             assert np.all(np.isfinite(h5["array/spatial_spectrum_observation"][()]))
 
     def test_mimo_detector_not_empty(self, tmp_path):

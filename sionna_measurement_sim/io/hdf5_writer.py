@@ -425,6 +425,14 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+    if "spatial_spectrum_cfr_est" in outputs:
+        _write_dataset(
+            group,
+            "spatial_spectrum_cfr_est",
+            outputs["spatial_spectrum_cfr_est"],
+            unit="linear",
+            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
+        )
     if "spatial_spectrum_observation" in outputs:
         _write_dataset(
             group,

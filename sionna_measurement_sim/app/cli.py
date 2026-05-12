@@ -116,6 +116,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     visualize.add_argument("--bs-indices", default="", help="Comma-separated BS indices")
     visualize.add_argument("--ue-indices", default="", help="Comma-separated UE indices")
+    visualize.add_argument("--max-bs", type=int, default=5, help="Maximum BS count to plot")
+    visualize.add_argument(
+        "--sample-ue-count",
+        type=int,
+        default=3,
+        help="Number of UEs to sample in sample mode",
+    )
+    visualize.add_argument("--max-ue", type=int, default=5, help="Maximum UE count to plot")
+    visualize.add_argument(
+        "--sample-policy",
+        default="valid_links_first",
+        choices=["valid_links_first", "spatially_spread_valid_links", "random", "first"],
+        help="UE sampling policy for sample mode.",
+    )
     visualize.add_argument("--plots", default="", help="Comma-separated plot names")
     visualize.add_argument(
         "--dataset-path",
@@ -403,7 +417,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = generate_visualization_report(
             Path(args.hdf5),
             Path(args.output_dir),
-            VisualizationRunConfig(enabled=True),
+            VisualizationRunConfig(
+                enabled=True,
+                sample_policy=args.sample_policy,
+                max_bs=args.max_bs,
+                sample_ue_count=args.sample_ue_count,
+                max_ue=args.max_ue,
+            ),
             mode=args.mode,
             bs_indices=_parse_csv_ints(args.bs_indices),
             ue_indices=_parse_csv_ints(args.ue_indices),

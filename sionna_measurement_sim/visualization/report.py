@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -73,9 +74,14 @@ def generate_visualization_report(
             except _SkipPlot as exc:
                 index["skipped_plots"].append({"plot": plot_name, "reason": str(exc)})
                 continue
-            index["generated_files"].append(
-                {"plot": plot_name, "path": path.as_posix(), "bytes": path.stat().st_size}
-            )
+            for generated_path in _as_path_list(path):
+                index["generated_files"].append(
+                    {
+                        "plot": plot_name,
+                        "path": generated_path.as_posix(),
+                        "bytes": generated_path.stat().st_size,
+                    }
+                )
 
     index_path = output_dir / "index.json"
     index["index_path"] = index_path.as_posix()
@@ -131,7 +137,10 @@ def _sample_ue_indices(
         return []
 
     candidates: np.ndarray
-    if config.sample_policy == "valid_links_first" and "derived/link_valid_mask" in h5:
+    if (
+        config.sample_policy in ("valid_links_first", "spatially_spread_valid_links")
+        and "derived/link_valid_mask" in h5
+    ):
         valid = np.asarray(h5["derived/link_valid_mask"][()])
         candidates = np.flatnonzero(np.any(valid[np.asarray(bs), :], axis=0))
     else:
@@ -140,13 +149,52 @@ def _sample_ue_indices(
     selected: list[int] = []
     if candidates.size:
         count = min(target, candidates.size)
-        selected.extend(rng.choice(candidates, size=count, replace=False).tolist())
+        if (
+            config.sample_policy == "spatially_spread_valid_links"
+            and "topology/rx_positions_m" in h5
+        ):
+            selected.extend(_select_spatially_spread_ues(h5, candidates, count))
+        else:
+            selected.extend(rng.choice(candidates, size=count, replace=False).tolist())
     if len(selected) < target:
         remaining = np.setdiff1d(np.arange(num_ue), np.asarray(selected, dtype=np.int64))
         count = min(target - len(selected), remaining.size)
         if count:
             selected.extend(rng.choice(remaining, size=count, replace=False).tolist())
     return sorted(int(value) for value in selected)
+
+
+def _select_spatially_spread_ues(
+    h5: h5py.File,
+    candidates: np.ndarray,
+    count: int,
+) -> list[int]:
+    positions = np.asarray(h5["topology/rx_positions_m"][candidates, :2], dtype=np.float64)
+    finite = np.all(np.isfinite(positions), axis=1)
+    if not np.any(finite):
+        return candidates[:count].astype(int).tolist()
+    candidate_values = candidates[finite].astype(int)
+    xy = positions[finite]
+    if candidate_values.size <= count:
+        return candidate_values.tolist()
+
+    centroid = np.mean(xy, axis=0)
+    first = int(np.argmax(np.linalg.norm(xy - centroid, axis=1)))
+    selected_positions = [xy[first]]
+    selected_offsets = [first]
+    remaining = np.ones(candidate_values.shape[0], dtype=bool)
+    remaining[first] = False
+    while len(selected_offsets) < count and np.any(remaining):
+        remaining_indices = np.flatnonzero(remaining)
+        distances = np.stack(
+            [np.linalg.norm(xy[remaining_indices] - point, axis=1) for point in selected_positions],
+            axis=1,
+        )
+        next_index = int(remaining_indices[int(np.argmax(np.min(distances, axis=1)))])
+        selected_offsets.append(next_index)
+        selected_positions.append(xy[next_index])
+        remaining[next_index] = False
+    return candidate_values[np.asarray(selected_offsets, dtype=np.int64)].tolist()
 
 
 def _dispatch_plot(
@@ -158,7 +206,7 @@ def _dispatch_plot(
     *,
     dataset_path: str | None,
     plot_type: str,
-) -> Path:
+) -> Path | list[Path]:
     dispatch = {
         "topology": _plot_topology,
         "link_overview": _plot_link_overview,
@@ -236,7 +284,12 @@ def _plot_link_overview(
     )
     figure, axes = plt.subplots(1, 4, figsize=(15, 4), squeeze=False)
     for axis, (title, data) in zip(axes[0], datasets, strict=True):
-        image = axis.imshow(np.asarray(data)[np.ix_(bs, ue)], aspect="auto", origin="lower")
+        image = axis.imshow(
+            np.asarray(data)[np.ix_(bs, ue)],
+            aspect="auto",
+            origin="lower",
+            interpolation="none",
+        )
         axis.set_title(title)
         axis.set_xlabel("UE index")
         axis.set_ylabel("BS index")
@@ -252,18 +305,27 @@ def _plot_cfr_lines(
     selection: dict[str, Any],
     config: VisualizationRunConfig,
     **_: Any,
-) -> Path:
+) -> list[Path]:
     _require(h5, ("channel/truth/cfr",))
     cfr = h5["channel/truth/cfr"]
     freqs = h5["frequency/frequencies_hz"][()] if "frequency/frequencies_hz" in h5 else None
-    return _plot_link_grid(
+    magnitude = _plot_link_grid(
         cfr,
-        output_dir / f"cfr_lines.{config.format}",
+        output_dir / f"cfr_lines_magnitude.{config.format}",
         selection,
         config,
-        lambda axis, bs, ue: _draw_cfr_lines(axis, cfr[bs, ue], freqs),
+        lambda axis, bs, ue: _draw_cfr_lines(axis, cfr[bs, ue], freqs, value_kind="magnitude"),
         "CFR magnitude lines",
     )
+    phase = _plot_link_grid(
+        cfr,
+        output_dir / f"cfr_lines_phase.{config.format}",
+        selection,
+        config,
+        lambda axis, bs, ue: _draw_cfr_lines(axis, cfr[bs, ue], freqs, value_kind="phase"),
+        "CFR phase lines",
+    )
+    return [magnitude, phase]
 
 
 def _plot_cfr_heatmap(
@@ -272,17 +334,30 @@ def _plot_cfr_heatmap(
     selection: dict[str, Any],
     config: VisualizationRunConfig,
     **_: Any,
-) -> Path:
+) -> list[Path]:
     _require(h5, ("channel/truth/cfr",))
     cfr = h5["channel/truth/cfr"]
-    return _plot_link_grid(
+    magnitude = _plot_link_grid(
         cfr,
-        output_dir / f"cfr_heatmap.{config.format}",
+        output_dir / f"cfr_heatmap_magnitude.{config.format}",
         selection,
         config,
-        lambda axis, bs, ue: _draw_ant_subcarrier_heatmap(axis, cfr[bs, ue], "|CFR| [dB]"),
+        lambda axis, bs, ue: _draw_ant_subcarrier_heatmap(
+            axis, cfr[bs, ue], "|CFR| [dB]", value_kind="magnitude_db"
+        ),
         "CFR antenna-pair heatmaps",
     )
+    phase = _plot_link_grid(
+        cfr,
+        output_dir / f"cfr_heatmap_phase.{config.format}",
+        selection,
+        config,
+        lambda axis, bs, ue: _draw_ant_subcarrier_heatmap(
+            axis, cfr[bs, ue], "CFR phase [rad]", value_kind="phase"
+        ),
+        "CFR phase antenna-pair heatmaps",
+    )
+    return [magnitude, phase]
 
 
 def _plot_cfr_error(
@@ -291,23 +366,43 @@ def _plot_cfr_error(
     selection: dict[str, Any],
     config: VisualizationRunConfig,
     **_: Any,
-) -> Path:
+) -> list[Path]:
     _require(h5, ("channel/truth/cfr", "observation/cfr_est"))
     truth = h5["channel/truth/cfr"]
     estimate = h5["observation/cfr_est"]
 
-    def draw(axis: Any, bs: int, ue: int) -> None:
-        error = estimate[0, bs, ue] - truth[bs, ue]
-        _draw_ant_subcarrier_heatmap(axis, error, "|CFR error| [dB]")
+    def draw_magnitude(axis: Any, bs: int, ue: int) -> None:
+        amplitude_error_db = (
+            20.0 * np.log10(np.abs(estimate[0, bs, ue]) + _EPS)
+            - 20.0 * np.log10(np.abs(truth[bs, ue]) + _EPS)
+        )
+        _draw_ant_subcarrier_heatmap(
+            axis, amplitude_error_db, "CFR magnitude error [dB]", value_kind="real"
+        )
 
-    return _plot_link_grid(
+    def draw_phase(axis: Any, bs: int, ue: int) -> None:
+        phase_error = _wrap_phase(np.angle(estimate[0, bs, ue]) - np.angle(truth[bs, ue]))
+        _draw_ant_subcarrier_heatmap(
+            axis, phase_error, "CFR phase error [rad]", value_kind="real"
+        )
+
+    magnitude = _plot_link_grid(
         truth,
-        output_dir / f"cfr_error.{config.format}",
+        output_dir / f"cfr_error_magnitude.{config.format}",
         selection,
         config,
-        draw,
-        "CFR estimate error",
+        draw_magnitude,
+        "CFR magnitude estimate error",
     )
+    phase = _plot_link_grid(
+        truth,
+        output_dir / f"cfr_error_phase.{config.format}",
+        selection,
+        config,
+        draw_phase,
+        "CFR phase estimate error",
+    )
+    return [magnitude, phase]
 
 
 def _plot_waveform_grid(
@@ -323,10 +418,15 @@ def _plot_waveform_grid(
     def draw(axis: Any, bs: int, ue: int) -> None:
         data = rx_grid[0, ue, bs]
         power = 10.0 * np.log10(np.mean(np.abs(data) ** 2, axis=0) + _EPS)
-        image = axis.imshow(power, aspect="auto", origin="lower")
+        image = axis.imshow(
+            power.T,
+            aspect="auto",
+            origin="lower",
+            interpolation="none",
+        )
         axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
-        axis.set_xlabel("subcarrier")
-        axis.set_ylabel("OFDM symbol")
+        axis.set_xlabel("OFDM symbol")
+        axis.set_ylabel("subcarrier")
 
     return _plot_link_grid(
         rx_grid,
@@ -418,32 +518,205 @@ def _plot_spatial_spectrum(
     selection: dict[str, Any],
     config: VisualizationRunConfig,
     **_: Any,
-) -> Path:
+) -> list[Path]:
+    _require(h5, ("array/angle_grid_rad",))
+    angle_grid = np.asarray(h5["array/angle_grid_rad"][()])
     candidates = (
-        "array/spatial_spectrum_observation",
-        "array/spatial_spectrum_truth",
-        "array/spatial_spectrum_label",
+        (
+            "label",
+            "array/spatial_spectrum_label",
+            "AoA heatmap label / spatial_spectrum_label",
+        ),
+        (
+            "truth",
+            "array/spatial_spectrum_truth",
+            "Bartlett spectrum from truth CFR / spatial_spectrum_truth",
+        ),
+        (
+            "cfr_est",
+            "array/spatial_spectrum_cfr_est",
+            "Bartlett spectrum from estimated CFR / spatial_spectrum_cfr_est",
+        ),
+        (
+            "observation",
+            "array/spatial_spectrum_observation",
+            "Bartlett spectrum from RX grid / spatial_spectrum_observation",
+        ),
     )
-    dataset_path = next((path for path in candidates if path in h5), None)
-    if dataset_path is None:
+    generated: list[Path] = []
+    for suffix, dataset_path, title in candidates:
+        if dataset_path not in h5:
+            continue
+        data = h5[dataset_path]
+        row_limits = _spatial_spectrum_row_limits(data, selection)
+
+        def draw(
+            axis: Any,
+            bs: int,
+            ue: int,
+            *,
+            source: h5py.Dataset = data,
+            limits: dict[int, tuple[float, float]] = row_limits,
+        ) -> None:
+            spectrum = source[0, ue, bs]
+            vmin, vmax = limits[int(ue)]
+            image = axis.imshow(
+                spectrum,
+                aspect="auto",
+                origin="lower",
+                interpolation="none",
+                vmin=vmin,
+                vmax=vmax,
+            )
+            axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+            axis.set_xlabel("azimuth bin")
+            axis.set_ylabel("zenith bin")
+
+        generated.extend(
+            (
+                _plot_link_grid(
+                    data,
+                    output_dir / f"spatial_spectrum_{suffix}.{config.format}",
+                    selection,
+                    config,
+                    draw,
+                    title,
+                ),
+                _plot_spatial_spectrum_polar_grid(
+                    data,
+                    angle_grid,
+                    output_dir / f"spatial_spectrum_{suffix}_polar.{config.format}",
+                    selection,
+                    config,
+                    f"{title} polar hemispheres",
+                    row_limits,
+                ),
+            )
+        )
+    if not generated:
         raise _SkipPlot("no spatial spectrum dataset present")
-    data = h5[dataset_path]
+    return generated
 
-    def draw(axis: Any, bs: int, ue: int) -> None:
-        spectrum = data[0, ue, bs]
-        image = axis.imshow(spectrum, aspect="auto", origin="lower")
-        axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
-        axis.set_xlabel("azimuth bin")
-        axis.set_ylabel("zenith bin")
 
-    return _plot_link_grid(
-        data,
-        output_dir / f"spatial_spectrum.{config.format}",
-        selection,
-        config,
-        draw,
-        dataset_path,
+def _plot_spatial_spectrum_polar_grid(
+    dataset: h5py.Dataset,
+    angle_grid: np.ndarray,
+    output_path: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+    title: str,
+    row_limits: dict[int, tuple[float, float]],
+) -> Path:
+    bs = selection["bs_indices"]
+    ue = selection["ue_indices"]
+    rows = max(len(ue), 1)
+    cols = max(len(bs), 1)
+    spectra: dict[tuple[int, int], np.ndarray] = {}
+    for ue_idx in ue:
+        for bs_idx in bs:
+            spectrum = np.asarray(dataset[0, ue_idx, bs_idx], dtype=np.float32)
+            spectra[(int(ue_idx), int(bs_idx))] = spectrum
+
+    figure, axes = plt.subplots(
+        rows,
+        cols * 2,
+        figsize=(5.2 * cols, 3.2 * rows),
+        squeeze=False,
+        subplot_kw={"projection": "polar"},
+        constrained_layout=True,
     )
+    for row, ue_idx in enumerate(ue):
+        for col, bs_idx in enumerate(bs):
+            upper_axis = axes[row, col * 2]
+            lower_axis = axes[row, col * 2 + 1]
+            spectrum = spectra[(int(ue_idx), int(bs_idx))]
+            vmin, vmax = row_limits[int(ue_idx)]
+            _draw_spatial_spectrum_polar_pair(
+                upper_axis,
+                lower_axis,
+                spectrum,
+                angle_grid,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            upper_axis.set_title(f"UE {ue_idx} - BS {bs_idx}\nupper", fontsize=8)
+            lower_axis.set_title(f"UE {ue_idx} - BS {bs_idx}\nlower", fontsize=8)
+    figure.suptitle(title)
+    return _save_figure(figure, output_path, config)
+
+
+def _draw_spatial_spectrum_polar_pair(
+    upper_axis: Any,
+    lower_axis: Any,
+    spectrum: np.ndarray,
+    angle_grid: np.ndarray,
+    *,
+    vmin: float,
+    vmax: float,
+) -> Any:
+    zenith = np.asarray(angle_grid[:, 0, 0], dtype=np.float64)
+    azimuth = np.asarray(angle_grid[0, :, 1], dtype=np.float64)
+    zenith_mid = 0.5 * (float(np.nanmin(zenith)) + float(np.nanmax(zenith)))
+
+    upper_mask = zenith <= zenith_mid + 1e-12
+    lower_mask = zenith >= zenith_mid - 1e-12
+    azimuth_edges = _grid_edges(azimuth)
+
+    upper_values = np.asarray(spectrum[upper_mask, :], dtype=np.float32)
+    upper_radius = zenith[upper_mask]
+    mappable = _draw_spatial_spectrum_polar_half(
+        upper_axis,
+        azimuth_edges,
+        upper_radius,
+        upper_values,
+        title_label="r=zenith",
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    lower_values = np.asarray(spectrum[lower_mask, :], dtype=np.float32)[::-1, :]
+    lower_radius = (float(np.nanmax(zenith)) - zenith[lower_mask])[::-1]
+    _draw_spatial_spectrum_polar_half(
+        lower_axis,
+        azimuth_edges,
+        lower_radius,
+        lower_values,
+        title_label="r=pi-zenith",
+        vmin=vmin,
+        vmax=vmax,
+    )
+    return mappable
+
+
+def _draw_spatial_spectrum_polar_half(
+    axis: Any,
+    azimuth_edges: np.ndarray,
+    radius_centers: np.ndarray,
+    values: np.ndarray,
+    *,
+    title_label: str,
+    vmin: float,
+    vmax: float,
+) -> Any:
+    radius_edges = _grid_edges(radius_centers)
+    mappable = axis.pcolormesh(
+        azimuth_edges,
+        radius_edges,
+        values,
+        shading="flat",
+        vmin=vmin,
+        vmax=vmax,
+    )
+    axis.set_theta_zero_location("E")
+    axis.set_theta_direction(1)
+    axis.set_ylim(max(0.0, float(radius_edges[0])), float(radius_edges[-1]))
+    axis.set_thetagrids([0, 90, 180, 270], labels=["0", "90", "180", "270"])
+    axis.set_rticks([0.0, np.pi / 4.0, np.pi / 2.0])
+    axis.set_yticklabels(["0", "45", "90"])
+    axis.tick_params(labelsize=7, pad=1)
+    axis.set_xlabel(title_label, fontsize=7, labelpad=-2)
+    axis.grid(True, alpha=0.3)
+    return mappable
 
 
 def _plot_nmse_snr(
@@ -521,7 +794,7 @@ def _plot_full_summary(
     axes = axes.ravel()
     if "derived/link_valid_mask" in h5:
         valid = h5["derived/link_valid_mask"][()].astype(np.float32)
-        axes[0].imshow(valid, aspect="auto", origin="lower")
+        axes[0].imshow(valid, aspect="auto", origin="lower", interpolation="none")
         axes[0].set_title("link_valid_mask")
     if "derived/path_count" in h5:
         axes[1].hist(h5["derived/path_count"][()].ravel(), bins=40)
@@ -561,7 +834,7 @@ def _plot_dataset_preview(
         axis.hist(values[np.isfinite(values)].ravel(), bins=50)
     elif kind == "heatmap":
         view = _last_two_dim_view(values)
-        image = axis.imshow(view, aspect="auto", origin="lower")
+        image = axis.imshow(view, aspect="auto", origin="lower", interpolation="none")
         figure.colorbar(image, ax=axis)
     elif kind == "line":
         axis.plot(np.ravel(values))
@@ -593,23 +866,112 @@ def _plot_link_grid(
     return _save_figure(figure, output_path, config)
 
 
-def _draw_cfr_lines(axis: Any, link_cfr: np.ndarray, freqs: np.ndarray | None) -> None:
+def _draw_cfr_lines(
+    axis: Any,
+    link_cfr: np.ndarray,
+    freqs: np.ndarray | None,
+    *,
+    value_kind: str,
+) -> None:
+    _ = freqs
     subcarrier = link_cfr.shape[-1]
-    x = np.arange(subcarrier) if freqs is None else freqs[:subcarrier] * 1e-9
-    values = 20.0 * np.log10(np.abs(link_cfr.reshape(-1, subcarrier)) + _EPS)
+    x = np.arange(subcarrier)
+    if value_kind == "magnitude":
+        values = 20.0 * np.log10(np.abs(link_cfr.reshape(-1, subcarrier)) + _EPS)
+        axis.set_ylabel("|H| [dB]")
+    elif value_kind == "phase":
+        values = np.angle(link_cfr.reshape(-1, subcarrier))
+        axis.set_ylabel("phase [rad]")
+    else:
+        raise ValueError(f"unsupported CFR line value kind: {value_kind}")
     for row in values:
         axis.plot(x, row, alpha=0.55, linewidth=0.8)
-    axis.set_xlabel("subcarrier" if freqs is None else "frequency [GHz]")
-    axis.set_ylabel("|H| [dB]")
-
-
-def _draw_ant_subcarrier_heatmap(axis: Any, value: np.ndarray, label: str) -> None:
-    subcarrier = value.shape[-1]
-    heatmap = 20.0 * np.log10(np.abs(value.reshape(-1, subcarrier)) + _EPS)
-    image = axis.imshow(heatmap, aspect="auto", origin="lower")
-    axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04, label=label)
     axis.set_xlabel("subcarrier")
-    axis.set_ylabel("antenna pair")
+
+
+def _draw_ant_subcarrier_heatmap(
+    axis: Any,
+    value: np.ndarray,
+    label: str,
+    *,
+    value_kind: str,
+) -> None:
+    subcarrier = value.shape[-1]
+    if value_kind == "magnitude_db":
+        heatmap = 20.0 * np.log10(np.abs(value.reshape(-1, subcarrier)) + _EPS)
+    elif value_kind == "phase":
+        heatmap = np.angle(value.reshape(-1, subcarrier))
+    elif value_kind == "real":
+        heatmap = np.asarray(value).reshape(-1, subcarrier)
+    else:
+        raise ValueError(f"unsupported antenna-subcarrier heatmap value kind: {value_kind}")
+    image = axis.imshow(
+        heatmap.T,
+        aspect="auto",
+        origin="lower",
+        interpolation="none",
+    )
+    axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04, label=label)
+    axis.set_xlabel("antenna pair")
+    axis.set_ylabel("subcarrier")
+
+
+def _wrap_phase(value: np.ndarray) -> np.ndarray:
+    return (value + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _spatial_spectrum_row_limits(
+    dataset: h5py.Dataset,
+    selection: dict[str, Any],
+) -> dict[int, tuple[float, float]]:
+    """Return one color scale per selected UE across all selected BS."""
+
+    bs_indices = [int(value) for value in selection["bs_indices"]]
+    limits: dict[int, tuple[float, float]] = {}
+    for ue_idx in selection["ue_indices"]:
+        finite_chunks: list[np.ndarray] = []
+        for bs_idx in bs_indices:
+            values = np.asarray(dataset[0, int(ue_idx), bs_idx], dtype=np.float32)
+            finite = values[np.isfinite(values)]
+            if finite.size:
+                finite_chunks.append(finite)
+        if not finite_chunks:
+            limits[int(ue_idx)] = (0.0, 1.0)
+            continue
+        row_values = np.concatenate(finite_chunks)
+        vmin = float(np.min(row_values))
+        vmax = float(np.max(row_values))
+        limits[int(ue_idx)] = _stable_color_limits(vmin, vmax)
+    return limits
+
+
+def _stable_color_limits(vmin: float, vmax: float) -> tuple[float, float]:
+    if not np.isfinite(vmin) or not np.isfinite(vmax):
+        return (0.0, 1.0)
+    if vmax > vmin:
+        return (vmin, vmax)
+    if vmax > 0.0:
+        return (0.0, vmax)
+    if vmin < 0.0:
+        return (vmin, 0.0)
+    return (0.0, 1.0)
+
+
+def _grid_edges(centers: np.ndarray) -> np.ndarray:
+    centers = np.asarray(centers, dtype=np.float64)
+    if centers.size == 1:
+        return np.array([centers[0] - 0.5, centers[0] + 0.5], dtype=np.float64)
+    edges = np.empty(centers.size + 1, dtype=np.float64)
+    edges[1:-1] = 0.5 * (centers[:-1] + centers[1:])
+    edges[0] = centers[0] - 0.5 * (centers[1] - centers[0])
+    edges[-1] = centers[-1] + 0.5 * (centers[-1] - centers[-2])
+    return edges
+
+
+def _as_path_list(value: Path | list[Path]) -> list[Path]:
+    if isinstance(value, list):
+        return value
+    return [value]
 
 
 def _last_two_dim_view(values: np.ndarray) -> np.ndarray:
@@ -639,7 +1001,14 @@ def _nlos_selection_index(
 
 def _save_figure(figure: Any, path: Path, config: VisualizationRunConfig) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    figure.tight_layout()
+    if not figure.get_constrained_layout():
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="This figure includes Axes that are not compatible with tight_layout.*",
+                category=UserWarning,
+            )
+            figure.tight_layout()
     figure.savefig(path, dpi=config.dpi)
     plt.close(figure)
     return path

@@ -4,6 +4,7 @@ from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.phy.spatial_spectrum import (
     build_angle_grid_rad,
     build_bartlett_spectrum,
+    project_cfr_to_ul_receiver_samples,
 )
 
 
@@ -56,3 +57,22 @@ def test_bartlett_spectrum_zero_input_is_zero():
 
     assert spectrum.shape == (1, 2, 1, 3, 4)
     assert np.all(spectrum == 0.0)
+
+
+def test_project_cfr_to_ul_receiver_samples_accepts_truth_and_estimate_cfr():
+    truth = np.arange(2 * 3 * 4 * 5 * 6, dtype=np.float32).reshape(2, 3, 4, 5, 6)
+    truth_samples = project_cfr_to_ul_receiver_samples(truth.astype(np.complex64))
+
+    assert truth_samples.shape == (1, 3, 2, 5, 4, 6)
+    np.testing.assert_allclose(truth_samples[0, 1, 0, 2, 3, 4], truth[0, 1, 3, 2, 4])
+
+    estimate = np.arange(7 * 2 * 3 * 4 * 5 * 6, dtype=np.float32).reshape(
+        7, 2, 3, 4, 5, 6
+    )
+    estimate_samples = project_cfr_to_ul_receiver_samples(estimate.astype(np.complex64))
+
+    assert estimate_samples.shape == (7, 3, 2, 5, 4, 6)
+    np.testing.assert_allclose(
+        estimate_samples[6, 1, 0, 2, 3, 4],
+        estimate[6, 0, 1, 3, 2, 4],
+    )

@@ -40,7 +40,8 @@ class VisualizationRunConfig:
     plots: tuple[str, ...] = DEFAULT_VISUALIZATION_PLOTS
 
     def __post_init__(self) -> None:
-        if self.sample_policy not in ("valid_links_first", "random", "first"):
+        allowed_policies = ("valid_links_first", "spatially_spread_valid_links", "random", "first")
+        if self.sample_policy not in allowed_policies:
             raise ValueError(f"Unsupported visualization sample_policy: {self.sample_policy!r}")
         if self.max_bs < 1 or self.sample_ue_count < 1 or self.max_ue < 1:
             raise ValueError("max_bs, sample_ue_count, and max_ue must be >= 1")

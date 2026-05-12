@@ -93,7 +93,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以控制 HDF5 体积 |
-| `sources` | list[str] | ["truth_cfr", "rx_grid"] | `truth_cfr` 生成理想谱；`rx_grid` 生成 NR PUSCH 观测谱 |
+| `sources` | list[str] | ["truth_cfr", "cfr_est", "rx_grid"] | `truth_cfr` 生成真值信道谱；`cfr_est` 生成估计信道谱；`rx_grid` 生成 NR PUSCH 接收信号谱 |
 | `method` | str | "bartlett" | 第一版仅支持 Bartlett |
 | `zenith_bins` | int | 91 | zenith 分辨率 |
 | `azimuth_bins` | int | 181 | azimuth 分辨率 |
@@ -112,7 +112,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 |------|------|--------|------|
 | `enabled` | bool | true（模板） | run-full 后自动生成少量采样 PNG；schema 默认 false |
 | `output_dir` | str | "figures" | 相对 run 输出目录的图像目录 |
-| `sample_policy` | str | "valid_links_first" | 优先从 `/derived/link_valid_mask=True` 的 UE 中采样 |
+| `sample_policy` | str | "valid_links_first" | UE 采样策略；可选 `valid_links_first`、`spatially_spread_valid_links`、`random`、`first` |
 | `random_seed` | int | 42 | 采样随机种子 |
 | `max_bs` | int | 5 | 自动图中最多绘制的 BS 数 |
 | `sample_ue_count` | int | 3 | 自动图中随机采样的 UE 数 |
@@ -120,6 +120,28 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `dpi` | int | 140 | PNG 分辨率 |
 | `format` | str | "png" | 第一版仅支持 PNG |
 | `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图 |
+
+`sample_policy` 含义：
+
+- `valid_links_first`：先从任一选中 BS 有效的 UE 中随机采样，不足时从全体 UE 补齐。
+- `spatially_spread_valid_links`：先过滤有效 UE，再按 UE 的 XY 坐标做远点采样，适合让示意图中的 UE 跨度更明显。
+- `random`：从全体 UE 中随机采样。
+- `first`：取前 N 个 UE，便于复现和调试。
+
+绘图约定：
+
+- 所有涉及子载波的热力图统一把 subcarrier 放在纵轴；CFR 折线图例外，使用 subcarrier 横轴，便于直接看频域曲线。
+- Matplotlib 热力图显式使用 `interpolation="none"`，不做显示层插值或平滑。
+- `cfr_lines`、`cfr_heatmap`、`cfr_error` 都会输出幅度和相位两张图，文件名分别带
+  `_magnitude` / `_phase` 后缀；其中 CFR error 的幅度图是估计幅度相对真值幅度的 dB 误差，相位图是 wrap 到 `[-pi, pi]` 的相位误差。
+- `spatial_spectrum` 会按数据来源分开输出：
+  `spatial_spectrum_label.png`、`spatial_spectrum_truth.png`、
+  `spatial_spectrum_cfr_est.png`、`spatial_spectrum_observation.png`。
+  同时会额外输出对应的
+  `*_polar.png`，每个 link 的 polar 图左右并排：左侧上半球半径为 zenith，
+  右侧下半球半径为 `pi - zenith`，外圈都表示水平面。缺失的数据源会跳过，不会用其他谱混画。
+- 空间谱矩形图和 polar 图都按“同一个 UE 内的选中 BS”做局部颜色尺度归一；
+  polar 图不额外放 colorbar，避免多 link 图中互相遮挡。
 
 嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
 
@@ -131,6 +153,18 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
   --bs-indices 0,1 \
   --ue-indices 10,20 \
   --plots cfr_lines,spatial_spectrum
+```
+
+需要在独立可视化入口使用空间分散采样时：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli visualize \
+  --hdf5 outputs/run/results.h5 \
+  --output-dir outputs/run/figures_spread \
+  --mode sample \
+  --sample-policy spatially_spread_valid_links \
+  --sample-ue-count 3 \
+  --max-bs 5
 ```
 
 ### `rt` — 射线追踪

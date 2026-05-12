@@ -131,7 +131,18 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 
 | mode | 说明 |
 |------|------|
-| `sample` | 使用有效链路优先策略采样 BS/UE 并生成核心诊断图 |
+| `sample` | 使用 `visualization.sample_policy` 或 CLI `--sample-policy` 采样 BS/UE 并生成核心诊断图 |
 | `selected` | 使用 `--bs-indices`、`--ue-indices` 和 `--plots` 生成指定图 |
 | `full` | 生成全量聚合统计图，不逐 link 爆炸出图 |
 | `dataset` | 使用 `--dataset-path` 对任意 HDF5 dataset 做 line/heatmap/hist 预览 |
+
+独立 `visualize` 入口也支持 `--sample-policy spatially_spread_valid_links`，
+用于在大规模 UE 场景中选择 XY 位置更分散的采样 UE；同时可用
+`--sample-ue-count`、`--max-ue`、`--max-bs` 控制采样规模。
+
+可视化图像保持原始采样网格，不做显示插值。涉及子载波的热力图统一把
+subcarrier 放在纵轴；CFR lines 例外，使用 subcarrier 横轴。CFR 的
+lines、heatmap、error 都分别输出幅度和相位图。空间谱按来源分开输出
+label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett 四类矩形 PNG，
+并额外输出对应 polar PNG；polar 图中每个 link 左侧为上半球，右侧为下半球。
+空间谱矩形图和 polar 图使用同一个 UE 内的局部颜色尺度；polar 图不放 colorbar。

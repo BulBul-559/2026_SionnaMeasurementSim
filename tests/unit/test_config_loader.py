@@ -46,6 +46,7 @@ def test_load_default_mvp_config():
     assert cfg.visualization.sample_policy == "valid_links_first"
     assert cfg.visualization.max_bs == 5
     assert cfg.visualization.sample_ue_count == 3
+    assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
 
 
 def test_input_scene_id_defaults_to_scene_file_stem(tmp_path: Path):
@@ -80,6 +81,37 @@ input:
 
     assert cfg.input.scene_id == "campus_block_a_v2"
     assert cfg.input.map_id == "campus"
+
+
+def test_spectrum_config_accepts_cfr_est_source(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+array:
+  spectrum:
+    sources: ["truth_cfr", "cfr_est", "rx_grid"]
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
+
+
+def test_spectrum_config_rejects_unknown_source(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+array:
+  spectrum:
+    sources: ["truth_cfr", "unknown"]
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit)):
+        load_config(config_path)
 
 
 def test_reject_non_mapping_config(tmp_path: Path):

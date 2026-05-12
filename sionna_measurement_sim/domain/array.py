@@ -10,7 +10,7 @@ class ArraySpectrumConfig:
     """Configuration for angle-grid spatial spectrum generation."""
 
     enabled: bool = False
-    sources: tuple[str, ...] = ("truth_cfr", "rx_grid")
+    sources: tuple[str, ...] = ("truth_cfr", "cfr_est", "rx_grid")
     method: str = "bartlett"
     zenith_bins: int = 91
     azimuth_bins: int = 181
@@ -24,7 +24,7 @@ class ArraySpectrumConfig:
 
     def __post_init__(self) -> None:
         sources = tuple(str(source) for source in self.sources)
-        allowed_sources = {"truth_cfr", "rx_grid"}
+        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid"}
         unknown_sources = set(sources) - allowed_sources
         if unknown_sources:
             raise ValueError(f"Unsupported spectrum sources: {sorted(unknown_sources)}")

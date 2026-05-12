@@ -48,7 +48,7 @@ antenna:
 array:
   spectrum:
     enabled: false
-    sources: ["truth_cfr", "rx_grid"]
+    sources: ["truth_cfr", "cfr_est", "rx_grid"]
     method: "bartlett"
     zenith_bins: 91
     azimuth_bins: 181
@@ -63,13 +63,15 @@ array:
 visualization:
   enabled: true
   output_dir: "figures"
-  sample_policy: "valid_links_first"
+  sample_policy: "valid_links_first" # "valid_links_first" | "spatially_spread_valid_links" | "random" | "first"
   random_seed: 42
   max_bs: 5
   sample_ue_count: 3
   max_ue: 5
   dpi: 140
   format: "png"
+  # CFR plots are exported as magnitude/phase PNG pairs.
+  # spatial_spectrum is exported per source plus polar hemisphere PNGs when present.
   plots:
     - "topology"
     - "link_overview"

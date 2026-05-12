@@ -71,6 +71,26 @@ def build_rx_snapshot_matrix(samples: np.ndarray) -> np.ndarray:
     return snapshot_matrix
 
 
+def project_cfr_to_ul_receiver_samples(cfr: np.ndarray) -> np.ndarray:
+    """Convert project-view CFR tensors to UL receiver-array samples.
+
+    Project truth CFR shape:
+    [bs, ue, ue_ant, bs_ant, subcarrier]
+    -> [snapshot=1, ue, bs, bs_ant, ue_ant, subcarrier]
+
+    Project observation CFR shape:
+    [snapshot, bs, ue, ue_ant, bs_ant, subcarrier]
+    -> [snapshot, ue, bs, bs_ant, ue_ant, subcarrier]
+    """
+
+    array = np.asarray(cfr, dtype=np.complex64)
+    if array.ndim == 5:
+        return np.transpose(array, (1, 0, 3, 2, 4))[np.newaxis, ...]
+    if array.ndim == 6:
+        return np.transpose(array, (0, 2, 1, 4, 3, 5))
+    raise ValueError(f"cfr must have rank 5 or 6, got {array.shape}")
+
+
 def build_bartlett_spectrum(
     samples: np.ndarray,
     *,

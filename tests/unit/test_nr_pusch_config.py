@@ -259,6 +259,28 @@ class TestRunNRPUSCHObservation:
         assert arrays["spatial_spectrum_observation"].shape == (1, 1, 1, 7, 9)
         assert np.all(np.isfinite(arrays["spatial_spectrum_observation"]))
 
+    def test_array_outputs_export_cfr_est_spectrum_when_samples_are_provided(self):
+        rx_grid = np.ones((1, 1, 1, 4, 2, 2), dtype=np.complex64)
+        cfr_est_samples = np.ones((1, 1, 1, 4, 2, 2), dtype=np.complex64)
+        config = ArraySpectrumConfig(
+            enabled=True,
+            sources=("cfr_est",),
+            zenith_bins=7,
+            azimuth_bins=9,
+        )
+
+        arrays = build_array_outputs_from_waveform(
+            rx_grid,
+            spectrum_config=config,
+            rx_num_rows=2,
+            rx_num_cols=2,
+            cfr_est_spectrum_samples=cfr_est_samples,
+        )
+
+        assert arrays["spatial_spectrum_cfr_est"].shape == (1, 1, 1, 7, 9)
+        assert "spatial_spectrum_observation" not in arrays
+        assert np.all(np.isfinite(arrays["spatial_spectrum_cfr_est"]))
+
     def test_reciprocity_applied_flag(self):
         cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)
         cir_delays = np.ones((1, 2, 2, 1, 1, 2), dtype=np.float32) * 1e-9

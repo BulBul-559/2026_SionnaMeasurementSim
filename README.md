@@ -165,7 +165,7 @@ SionnaMeasurementSim/
     phy/              PHY 观测 + 损伤 + NR PUSCH + MIMO 信道 + backend
     io/               HDF5 读写、schema validator、manifest、label 解析
     analysis/         诊断分析
-    visualization/    拓扑/路径/CFR/NMSE 图
+    visualization/    拓扑/路径/CFR/NMSE/空间谱图
   config/defaults/    默认 YAML 配置
   data/scenes/test/   测试场景
   tests/

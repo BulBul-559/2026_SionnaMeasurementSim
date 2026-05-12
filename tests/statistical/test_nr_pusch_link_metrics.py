@@ -1,7 +1,7 @@
 """Phase 4b statistical tests for NR PUSCH link metrics.
 
-Verifies BER improves with higher SNR, HDF5 field completeness, and CFR
-shape consistency for the NR PUSCH observation pipeline.
+Verifies channel-estimation quality improves with higher SNR, HDF5 field
+completeness, and CFR shape consistency for the NR PUSCH observation pipeline.
 """
 
 from pathlib import Path
@@ -46,8 +46,8 @@ def _run_nr_pusch(snr_db: float, tmp_path: Path) -> Path:
 class TestNRPUSCHLinkMetrics:
     """Statistical tests for the NR PUSCH observation pipeline."""
 
-    def test_ber_improves_with_ebn0(self, tmp_path):
-        """Run NR PUSCH pipeline at two SNR levels, verify BER decreases."""
+    def test_channel_estimation_improves_with_snr(self, tmp_path):
+        """Run NR PUSCH at two SNR levels and verify channel metrics improve."""
         try:
             path_low = _run_nr_pusch(10, tmp_path)
             path_high = _run_nr_pusch(30, tmp_path)
@@ -57,12 +57,17 @@ class TestNRPUSCHLinkMetrics:
             pytest.fail("NR PUSCH receiver failed")
 
         with h5py.File(path_low, "r") as h5:
-            ber_low = float(h5["evaluation/ber"][()])
+            nmse_low = float(np.nanmean(h5["evaluation/nmse_db"][()]))
+            noise_low = float(np.nanmean(h5["waveform/noise_variance"][()]))
         with h5py.File(path_high, "r") as h5:
-            ber_high = float(h5["evaluation/ber"][()])
+            nmse_high = float(np.nanmean(h5["evaluation/nmse_db"][()]))
+            noise_high = float(np.nanmean(h5["waveform/noise_variance"][()]))
 
-        assert ber_high <= ber_low, (
-            f"BER at 30dB ({ber_high}) should be <= BER at 10dB ({ber_low})"
+        assert noise_high < noise_low, (
+            f"Noise variance at 30dB ({noise_high}) should be < 10dB ({noise_low})"
+        )
+        assert nmse_high <= nmse_low, (
+            f"NMSE at 30dB ({nmse_high}) should be <= NMSE at 10dB ({nmse_low})"
         )
 
     def test_nr_pusch_hdf5_fields(self, tmp_path):

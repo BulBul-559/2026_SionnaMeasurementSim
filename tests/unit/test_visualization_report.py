@@ -9,6 +9,7 @@ import numpy as np
 from sionna_measurement_sim.app.cli import main
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.report import (
+    _spatial_spectrum_row_limits,
     generate_visualization_report,
     select_visualization_links,
 )
@@ -31,6 +32,22 @@ def test_select_visualization_links_prefers_valid_links(tmp_path: Path):
     assert selection["bs_indices"] == [0, 1]
     assert len(selection["ue_indices"]) == 2
     assert all(np.any(valid[selection["bs_indices"], ue]) for ue in selection["ue_indices"])
+
+
+def test_select_visualization_links_can_spread_ues_spatially(tmp_path: Path):
+    h5_path = _write_visualization_fixture(tmp_path / "fixture.h5")
+    config = VisualizationRunConfig(
+        enabled=True,
+        sample_policy="spatially_spread_valid_links",
+        max_bs=2,
+        sample_ue_count=2,
+        max_ue=2,
+    )
+
+    with h5py.File(h5_path, "r") as h5:
+        selection = select_visualization_links(h5, config)
+
+    assert selection["ue_indices"] == [0, 2]
 
 
 def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
@@ -58,6 +75,23 @@ def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
         "waveform_grid",
         "spatial_spectrum",
     }
+    generated_names = {Path(entry["path"]).name for entry in index["generated_files"]}
+    assert {
+        "cfr_lines_magnitude.png",
+        "cfr_lines_phase.png",
+        "cfr_heatmap_magnitude.png",
+        "cfr_heatmap_phase.png",
+        "cfr_error_magnitude.png",
+        "cfr_error_phase.png",
+        "spatial_spectrum_label.png",
+        "spatial_spectrum_label_polar.png",
+        "spatial_spectrum_truth.png",
+        "spatial_spectrum_truth_polar.png",
+        "spatial_spectrum_cfr_est.png",
+        "spatial_spectrum_cfr_est_polar.png",
+        "spatial_spectrum_observation.png",
+        "spatial_spectrum_observation_polar.png",
+    } <= generated_names
     for entry in index["generated_files"]:
         assert Path(entry["path"]).is_file()
         assert Path(entry["path"]).stat().st_size > 0
@@ -88,6 +122,54 @@ def test_dataset_mode_and_cli_visualize(tmp_path: Path):
     assert index["mode"] == "dataset"
     assert index["generated_files"][0]["plot"] == "dataset_preview"
     assert Path(index["generated_files"][0]["path"]).stat().st_size > 0
+
+
+def test_cli_visualize_accepts_sample_policy(tmp_path: Path):
+    h5_path = _write_visualization_fixture(tmp_path / "fixture.h5")
+    out_dir = tmp_path / "sample_policy"
+
+    rc = main(
+        [
+            "visualize",
+            "--hdf5",
+            h5_path.as_posix(),
+            "--output-dir",
+            out_dir.as_posix(),
+            "--mode",
+            "sample",
+            "--sample-policy",
+            "spatially_spread_valid_links",
+            "--sample-ue-count",
+            "2",
+            "--max-ue",
+            "2",
+            "--plots",
+            "topology",
+        ]
+    )
+
+    assert rc == 0
+    index = json.loads((out_dir / "index.json").read_text(encoding="utf-8"))
+    assert index["config"]["sample_policy"] == "spatially_spread_valid_links"
+    assert index["selected_ue_indices"] == [0, 2]
+
+
+def test_spatial_spectrum_row_limits_are_per_ue_across_selected_bs(tmp_path: Path):
+    h5_path = tmp_path / "spectrum_limits.h5"
+    with h5py.File(h5_path, "w") as h5:
+        data = np.zeros((1, 2, 3, 2, 2), dtype=np.float32)
+        data[0, 0, 0] = 1.0
+        data[0, 0, 2] = 4.0
+        data[0, 1, 0] = 10.0
+        data[0, 1, 2] = 40.0
+        h5.create_dataset("array/spatial_spectrum_truth", data=data)
+
+        limits = _spatial_spectrum_row_limits(
+            h5["array/spatial_spectrum_truth"],
+            {"ue_indices": [0, 1], "bs_indices": [0, 2]},
+        )
+
+    assert limits == {0: (1.0, 4.0), 1: (10.0, 40.0)}
 
 
 def _write_visualization_fixture(path: Path) -> Path:
@@ -148,8 +230,26 @@ def _write_visualization_fixture(path: Path) -> Path:
 
         rx_grid = rng.normal(size=(1, 4, 2, 2, 3, 8)) + 1j * rng.normal(size=(1, 4, 2, 2, 3, 8))
         h5.create_dataset("waveform/rx_grid", data=rx_grid.astype(np.complex64))
+        zenith = np.linspace(0.0, np.pi, 5, dtype=np.float32)
+        azimuth = np.linspace(-np.pi, np.pi, 7, dtype=np.float32)
+        angle_grid = np.empty((5, 7, 2), dtype=np.float32)
+        angle_grid[..., 0] = zenith[:, None]
+        angle_grid[..., 1] = azimuth[None, :]
+        h5.create_dataset("array/angle_grid_rad", data=angle_grid)
         h5.create_dataset(
             "array/spatial_spectrum_label",
+            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+        )
+        h5.create_dataset(
+            "array/spatial_spectrum_truth",
+            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+        )
+        h5.create_dataset(
+            "array/spatial_spectrum_cfr_est",
+            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+        )
+        h5.create_dataset(
+            "array/spatial_spectrum_observation",
             data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
         )
 

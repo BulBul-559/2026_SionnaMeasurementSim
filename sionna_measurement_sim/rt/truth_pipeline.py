@@ -201,7 +201,12 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     )
     nlos_path_truth = build_nlos_path_truth(adapter_result.path_table)
     if nr_pusch_extra.get("waveform_extras"):
-        _attach_nr_array_outputs(nr_pusch_extra, derived, config, adapter_result.truth.cfr)
+        cfr_est = (
+            observation_bundle.observation.cfr_est
+            if observation_bundle and observation_bundle.observation
+            else None
+        )
+        _attach_nr_array_outputs(nr_pusch_extra, derived, config, adapter_result.truth.cfr, cfr_est)
     elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
         nr_pusch_extra["array_outputs"] = _build_truth_array_outputs(
             config, derived, adapter_result.truth.cfr
@@ -428,13 +433,22 @@ def _run_nr_pusch_obs(config, adapter_result):
     }
 
 
-def _attach_nr_array_outputs(nr_pusch_extra: dict, derived, config, truth_cfr: np.ndarray) -> None:
+def _attach_nr_array_outputs(
+    nr_pusch_extra: dict,
+    derived,
+    config,
+    truth_cfr: np.ndarray,
+    cfr_est: np.ndarray | None,
+) -> None:
     waveform_extras = nr_pusch_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
     if rx_grid is None:
         return
     from sionna_measurement_sim.phy.nr_pusch_observation import (
         build_array_outputs_from_waveform,
+    )
+    from sionna_measurement_sim.phy.spatial_spectrum import (
+        project_cfr_to_ul_receiver_samples,
     )
 
     rx_grid = np.asarray(rx_grid)
@@ -456,7 +470,10 @@ def _attach_nr_array_outputs(nr_pusch_extra: dict, derived, config, truth_cfr: n
         rx_num_rows=config.tx_num_rows,
         rx_num_cols=config.tx_num_cols,
         rx_spacing_lambda=config.tx_spacing_lambda,
-        truth_spectrum_samples=_truth_cfr_to_ul_receiver_samples(truth_cfr),
+        truth_spectrum_samples=project_cfr_to_ul_receiver_samples(truth_cfr),
+        cfr_est_spectrum_samples=(
+            project_cfr_to_ul_receiver_samples(cfr_est) if cfr_est is not None else None
+        ),
     )
 
 
@@ -465,9 +482,10 @@ def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
         build_angle_grid_rad,
         build_aoa_heatmap_label,
         build_bartlett_spectrum,
+        project_cfr_to_ul_receiver_samples,
     )
 
-    samples = _truth_cfr_to_ul_receiver_samples(truth_cfr)
+    samples = project_cfr_to_ul_receiver_samples(truth_cfr)
     link_shape = samples.shape[:3]
     aoa_2d = np.stack(
         (
@@ -494,13 +512,6 @@ def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
         config=config.spectrum_config,
     )
     return outputs
-
-
-def _truth_cfr_to_ul_receiver_samples(truth_cfr: np.ndarray) -> np.ndarray:
-    # DL truth CFR [bs, ue, ue_ant, bs_ant, subcarrier] becomes UL receiver
-    # samples [snapshot, ue, bs, bs_ant, ue_ant, subcarrier].
-    return np.transpose(np.asarray(truth_cfr), (1, 0, 3, 2, 4))[np.newaxis, ...]
-
 
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
     return {

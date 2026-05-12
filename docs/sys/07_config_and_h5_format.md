@@ -121,7 +121,7 @@ calibration:   # 校准 (profile_id)
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以避免大规模输出膨胀 |
-| `sources` | list[str] | `["truth_cfr", "rx_grid"]` | 可选 `truth_cfr`、`rx_grid` |
+| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid` |
 | `method` | str | `"bartlett"` | 第一版仅支持 Bartlett 扫描 |
 | `zenith_bins` | int | 91 | zenith 方向网格数 |
 | `azimuth_bins` | int | 181 | azimuth 方向网格数 |
@@ -140,7 +140,7 @@ calibration:   # 校准 (profile_id)
 |------|------|--------|------|
 | `enabled` | bool | false（schema）/ true（默认模板） | 是否在 pipeline 结束后生成采样 PNG |
 | `output_dir` | str | `"figures"` | 相对 run 输出目录 |
-| `sample_policy` | str | `"valid_links_first"` | 优先从有效几何链路采样 UE |
+| `sample_policy` | str | `"valid_links_first"` | UE 采样策略；可选 `valid_links_first`、`spatially_spread_valid_links`、`random`、`first` |
 | `random_seed` | int | 42 | 可视化采样随机种子 |
 | `max_bs` | int | 5 | 自动图中最多 BS 数 |
 | `sample_ue_count` | int | 3 | 自动采样 UE 数 |
@@ -148,6 +148,30 @@ calibration:   # 校准 (profile_id)
 | `dpi` | int | 140 | PNG DPI |
 | `format` | str | `"png"` | 第一版仅支持 PNG |
 | `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图 |
+
+`sample_policy` 说明：
+
+- `valid_links_first`：优先从 `/derived/link_valid_mask=True` 的 UE 中随机采样。
+- `spatially_spread_valid_links`：优先有效链路，并用 UE 的 XY 坐标做远点采样，让采样位置更分散。
+- `random`：从所有 UE 中随机采样。
+- `first`：取前 N 个 UE。
+
+绘图输出约定：
+
+- 涉及子载波的热力图统一把 subcarrier 放在纵轴；CFR 折线图例外，把 subcarrier 放在横轴。
+- 热力图绘制时显式关闭显示插值，使用原始采样网格直接画图。
+- `cfr_lines` 输出 `cfr_lines_magnitude.png` 和 `cfr_lines_phase.png`。
+- `cfr_heatmap` 输出 `cfr_heatmap_magnitude.png` 和 `cfr_heatmap_phase.png`；热力图轴为 `[subcarrier, antenna_pair]`。
+- `cfr_error` 输出 `cfr_error_magnitude.png` 和 `cfr_error_phase.png`；幅度误差为估计 CFR 幅度相对 truth CFR 幅度的 dB 差，相位误差为 wrap 到 `[-pi, pi]` 的相位差。
+- `waveform_grid` 输出 `waveform_rx_grid.png`，轴为 `[subcarrier, OFDM symbol]`，颜色为接收 grid 的天线聚合功率。
+- `spatial_spectrum` 按数据源分开输出 `spatial_spectrum_label.png`、
+  `spatial_spectrum_truth.png`、`spatial_spectrum_cfr_est.png`、
+  `spatial_spectrum_observation.png`，标题中标明 AoA heatmap label、truth CFR Bartlett、estimated CFR Bartlett 或 RX grid Bartlett。
+- `spatial_spectrum` 同时输出对应 `*_polar.png`：每个 link 的 polar 图左右并排，
+  左侧上半球半径为 zenith，右侧下半球半径为 `pi - zenith`，两者外圈均表示
+  zenith `90°` 的水平面；原始矩形图仍保留。
+- 空间谱矩形图和 polar 图共享“同一个 UE 内的选中 BS”局部颜色尺度；polar 图不放
+  colorbar，避免在多 UE/BS 采样图中遮挡子图。
 
 pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
 全量聚合统计，不逐 link 生成海量细节图。
@@ -662,6 +686,7 @@ results.h5
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
+| `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
 | `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |

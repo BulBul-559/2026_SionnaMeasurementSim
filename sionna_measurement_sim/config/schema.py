@@ -56,7 +56,7 @@ class OutputConfig(BaseModel):
 
 class SpectrumConfig(BaseModel):
     enabled: bool = False
-    sources: list[str] = Field(default_factory=lambda: ["truth_cfr", "rx_grid"])
+    sources: list[str] = Field(default_factory=lambda: ["truth_cfr", "cfr_est", "rx_grid"])
     method: str = Field(default="bartlett")
     zenith_bins: int = Field(default=91, ge=2)
     azimuth_bins: int = Field(default=181, ge=2)
@@ -70,7 +70,7 @@ class SpectrumConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_supported_values(self) -> SpectrumConfig:
-        allowed_sources = {"truth_cfr", "rx_grid"}
+        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid"}
         unknown_sources = set(self.sources) - allowed_sources
         if unknown_sources:
             raise ValueError(f"Unsupported spectrum sources: {sorted(unknown_sources)}")
@@ -291,8 +291,16 @@ class VisualizationConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_visualization_values(self) -> VisualizationConfig:
-        if self.sample_policy not in ("valid_links_first", "random", "first"):
-            raise ValueError("visualization.sample_policy must be valid_links_first/random/first")
+        if self.sample_policy not in (
+            "valid_links_first",
+            "spatially_spread_valid_links",
+            "random",
+            "first",
+        ):
+            raise ValueError(
+                "visualization.sample_policy must be "
+                "valid_links_first/spatially_spread_valid_links/random/first"
+            )
         if self.format != "png":
             raise ValueError("Only visualization.format='png' is supported")
         unknown_plots = set(self.plots) - set(ALLOWED_VISUALIZATION_PLOTS)

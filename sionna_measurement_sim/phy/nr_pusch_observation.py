@@ -1036,6 +1036,7 @@ def build_array_outputs_from_waveform(
     rx_num_cols: int | None = None,
     rx_spacing_lambda: tuple[float, float] = (0.5, 0.5),
     truth_spectrum_samples: np.ndarray | None = None,
+    cfr_est_spectrum_samples: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Build deterministic first-version `/array` outputs from RX grids.
 
@@ -1077,6 +1078,14 @@ def build_array_outputs_from_waveform(
     if config.enabled and "truth_cfr" in config.sources and truth_spectrum_samples is not None:
         outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
             truth_spectrum_samples,
+            rx_num_rows=rx_num_rows,
+            rx_num_cols=rx_num_cols,
+            rx_spacing_lambda=rx_spacing_lambda,
+            config=config,
+        )
+    if config.enabled and "cfr_est" in config.sources and cfr_est_spectrum_samples is not None:
+        outputs["spatial_spectrum_cfr_est"] = build_bartlett_spectrum(
+            cfr_est_spectrum_samples,
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
