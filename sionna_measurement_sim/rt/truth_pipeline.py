@@ -44,6 +44,8 @@ from sionna_measurement_sim.phy.observation_pipeline import (
     run_awgn_ls_observation,
 )
 from sionna_measurement_sim.preflight.system import collect_basic_environment
+from sionna_measurement_sim.visualization.config import VisualizationRunConfig
+from sionna_measurement_sim.visualization.report import generate_visualization_report
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ class RTTruthRunConfig:
     mimo_detector: str = "lmmse"
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
+    visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -277,6 +280,14 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         output_dir / config.hdf5_filename, result,
     )
     validate_hdf5_contract(results_path)
+    visualization_summary = None
+    if config.visualization_config.enabled:
+        visualization_summary = generate_visualization_report(
+            results_path,
+            output_dir / config.visualization_config.output_dir,
+            config.visualization_config,
+            mode="sample",
+        )
     manifest_data = {
         "phase": phase,
         "results_h5": results_path.as_posix(),
@@ -292,6 +303,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         "observation_snr_db": config.observation_snr_db,
         "elapsed_seconds": elapsed_seconds,
     }
+    if visualization_summary is not None:
+        manifest_data["visualization"] = _manifest_visualization_summary(visualization_summary)
     if result.diagnostics is not None:
         manifest_data["diagnostics"] = result.diagnostics.to_summary_dict()
     manifest_path = write_manifest(output_dir / "manifest.json", manifest_data)
@@ -515,6 +528,18 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "rx_num_cols": config.rx_num_cols,
         "tx_spacing_lambda": list(config.tx_spacing_lambda),
         "rx_spacing_lambda": list(config.rx_spacing_lambda),
+        "visualization": {
+            "enabled": config.visualization_config.enabled,
+            "output_dir": config.visualization_config.output_dir,
+            "sample_policy": config.visualization_config.sample_policy,
+            "random_seed": config.visualization_config.random_seed,
+            "max_bs": config.visualization_config.max_bs,
+            "sample_ue_count": config.visualization_config.sample_ue_count,
+            "max_ue": config.visualization_config.max_ue,
+            "dpi": config.visualization_config.dpi,
+            "format": config.visualization_config.format,
+            "plots": list(config.visualization_config.plots),
+        },
         "spectrum_config": {
             "enabled": config.spectrum_config.enabled,
             "sources": list(config.spectrum_config.sources),
@@ -559,4 +584,16 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "mimo_detector": config.mimo_detector,
         "channel_estimator": config.channel_estimator,
         "receiver_failure_policy": config.receiver_failure_policy,
+    }
+
+
+def _manifest_visualization_summary(summary: dict[str, object]) -> dict[str, object]:
+    return {
+        "enabled": True,
+        "output_dir": summary["output_dir"],
+        "index_path": summary["index_path"],
+        "selected_bs_indices": summary["selected_bs_indices"],
+        "selected_ue_indices": summary["selected_ue_indices"],
+        "generated_files": summary["generated_files"],
+        "skipped_plots": summary["skipped_plots"],
     }

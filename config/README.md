@@ -106,6 +106,33 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 `/paths/nlos_truth` 默认始终保存所有 NLoS path 的 AoA/AoD、功率、延迟和类型；
 `/paths/full` 仍只由 `output.save_full_paths` 控制。
 
+### `visualization` — 采样可视化
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | true（模板） | run-full 后自动生成少量采样 PNG；schema 默认 false |
+| `output_dir` | str | "figures" | 相对 run 输出目录的图像目录 |
+| `sample_policy` | str | "valid_links_first" | 优先从 `/derived/link_valid_mask=True` 的 UE 中采样 |
+| `random_seed` | int | 42 | 采样随机种子 |
+| `max_bs` | int | 5 | 自动图中最多绘制的 BS 数 |
+| `sample_ue_count` | int | 3 | 自动图中随机采样的 UE 数 |
+| `max_ue` | int | 5 | 自动图中最多绘制的 UE 数 |
+| `dpi` | int | 140 | PNG 分辨率 |
+| `format` | str | "png" | 第一版仅支持 PNG |
+| `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图 |
+
+嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli visualize \
+  --hdf5 outputs/run/results.h5 \
+  --output-dir outputs/run/figures_manual \
+  --mode selected \
+  --bs-indices 0,1 \
+  --ue-indices 10,20 \
+  --plots cfr_lines,spatial_spectrum
+```
+
 ### `rt` — 射线追踪
 
 | 字段 | 类型 | 默认值 | 说明 |

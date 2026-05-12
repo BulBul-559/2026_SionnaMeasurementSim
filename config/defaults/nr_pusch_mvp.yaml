@@ -60,6 +60,29 @@ array:
     aggregate_subcarriers: "mean"
     aggregate_symbols: "mean"
 
+visualization:
+  enabled: true
+  output_dir: "figures"
+  sample_policy: "valid_links_first"
+  random_seed: 42
+  max_bs: 5
+  sample_ue_count: 3
+  max_ue: 5
+  dpi: 140
+  format: "png"
+  plots:
+    - "topology"
+    - "link_overview"
+    - "cfr_lines"
+    - "cfr_heatmap"
+    - "cfr_error"
+    - "waveform_grid"
+    - "aoa"
+    - "nlos_paths"
+    - "spatial_spectrum"
+    - "nmse_snr"
+    - "path_samples"
+
 rt:
   max_depth: 3
   los: true

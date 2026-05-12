@@ -8,6 +8,7 @@ from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
+from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.path_plots import plot_path_samples
 
 
@@ -94,6 +95,39 @@ def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):
         assert h5["array/spatial_spectrum_truth"].shape == (1, 1, 1, 5, 7)
         assert "array/spatial_spectrum_observation" not in h5
         assert "array/rx_snapshot_matrix" not in h5
+
+
+def test_rt_truth_pipeline_can_generate_sample_visualizations(tmp_path: Path):
+    output_dir = tmp_path / "phase2_rt_truth_visualization"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("data/scenes/test/test5.json"),
+            scene_file=Path("data/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_depth=1,
+            specular_reflection=True,
+            visualization_config=VisualizationRunConfig(
+                enabled=True,
+                random_seed=1,
+                sample_ue_count=1,
+                max_ue=1,
+                max_bs=1,
+                plots=("topology", "cfr_lines"),
+            ),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    index_path = output_dir / "figures" / "index.json"
+    assert index_path.is_file()
+    assert (output_dir / "figures" / "topology.png").stat().st_size > 0
+    assert (output_dir / "figures" / "cfr_lines.png").stat().st_size > 0
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["visualization"]["selected_bs_indices"] == [0]
+    assert len(manifest["visualization"]["selected_ue_indices"]) == 1
 
 
 def test_path_pipeline_writes_samples_full_paths_and_plot(tmp_path: Path):

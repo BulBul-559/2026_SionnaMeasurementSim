@@ -10,6 +10,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from sionna_measurement_sim.visualization.config import (
+    ALLOWED_VISUALIZATION_PLOTS,
+    DEFAULT_VISUALIZATION_PLOTS,
+)
+
 
 # ── runtime ──────────────────────────────────────────────────────────
 class RuntimeConfig(BaseModel):
@@ -272,6 +277,32 @@ class CalibrationConfig(BaseModel):
     profile_id: str = Field(default="synthetic_default")
 
 
+class VisualizationConfig(BaseModel):
+    enabled: bool = False
+    output_dir: str = Field(default="figures")
+    sample_policy: str = Field(default="valid_links_first")
+    random_seed: int = Field(default=42, ge=0)
+    max_bs: int = Field(default=5, ge=1)
+    sample_ue_count: int = Field(default=3, ge=1)
+    max_ue: int = Field(default=5, ge=1)
+    dpi: int = Field(default=140, ge=50)
+    format: str = Field(default="png")
+    plots: list[str] = Field(default_factory=lambda: list(DEFAULT_VISUALIZATION_PLOTS))
+
+    @model_validator(mode="after")
+    def check_visualization_values(self) -> VisualizationConfig:
+        if self.sample_policy not in ("valid_links_first", "random", "first"):
+            raise ValueError("visualization.sample_policy must be valid_links_first/random/first")
+        if self.format != "png":
+            raise ValueError("Only visualization.format='png' is supported")
+        unknown_plots = set(self.plots) - set(ALLOWED_VISUALIZATION_PLOTS)
+        if unknown_plots:
+            raise ValueError(f"Unsupported visualization plots: {sorted(unknown_plots)}")
+        if self.sample_ue_count > self.max_ue:
+            object.__setattr__(self, "sample_ue_count", self.max_ue)
+        return self
+
+
 # ── top-level ────────────────────────────────────────────────────────
 class MeasurementConfig(BaseModel):
     """Complete measurement simulation configuration."""
@@ -289,6 +320,7 @@ class MeasurementConfig(BaseModel):
     motion: MotionConfig = Field(default_factory=MotionConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
     link: LinkConfig = Field(default_factory=LinkConfig)
+    visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
 
     @model_validator(mode="after")
     def check_phy_requires_observation(self) -> MeasurementConfig:

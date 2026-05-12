@@ -57,6 +57,7 @@ class MeasurementConfig(BaseModel):
     receiver: ReceiverConfig      # estimator_type, mimo_detector, failure_policy
     motion: MotionConfig          # mobility_mode, num_time_steps, velocity
     calibration: CalibrationConfig
+    visualization: VisualizationConfig # sampled PNG reports
 ```
 
 ### 关键 PHY 配置字段
@@ -111,3 +112,26 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
+
+## 可视化入口
+
+`run-full --config` 会读取 `visualization` 配置；默认模板中开启采样可视化，
+输出到 `<run_output_dir>/figures/`，并在 `manifest.json` 写入选中的 BS/UE 和图像列表。
+
+独立 CLI 入口：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli visualize \
+  --hdf5 outputs/run/results.h5 \
+  --output-dir outputs/run/figures_manual \
+  --mode sample
+```
+
+支持模式：
+
+| mode | 说明 |
+|------|------|
+| `sample` | 使用有效链路优先策略采样 BS/UE 并生成核心诊断图 |
+| `selected` | 使用 `--bs-indices`、`--ue-indices` 和 `--plots` 生成指定图 |
+| `full` | 生成全量聚合统计图，不逐 link 爆炸出图 |
+| `dataset` | 使用 `--dataset-path` 对任意 HDF5 dataset 做 line/heatmap/hist 预览 |

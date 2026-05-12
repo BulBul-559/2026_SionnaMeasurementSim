@@ -41,6 +41,11 @@ def test_load_default_mvp_config():
     assert cfg.input.max_tx == 6
     assert cfg.input.scene_id == "scene"
     assert cfg.input.map_id == ""
+    assert cfg.visualization.enabled is True
+    assert cfg.visualization.output_dir == "figures"
+    assert cfg.visualization.sample_policy == "valid_links_first"
+    assert cfg.visualization.max_bs == 5
+    assert cfg.visualization.sample_ue_count == 3
 
 
 def test_input_scene_id_defaults_to_scene_file_stem(tmp_path: Path):

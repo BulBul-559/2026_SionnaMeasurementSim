@@ -134,6 +134,24 @@ calibration:   # 校准 (profile_id)
 这里的“全向”指扫描角度范围覆盖完整方向域；天线方向图仍由
 `antenna.*.pattern` 控制，默认模板使用 `iso`。
 
+#### `visualization` — 采样可视化
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false（schema）/ true（默认模板） | 是否在 pipeline 结束后生成采样 PNG |
+| `output_dir` | str | `"figures"` | 相对 run 输出目录 |
+| `sample_policy` | str | `"valid_links_first"` | 优先从有效几何链路采样 UE |
+| `random_seed` | int | 42 | 可视化采样随机种子 |
+| `max_bs` | int | 5 | 自动图中最多 BS 数 |
+| `sample_ue_count` | int | 3 | 自动采样 UE 数 |
+| `max_ue` | int | 5 | 自动图中最多 UE 数 |
+| `dpi` | int | 140 | PNG DPI |
+| `format` | str | `"png"` | 第一版仅支持 PNG |
+| `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图 |
+
+pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
+全量聚合统计，不逐 link 生成海量细节图。
+
 #### `rt` — 射线追踪
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |

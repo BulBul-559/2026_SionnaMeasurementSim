@@ -103,6 +103,31 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--phy-standard", default="custom_ofdm",
                       choices=["custom_ofdm", "nr_pusch"])
 
+    visualize = subparsers.add_parser(
+        "visualize",
+        help="Generate PNG visualization reports from an existing results.h5.",
+    )
+    visualize.add_argument("--hdf5", required=True, help="Input HDF5 results file")
+    visualize.add_argument("--output-dir", required=True, help="Output directory for PNG/index")
+    visualize.add_argument(
+        "--mode",
+        default="sample",
+        choices=["sample", "selected", "full", "dataset"],
+    )
+    visualize.add_argument("--bs-indices", default="", help="Comma-separated BS indices")
+    visualize.add_argument("--ue-indices", default="", help="Comma-separated UE indices")
+    visualize.add_argument("--plots", default="", help="Comma-separated plot names")
+    visualize.add_argument(
+        "--dataset-path",
+        default=None,
+        help="HDF5 dataset path for dataset mode",
+    )
+    visualize.add_argument(
+        "--plot-type",
+        default="auto",
+        choices=["auto", "line", "heatmap", "hist"],
+    )
+
     return parser
 
 
@@ -201,6 +226,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.config:
             from sionna_measurement_sim.config.loader import load_config_or_exit
             from sionna_measurement_sim.domain.array import ArraySpectrumConfig
+            from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 
             cfg = load_config_or_exit(args.config)
             # CLI overrides (non-default wins)
@@ -301,6 +327,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 hdf5_filename=cfg.output.hdf5_filename,
                 save_full_paths=cfg.output.save_full_paths,
                 calibration_enabled=cfg.calibration.enabled,
+                visualization_config=VisualizationRunConfig(
+                    enabled=cfg.visualization.enabled,
+                    output_dir=cfg.visualization.output_dir,
+                    sample_policy=cfg.visualization.sample_policy,
+                    random_seed=cfg.visualization.random_seed,
+                    max_bs=cfg.visualization.max_bs,
+                    sample_ue_count=cfg.visualization.sample_ue_count,
+                    max_ue=cfg.visualization.max_ue,
+                    dpi=cfg.visualization.dpi,
+                    format=cfg.visualization.format,
+                    plots=tuple(cfg.visualization.plots),
+                ),
                 spectrum_config=ArraySpectrumConfig(
                     enabled=cfg.array.spectrum.enabled,
                     sources=tuple(cfg.array.spectrum.sources),
@@ -356,6 +394,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(output_path)
         return 0
 
+    if args.command == "visualize":
+        from pathlib import Path
+
+        from sionna_measurement_sim.visualization.config import VisualizationRunConfig
+        from sionna_measurement_sim.visualization.report import generate_visualization_report
+
+        report = generate_visualization_report(
+            Path(args.hdf5),
+            Path(args.output_dir),
+            VisualizationRunConfig(enabled=True),
+            mode=args.mode,
+            bs_indices=_parse_csv_ints(args.bs_indices),
+            ue_indices=_parse_csv_ints(args.ue_indices),
+            plots=_parse_csv_strings(args.plots),
+            dataset_path=args.dataset_path,
+            plot_type=args.plot_type,
+        )
+        print(report["index_path"])
+        return 0
+
     if args.command == "run-batch":
         from pathlib import Path
 
@@ -389,6 +447,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.print_help()
     return 0
+
+
+def _parse_csv_ints(value: str) -> list[int] | None:
+    if not value:
+        return None
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def _parse_csv_strings(value: str) -> list[str] | None:
+    if not value:
+        return None
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 if __name__ == "__main__":
