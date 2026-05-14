@@ -6,6 +6,8 @@
 
 输出目录：`outputs/perf_nrp5x5000_full_output`
 
+状态更新：本文是 5x5000 单 GPU 基线分析的历史报告，用于解释当时的瓶颈判断。后续已经完成 CLI override 修复、NR PUSCH batching、run-full 原生 UE/RX shard、4 GPU shard 和 6x8884 全量验收；当前生产能力和剩余 TODO 以 `docs/performance/nr_pusch_sharded_productionization.md`、`docs/performance/nr_pusch_performance_optimization_todo.md` 为准。
+
 ## 运行配置
 
 本次使用单张 RTX 4090 隔离运行，`CUDA_VISIBLE_DEVICES=0`。测试目标是“全输出压力”，也就是尽量保留当前大规模数据准备中可能使用的重型输出。

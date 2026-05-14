@@ -140,16 +140,16 @@ WiFi-like 或 custom OFDM 不应复制 NR PUSCH 的 `run_nr_pusch_observation()`
 
 ## 多文件 `result_xxx.h5` 和 Shard 设计
 
-5x5000 报告已经说明，当前 `results.h5` 单文件写入会成为明显瓶颈。大规模生产建议先支持多文件 shard，再考虑多 GPU 调度。
+5x5000 报告已经说明，`results.h5` 单文件写入会成为明显瓶颈。目前 NR PUSCH 生产路径已经支持 UE/RX shard：`run-full` 可直接写多个 `result_xxx.h5`，多进程各自绑定 GPU，根目录 `manifest.json` 汇总全局索引、schema 状态和 debug 性能日志。后续设计重点应从“是否使用 shard”转向 shard-aware reader、write-only benchmark、更多 GPU 数扩展性和 HDF5 写盘优化。
 
 推荐命名：
 
 | 文件 | 内容 |
 |---|---|
-| `result_0000.h5` | 第 0 个 UE/BS shard 的完整局部结果 |
-| `result_0001.h5` | 第 1 个 shard |
-| `results_manifest.json` | shard 列表、global index 范围、配置摘要、schema 版本 |
-| `rt_cache_0000.h5` | 可选，对应 shard 的 RT cache |
+| `result_000.h5` | 第 0 个 UE/RX shard 的完整局部结果 |
+| `result_001.h5` | 第 1 个 shard |
+| `manifest.json` | shard 列表、global index 范围、配置摘要、schema/debug 状态 |
+| `rt_cache_000.h5` | 可选，对应 shard 的 RT cache |
 
 优先按 UE 维度分 shard，因为当前大规模 case 是少量 BS、大量 UE：
 
@@ -159,7 +159,7 @@ WiFi-like 或 custom OFDM 不应复制 NR PUSCH 的 `run_nr_pusch_observation()`
 | BS range shard | BS 很多或 BS 间独立实验 | 下游合并空间谱和多 BS 特征时要保留 global BS index |
 | Link list shard | 稀疏 link 或按 LoS/NLoS 分层采样 | manifest 必须记录每条 link 的 global `(tx, rx)` |
 
-不要直接让多个进程并发写同一个 HDF5。更稳的流程是：每进程绑定一张 GPU，写一个 `result_xxxx.h5`，最后由 manifest 或离线 merge 对外呈现统一数据集。manifest 至少应记录全局 UE/BS 范围、scene_id、配置摘要、schema 版本、每个文件的 shape 和校验状态。
+不要直接让多个进程并发写同一个 HDF5。当前生产路径采用的流程是：每进程绑定一张 GPU，写一个 `result_xxx.h5`，最后由 manifest 对外呈现统一数据集。manifest 至少应记录全局 UE/BS 范围、scene_id、配置摘要、schema 版本、每个文件的 shape 和校验状态。
 
 ## Benchmark Harness 设计
 
@@ -179,7 +179,7 @@ WiFi-like 或 custom OFDM 不应复制 NR PUSCH 的 `run_nr_pusch_observation()`
 2. 只改 RT 参数、scene load、path/CIR/CFR：先跑 RT-only。
 3. 只改 HDF5、空间谱、可视化：先跑 write-only。
 4. 拆分 benchmark 有收益后，跑 3x3000 端到端确认 schema、输出、可视化。
-5. 3x3000 稳定后，再跑 5x5000；准备生产全量前再跑多 shard 试验。
+5. 3x3000 稳定后，再跑 5x5000；准备生产全量前再跑 6x8884 多 shard 验收。
 
 benchmark 输出必须包含：
 
@@ -253,8 +253,8 @@ TX/BS 分组会影响 path cache、输出文件和下游样本组织，但不应
 
 1. 先把 `rt_cache.h5` 的 manifest 和 cache key 口径补齐，让它成为通用 PHY-only 输入。
 2. 定义通用 `CFRBatch` 数据结构和从 cache/result/shard 读取 batch 的工具。
-3. 在 NR PUSCH 内部实现 link batching，batch size 从 8、16、32、64 逐步试；正式配置中保留可调 batch size 和失败降级记录。
-4. 增加 UE range shard：`rx_start/rx_count` 或 `rx_indices`，每个 shard 写独立 `result_xxxx.h5`，manifest 负责把局部 index 映射回全局 UE/BS。
+3. 保持 NR PUSCH link batching 可配置，并继续补 batch size sweep / warmup 探测；正式配置中保留失败降级记录。
+4. 给 shard 输出补稳定 reader/dataset loader，让训练和分析代码能从 `manifest.json` 聚合多个 `result_xxx.h5`。
 5. 把 `PUSCH-only` 泛化为 PHY-only harness，保留 NR 专属指标。
 6. 给 custom OFDM / WiFi-like 新模块接入同一个 cache、batch、result shard、benchmark harness。
 7. 单独开展 RT-only 调参矩阵，先 3x3000，再 5x5000；所有语义变化都进入报告。

@@ -709,7 +709,7 @@ results.h5
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
-大规模 NR PUSCH 输出建议按 shard 生成：单进程 SU-MIMO 路径按 `(snapshot, BS, UE)` 逐链路运行，`3 BS × 3000 UE × 4x4` 已验证可完成，`6 BS × 8884 UE × 4x4` 单进程会进入 GPU 路径但难以高效写完。生产级全量建议使用多进程/多 GPU 分片，并在下游按 shard 对齐或合并。
+大规模 NR PUSCH 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。`6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
 
 ### 2.17 `/array` — 阵列观测与标签
 
