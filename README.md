@@ -11,9 +11,12 @@
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
 - TB/CRC 语义的 BLER（transport block CRC pass/fail）
 - TDD 互易性（DL RT trace → UL PUSCH）
+- NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
+- `run-full` UE/RX shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
+- 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
 - HDF5 schema 强校验（含 NR PUSCH MIMO 必填字段）
 - 批量实验（多 seed/SNR 自动分批）
-- 190 个测试收集项（单元 / schema / adapter / 集成 / 统计）
+- 220 个测试收集项（单元 / schema / adapter / 集成 / 统计）
 
 ## 快速开始
 
@@ -98,16 +101,19 @@ path = run_rt_truth_pipeline(config)
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
+| `config/perf/nr_pusch_3x3000_sharded.yaml` | 3 BS × 3000 UE shard 性能回归模板 |
+| `config/perf/nr_pusch_6x8884_sharded.yaml` | 6 BS × 8884 UE 4 GPU shard 验收模板 |
 
 完整字段说明见 [config/README.md](config/README.md)。配置加载时自动进行 pydantic schema 校验。
 
 ## HDF5 输出结构
 
-每次运行生成 `outputs/<run_dir>/results.h5`：
+普通运行生成 `outputs/<run_dir>/results.h5`。开启 `output.sharding.enabled=true` 时，输出目录下直接生成 `result_000.h5`、`result_001.h5` 等多个自包含 HDF5 文件，并由根目录 `manifest.json` 记录全局 UE/RX 覆盖范围。
 
 | Group | 内容 |
 |-------|------|
 | `/meta` | schema 版本、运行 ID、随机种子、配置快照 |
+| `/shard` | shard 模式下的局部到全局 UE/RX/BS 索引映射 |
 | `/input` | 标签文件、场景文件 |
 | `/topology` | TX/RX 三维位置 |
 | `/scene` | 场景文件、`scene_id`、`map_id` |
@@ -128,16 +134,24 @@ path = run_rt_truth_pipeline(config)
 
 ## GPU 与大规模 PUSCH
 
-`runtime.device: "cuda"` 会让 NR PUSCH 的 PyTorch/Sionna 频域链路在 GPU 上运行。当前 SU-MIMO PUSCH 实现按 `(snapshot, BS, UE)` 逐链路调用接收机，因此大规模场景主要受 Python 单进程调度和小 kernel 启动开销限制。
+`runtime.device: "cuda"` 会让 NR PUSCH 的 PyTorch/Sionna 频域链路在 GPU 上运行。SU-MIMO PUSCH 支持把多个独立 `(snapshot, UE, BS)` link 合成 batch，配置项为 `phy.su_mimo_link_batch_size`；schema 默认保守值是 1，NR PUSCH 与性能模板使用 64。
 
 已验证的参考规模：
 
 | 场景 | 结果 |
 |------|------|
-| `3 BS × 3000 UE × 4x4 PUSCH` | GPU 运行完成，HDF5 schema 通过，结果文件约 380 MB |
-| `6 BS × 8884 UE × 4x4 PUSCH` | 能进入 GPU 路径，但单进程 30 分钟未进入写盘阶段 |
+| `3 BS × 3000 UE × 4x4 PUSCH` | shard+batch64 运行完成，3 个 HDF5 schema 通过，端到端约 178 s |
+| `6 BS × 8884 UE × 4x4 PUSCH` | 4 GPU shard+batch64 运行完成，9 个 HDF5 schema 通过，端到端约 279 s |
 
-生产级大规模 PUSCH 建议按 UE/BS shard 拆分到多进程和多 GPU，并按 shard 输出或后处理合并 HDF5。
+生产级大规模 PUSCH 推荐开启 UE/RX shard：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli run-full \
+    --config config/perf/nr_pusch_6x8884_sharded.yaml \
+    --output-dir outputs/nr_pusch_6x8884_sharded
+```
+
+shard 模式不会把多个进程写进同一个 HDF5；每个进程写自己的 `result_xxx.h5`，根目录 `manifest.json` 汇总所有 shard 的全局索引、可视化摘要和 debug 性能日志路径。
 
 ## 开发
 

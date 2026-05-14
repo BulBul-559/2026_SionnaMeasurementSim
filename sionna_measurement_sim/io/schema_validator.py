@@ -109,6 +109,15 @@ PATH_SAMPLE_DATASETS = (
     "link/reciprocity_applied",
 )
 
+OPTIONAL_SHARD_DATASETS = (
+    "shard/shard_index",
+    "shard/shard_count",
+    "shard/axis",
+    "shard/global_rx_start",
+    "shard/global_rx_indices",
+    "shard/global_tx_indices",
+)
+
 REQUIRED_OBSERVATION_GROUPS = (
     "waveform",
     "observation",
@@ -166,6 +175,7 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _validate_derived_shapes(h5)
         _validate_path_sample_shapes(h5)
         _validate_nlos_truth_shapes(h5)
+        _validate_shard_if_present(h5)
         _validate_array_outputs_if_present(h5)
         if _observation_enabled(h5):
             _validate_observation_cfr_est_shape_if_present(h5)
@@ -366,6 +376,51 @@ def _validate_nlos_truth_shapes(h5: h5py.File) -> None:
         if h5[dataset_path].shape != valid.shape:
             msg = f"/{dataset_path} must match /paths/nlos_truth/valid shape"
             raise SchemaValidationError(msg)
+
+
+def _validate_shard_if_present(h5: h5py.File) -> None:
+    if "shard" not in h5:
+        return
+    _require_present(h5, ("shard",), kind=h5py.Group)
+    _require_present(h5, OPTIONAL_SHARD_DATASETS, kind=h5py.Dataset)
+
+    shard_index = int(h5["shard/shard_index"][()])
+    shard_count = int(h5["shard/shard_count"][()])
+    global_rx_start = int(h5["shard/global_rx_start"][()])
+    axis = h5["shard/axis"][()]
+    if isinstance(axis, bytes):
+        axis = axis.decode("utf-8")
+
+    if shard_count < 1:
+        msg = "/shard/shard_count must be positive"
+        raise SchemaValidationError(msg)
+    if shard_index < 0 or shard_index >= shard_count:
+        msg = "/shard/shard_index must be in [0, shard_count)"
+        raise SchemaValidationError(msg)
+    if not axis:
+        msg = "/shard/axis must not be empty"
+        raise SchemaValidationError(msg)
+    if global_rx_start < 0:
+        msg = "/shard/global_rx_start must be non-negative"
+        raise SchemaValidationError(msg)
+
+    rx_indices = h5["shard/global_rx_indices"]
+    tx_indices = h5["shard/global_tx_indices"]
+    if rx_indices.ndim != 1 or tx_indices.ndim != 1:
+        msg = "/shard global index datasets must be 1D"
+        raise SchemaValidationError(msg)
+    if rx_indices.dtype.kind not in ("i", "u") or tx_indices.dtype.kind not in ("i", "u"):
+        msg = "/shard global index datasets must have integer dtype"
+        raise SchemaValidationError(msg)
+    if rx_indices.shape[0] != h5["topology/rx_positions_m"].shape[0]:
+        msg = "/shard/global_rx_indices length must match local RX topology"
+        raise SchemaValidationError(msg)
+    if tx_indices.shape[0] != h5["topology/tx_positions_m"].shape[0]:
+        msg = "/shard/global_tx_indices length must match local TX topology"
+        raise SchemaValidationError(msg)
+    if np.any(rx_indices[()] < 0) or np.any(tx_indices[()] < 0):
+        msg = "/shard global index datasets must be non-negative"
+        raise SchemaValidationError(msg)
 
 
 def _validate_units(h5: h5py.File) -> None:

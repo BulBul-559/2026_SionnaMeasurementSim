@@ -268,6 +268,7 @@ def _run_nr_pusch_observation_impl(
     mimo_detector_type = getattr(phy_config, "mimo_detector", "lmmse")
     channel_estimator_type = getattr(phy_config, "channel_estimator", "pusch_ls")
     receiver_failure_policy = getattr(phy_config, "receiver_failure_policy", "fail_fast")
+    requested_batch_size = _get_nr_pusch_batch_size(phy_config)
     snr_db = getattr(phy_config, "snr_db", None)
     if snr_db is None:
         snr_db = getattr(phy_config, "observation_snr_db", 30.0)
@@ -342,6 +343,7 @@ def _run_nr_pusch_observation_impl(
         return_tb_crc_status=True,
         input_domain="freq",
     )
+    ls_estimator = None if perfect_csi else _build_pusch_ls_estimator(tx)
 
     # 5. Noise power ─────────────────────────────────────────────────
     ebno_db = getattr(phy_config, "ebno_db", None)
@@ -361,15 +363,28 @@ def _run_nr_pusch_observation_impl(
     if mimo_mode == "mu_mimo":
         proc_result = _process_mu_mimo(
             backend=backend, tx=tx, rx=rx, no=no,
+            ls_estimator=ls_estimator,
             perfect_csi=perfect_csi,
             num_ofdm_symbols=num_ofdm_symbols,
             receiver_failure_policy=receiver_failure_policy,
             cfr_clean_ref=cfr_clean_ref,
             num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
         )
+    elif requested_batch_size > 1:
+        proc_result = _process_su_mimo_batched(
+            backend=backend, tx=tx, rx=rx, no=no,
+            ls_estimator=ls_estimator,
+            perfect_csi=perfect_csi,
+            num_ofdm_symbols=num_ofdm_symbols,
+            receiver_failure_policy=receiver_failure_policy,
+            cfr_clean_ref=cfr_clean_ref,
+            num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
+            requested_batch_size=requested_batch_size,
+        )
     else:
         proc_result = _process_su_mimo_per_link(
             backend=backend, tx=tx, rx=rx, no=no,
+            ls_estimator=ls_estimator,
             perfect_csi=perfect_csi,
             num_ofdm_symbols=num_ofdm_symbols,
             receiver_failure_policy=receiver_failure_policy,
@@ -388,6 +403,7 @@ def _run_nr_pusch_observation_impl(
     total_block_errors = proc_result.get("total_block_errors", 0)
     total_blocks = proc_result.get("total_blocks", 0)
     num_receiver_failures = proc_result["num_receiver_failures"]
+    batching_stats = proc_result["batching_stats"]
 
     # 7. Reverse UL→DL for HDF5 contract  ────────────────────────────
     # Internal processing always uses UL convention.
@@ -485,6 +501,7 @@ def _run_nr_pusch_observation_impl(
         "array_outputs": build_array_outputs_from_waveform(
             waveform_grids["rx_grid"],
         ),
+        "batching_stats": batching_stats,
     }
     return result
 
@@ -492,11 +509,51 @@ def _run_nr_pusch_observation_impl(
 # ── SU-MIMO per-link processing ────────────────────────────────────────
 
 
+def _get_nr_pusch_batch_size(phy_config: Any) -> int:
+    """Read optional NR PUSCH link-batch size without requiring schema changes."""
+    for attr_name in (
+        "nr_pusch_batch_size",
+        "pusch_batch_size",
+        "batch_size",
+        "su_mimo_link_batch_size",
+    ):
+        value = getattr(phy_config, attr_name, None)
+        if value is not None:
+            return max(int(value), 1)
+    return 1
+
+
+def _build_pusch_ls_estimator(tx: Any) -> Any:
+    from sionna.phy.nr import PUSCHLSChannelEstimator
+
+    return PUSCHLSChannelEstimator(
+        tx.resource_grid,
+        dmrs_length=tx._dmrs_length,
+        dmrs_additional_position=tx._dmrs_additional_position,
+        num_cdm_groups_without_data=tx._num_cdm_groups_without_data,
+        interpolation_type="lin",
+    )
+
+
+def _default_batching_stats(requested_batch_size: int, num_links: int) -> dict[str, int]:
+    effective = min(max(int(requested_batch_size), 1), max(int(num_links), 1))
+    return {
+        "requested_batch_size": int(requested_batch_size),
+        "effective_batch_size": effective,
+        "num_links": int(num_links),
+        "num_batches": int(num_links),
+        "num_batch_fallbacks": 0,
+        "num_single_link_fallbacks": 0,
+        "num_failed_batch_attempts": 0,
+    }
+
+
 def _process_su_mimo_per_link(
     backend: Any,
     tx: Any,
     rx: Any,
     no: torch.Tensor,
+    ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
     receiver_failure_policy: str,
@@ -537,6 +594,7 @@ def _process_su_mimo_per_link(
                     tx=tx,
                     rx=rx,
                     no=no,
+                    ls_estimator=ls_estimator,
                     perfect_csi=perfect_csi,
                     num_ofdm_symbols=num_ofdm_symbols,
                     receiver_failure_policy=receiver_failure_policy,
@@ -584,7 +642,300 @@ def _process_su_mimo_per_link(
         "total_block_errors": total_block_errors,
         "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
+        "batching_stats": _default_batching_stats(
+            requested_batch_size=1,
+            num_links=num_snap * num_ul_tx * num_ul_rx,
+        ),
     }
+
+
+def _process_su_mimo_batched(
+    backend: Any,
+    tx: Any,
+    rx: Any,
+    no: torch.Tensor,
+    ls_estimator: Any | None,
+    perfect_csi: bool,
+    num_ofdm_symbols: int,
+    receiver_failure_policy: str,
+    cfr_clean_ref: np.ndarray,
+    num_snap: int,
+    num_ul_tx: int,
+    num_ul_rx: int,
+    requested_batch_size: int,
+) -> dict:
+    """Process SU-MIMO links in configurable batches."""
+    cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
+    waveform_grids = _empty_waveform_grids(
+        num_snap=num_snap,
+        num_ul_tx=num_ul_tx,
+        num_ul_rx=num_ul_rx,
+        num_ul_tx_ant=backend.num_ul_tx_ant,
+        num_ul_rx_ant=backend.num_ul_rx_ant,
+        num_ofdm_symbols=num_ofdm_symbols,
+        num_subcarriers=backend.num_subcarriers,
+    )
+    nmse_db_full = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    ber_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    bler_per_link = np.zeros((num_snap, num_ul_tx, num_ul_rx), dtype=np.float32)
+    estimation_success = np.ones((num_snap, num_ul_tx, num_ul_rx), dtype=np.bool_)
+    total_bit_errors = 0
+    total_bits = 0
+    total_block_errors = 0
+    total_blocks = 0
+    num_receiver_failures = 0
+
+    link_indices = [
+        (snap_idx, ul_tx_idx, ul_rx_idx)
+        for snap_idx in range(num_snap)
+        for ul_tx_idx in range(num_ul_tx)
+        for ul_rx_idx in range(num_ul_rx)
+    ]
+    batch_size = min(max(int(requested_batch_size), 1), max(len(link_indices), 1))
+    stats = {
+        "requested_batch_size": int(requested_batch_size),
+        "effective_batch_size": 1,
+        "num_links": len(link_indices),
+        "num_batches": 0,
+        "num_batch_fallbacks": 0,
+        "num_single_link_fallbacks": 0,
+        "num_failed_batch_attempts": 0,
+    }
+
+    def _run_group(
+        group: list[tuple[int, int, int]],
+        *,
+        from_fallback: bool = False,
+    ) -> list[dict[str, Any]]:
+        if len(group) == 1:
+            if from_fallback:
+                stats["num_single_link_fallbacks"] += 1
+            result = _process_one_pusch_link(
+                snap_idx=group[0][0],
+                ul_tx_idx=group[0][1],
+                ul_rx_idx=group[0][2],
+                backend=backend,
+                tx=tx,
+                rx=rx,
+                no=no,
+                ls_estimator=ls_estimator,
+                perfect_csi=perfect_csi,
+                num_ofdm_symbols=num_ofdm_symbols,
+                receiver_failure_policy=receiver_failure_policy,
+            )
+            stats["num_batches"] += 1
+            return [result]
+
+        try:
+            results = _process_pusch_link_batch(
+                link_indices=group,
+                backend=backend,
+                tx=tx,
+                rx=rx,
+                no=no,
+                ls_estimator=ls_estimator,
+                perfect_csi=perfect_csi,
+                num_ofdm_symbols=num_ofdm_symbols,
+                receiver_failure_policy=receiver_failure_policy,
+            )
+            stats["num_batches"] += 1
+            stats["effective_batch_size"] = max(
+                stats["effective_batch_size"], len(group),
+            )
+            return results
+        except Exception:
+            stats["num_batch_fallbacks"] += 1
+            stats["num_failed_batch_attempts"] += 1
+            mid = max(1, len(group) // 2)
+            return (
+                _run_group(group[:mid], from_fallback=True)
+                + _run_group(group[mid:], from_fallback=True)
+            )
+
+    for start in range(0, len(link_indices), batch_size):
+        for link_idx, link_result in zip(
+            link_indices[start:start + batch_size],
+            _run_group(link_indices[start:start + batch_size]),
+            strict=True,
+        ):
+            snap_idx, ul_tx_idx, ul_rx_idx = link_idx
+            cfr_est_full[snap_idx, ul_tx_idx, ul_rx_idx, ...] = link_result[
+                "cfr_est_slice"
+            ]
+            waveform_grids["tx_grid"][snap_idx, ul_tx_idx, ul_rx_idx, ...] = (
+                link_result["tx_grid_slice"]
+            )
+            waveform_grids["rx_grid"][snap_idx, ul_tx_idx, ul_rx_idx, ...] = (
+                link_result["rx_grid_slice"]
+            )
+            waveform_grids["noise_variance"][snap_idx, ul_tx_idx, ul_rx_idx] = (
+                link_result["noise_variance"]
+            )
+            nmse_db_full[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["nmse_db"]
+            ber_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["ber"]
+            bler_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["bler"]
+            estimation_success[snap_idx, ul_tx_idx, ul_rx_idx] = link_result[
+                "estimation_success"
+            ]
+            total_bit_errors += link_result["num_bit_errors"]
+            total_bits += link_result["num_bits"]
+            total_block_errors += link_result.get("num_block_errors", 0)
+            total_blocks += link_result.get("num_blocks", 0)
+            if link_result.get("receiver_failed", False):
+                num_receiver_failures += 1
+
+    return {
+        "cfr_est_full": cfr_est_full,
+        "waveform_grids": waveform_grids,
+        "nmse_db_full": nmse_db_full,
+        "ber_per_link": ber_per_link,
+        "bler_per_link": bler_per_link,
+        "estimation_success": estimation_success,
+        "total_bit_errors": total_bit_errors,
+        "total_bits": total_bits,
+        "total_block_errors": total_block_errors,
+        "total_blocks": total_blocks,
+        "num_receiver_failures": num_receiver_failures,
+        "batching_stats": stats,
+    }
+
+
+def _process_pusch_link_batch(
+    *,
+    link_indices: list[tuple[int, int, int]],
+    backend: Any,
+    tx: Any,
+    rx: Any,
+    no: torch.Tensor,
+    ls_estimator: Any | None,
+    perfect_csi: bool,
+    num_ofdm_symbols: int,
+    receiver_failure_policy: str,
+) -> list[dict[str, Any]]:
+    """Run one batched SU-MIMO PUSCH forward pass."""
+    batch_size = len(link_indices)
+    tx_signal, tx_bits = tx(batch_size)
+    channel_result = backend.apply_batch_with_h(
+        tx_signal,
+        no,
+        link_indices=link_indices,
+        num_ofdm_symbols=num_ofdm_symbols,
+        resource_grid=tx.resource_grid,
+    )
+    y = channel_result.y
+    h_perfect = channel_result.h
+
+    receiver_failed = np.zeros(batch_size, dtype=np.bool_)
+    tb_crc_ok = None
+    if perfect_csi:
+        try:
+            rx_bits, tb_crc_status = rx(y, no, h_perfect)
+        except Exception:
+            if receiver_failure_policy == "fail_fast":
+                raise
+            rx_bits = torch.zeros_like(tx_bits)
+            tb_crc_status = torch.zeros(
+                (batch_size,), dtype=torch.bool, device=tx_bits.device,
+            )
+            receiver_failed[:] = True
+        tb_crc_ok = tb_crc_status
+        cfr_est_batch = _pusch_h_batch_to_cfr_est(h_perfect)
+    else:
+        if ls_estimator is None:
+            raise RuntimeError("LS estimator is required when perfect_csi=False")
+        try:
+            h_hat, _err_var = ls_estimator(y, no)
+        except Exception:
+            if receiver_failure_policy == "fail_fast":
+                raise
+            h_hat = h_perfect
+            receiver_failed[:] = True
+
+        try:
+            rx_bits, tb_crc_status = rx(y, no)
+        except Exception:
+            if receiver_failure_policy == "fail_fast":
+                raise
+            rx_bits = torch.zeros_like(tx_bits)
+            tb_crc_status = torch.zeros(
+                (batch_size,), dtype=torch.bool, device=tx_bits.device,
+            )
+            receiver_failed[:] = True
+        tb_crc_ok = tb_crc_status
+
+        _num_tx_ant = backend.cfr.shape[4]
+        h_hat_dim4 = h_hat.shape[4]
+        if h_hat_dim4 != _num_tx_ant:
+            raise NotImplementedError(
+                "Estimated CSI physical antenna-pair CFR requires "
+                f"num_layers == num_antenna_ports ({h_hat_dim4} != {_num_tx_ant}). "
+                "Effective-channel export is not yet supported."
+            )
+        cfr_est_batch = _pusch_h_batch_to_cfr_est(h_hat)
+
+    tx_bits_np = _to_numpy(tx_bits)
+    rx_bits_np = _to_numpy(rx_bits)
+    tb_crc_np = None if tb_crc_ok is None else _to_numpy(tb_crc_ok).astype(np.bool_)
+
+    results: list[dict[str, Any]] = []
+    for batch_idx, (snap_idx, ul_tx_idx, ul_rx_idx) in enumerate(link_indices):
+        tx_grid_slice, rx_grid_slice, noise_variance = _extract_waveform_link_slices(
+            tx_signal=tx_signal,
+            y=y,
+            no=no,
+            pusch_tx_idx=0,
+            pusch_rx_idx=0,
+            batch_idx=batch_idx,
+        )
+        cfr_est_slice = cfr_est_batch[batch_idx]
+
+        bit_errors = int(np.sum(rx_bits_np[batch_idx] != tx_bits_np[batch_idx]))
+        num_bits = int(np.asarray(tx_bits_np[batch_idx]).size)
+        ber = bit_errors / max(num_bits, 1)
+        num_blocks, num_block_errors, bler = _tb_crc_metrics_for_batch_item(
+            tb_crc_np, batch_idx, bit_errors,
+        )
+
+        truth_slice = backend.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
+        error = cfr_est_slice - truth_slice
+        signal_power = np.mean(np.abs(truth_slice) ** 2)
+        noise_power_est = np.mean(np.abs(error) ** 2)
+        nmse_val = noise_power_est / max(signal_power, 1e-30)
+
+        results.append({
+            "cfr_est_slice": cfr_est_slice,
+            "tx_grid_slice": tx_grid_slice,
+            "rx_grid_slice": rx_grid_slice,
+            "noise_variance": noise_variance,
+            "nmse_db": float(10.0 * np.log10(max(nmse_val, 1e-30))),
+            "ber": ber,
+            "bler": bler,
+            "estimation_success": not bool(receiver_failed[batch_idx]),
+            "num_bit_errors": bit_errors,
+            "num_bits": num_bits,
+            "num_block_errors": num_block_errors,
+            "num_blocks": num_blocks,
+            "receiver_failed": bool(receiver_failed[batch_idx]),
+        })
+    return results
+
+
+def _pusch_h_batch_to_cfr_est(h: torch.Tensor) -> np.ndarray:
+    h_np = h.detach().cpu().numpy() if isinstance(h, torch.Tensor) else np.asarray(h)
+    return h_np[:, 0, :, 0, :, 0, :].astype(np.complex64, copy=False)
+
+
+def _tb_crc_metrics_for_batch_item(
+    tb_crc_np: np.ndarray | None,
+    batch_idx: int,
+    bit_errors: int,
+) -> tuple[int, int, float]:
+    if tb_crc_np is None:
+        return 1, 0, 1.0 if bit_errors > 0 else 0.0
+    crc_item = np.asarray(tb_crc_np[batch_idx])
+    num_blocks = int(crc_item.size)
+    num_block_errors = int(np.sum(~crc_item))
+    return num_blocks, num_block_errors, num_block_errors / max(num_blocks, 1)
 
 
 # ── MU-MIMO per-snapshot processing ────────────────────────────────────
@@ -595,6 +946,7 @@ def _process_mu_mimo(
     tx: Any,
     rx: Any,
     no: torch.Tensor,
+    ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
     receiver_failure_policy: str,
@@ -709,17 +1061,10 @@ def _process_mu_mimo(
             cfr_est_full[snap_idx, ...] = h_np.astype(np.complex64, copy=False)
         else:
             # Estimated CSI: extract per-link from estimator output
-            from sionna.phy.nr import PUSCHLSChannelEstimator
-
-            _estimator = PUSCHLSChannelEstimator(
-                tx.resource_grid,
-                dmrs_length=tx._dmrs_length,
-                dmrs_additional_position=tx._dmrs_additional_position,
-                num_cdm_groups_without_data=tx._num_cdm_groups_without_data,
-                interpolation_type="lin",
-            )
+            if ls_estimator is None:
+                raise RuntimeError("LS estimator is required when perfect_csi=False")
             try:
-                h_hat, _err_var = _estimator(y, no)
+                h_hat, _err_var = ls_estimator(y, no)
             except Exception:
                 receiver_failed = True
                 h_hat = h_full
@@ -807,6 +1152,10 @@ def _process_mu_mimo(
         "total_block_errors": total_block_errors,
         "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
+        "batching_stats": _default_batching_stats(
+            requested_batch_size=1,
+            num_links=num_snap,
+        ),
     }
 
 
@@ -821,6 +1170,7 @@ def _process_one_pusch_link(
     tx: Any,
     rx: Any,
     no: torch.Tensor,
+    ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
     receiver_failure_policy: str,
@@ -874,20 +1224,10 @@ def _process_one_pusch_link(
     else:
         # Estimated CSI: let PUSCHReceiver use its internal estimator.
         # We run a separate PUSCHLSChannelEstimator to get h_hat for cfr_est.
-        from sionna.phy.nr import PUSCHLSChannelEstimator
-
-        _dmrs_len = tx._dmrs_length
-        _dmrs_add_pos = tx._dmrs_additional_position
-        _num_cdm = tx._num_cdm_groups_without_data
-        estimator = PUSCHLSChannelEstimator(
-            tx.resource_grid,
-            dmrs_length=_dmrs_len,
-            dmrs_additional_position=_dmrs_add_pos,
-            num_cdm_groups_without_data=_num_cdm,
-            interpolation_type="lin",
-        )
+        if ls_estimator is None:
+            raise RuntimeError("LS estimator is required when perfect_csi=False")
         try:
-            h_hat, _err_var = estimator(y, no)
+            h_hat, _err_var = ls_estimator(y, no)
             # h_hat: [batch, num_rx, num_rx_ant, num_tx, num_streams_per_tx, ...]
         except Exception:
             receiver_failed = True
@@ -1011,6 +1351,7 @@ def _extract_waveform_link_slices(
     no: Any,
     pusch_tx_idx: int,
     pusch_rx_idx: int,
+    batch_idx: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.float32]:
     """Extract one link's actual Sionna frequency-domain TX/RX grids."""
     tx_np = _to_numpy(tx_signal)
@@ -1022,8 +1363,8 @@ def _extract_waveform_link_slices(
 
     tx_index = pusch_tx_idx if tx_np.shape[1] > 1 else 0
     rx_index = pusch_rx_idx if y_np.shape[1] > 1 else 0
-    tx_slice = tx_np[0, tx_index, ...].astype(np.complex64, copy=False)
-    rx_slice = y_np[0, rx_index, ...].astype(np.complex64, copy=False)
+    tx_slice = tx_np[batch_idx, tx_index, ...].astype(np.complex64, copy=False)
+    rx_slice = y_np[batch_idx, rx_index, ...].astype(np.complex64, copy=False)
     return tx_slice, rx_slice, np.float32(_noise_variance_scalar(no))
 
 

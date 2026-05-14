@@ -25,6 +25,14 @@ class RuntimeConfig(BaseModel):
     torch_deterministic: bool = False
 
 
+class DebugConfig(BaseModel):
+    enabled: bool = False
+    hardware_interval_s: float = Field(default=1.0, gt=0)
+    link_log_interval: int = Field(default=250, ge=1)
+    torch_synchronize: bool = True
+    write_hardware_samples: bool = True
+
+
 # ── input ────────────────────────────────────────────────────────────
 class InputConfig(BaseModel):
     label_file: str = Field(default="data/scenes/test/test5.json")
@@ -44,6 +52,28 @@ class InputConfig(BaseModel):
 
 
 # ── output ───────────────────────────────────────────────────────────
+class OutputShardingConfig(BaseModel):
+    enabled: bool = False
+    axis: str = Field(default="rx")
+    shard_size: int = Field(default=1000, ge=1)
+    filename_pattern: str = Field(default="result_{shard_index:03d}.h5")
+    parallel_workers: int = Field(default=1, ge=1)
+    gpu_ids: list[int] = Field(default_factory=list)
+    visualization_mode: str = Field(default="first_shard")
+
+    @model_validator(mode="after")
+    def check_sharding_values(self) -> OutputShardingConfig:
+        if self.axis not in ("rx", "ue"):
+            raise ValueError("output.sharding.axis must be 'rx' or 'ue'")
+        if "{shard_index" not in self.filename_pattern:
+            raise ValueError("output.sharding.filename_pattern must include {shard_index...}")
+        if self.visualization_mode not in ("none", "first_shard", "all_shards"):
+            raise ValueError(
+                "output.sharding.visualization_mode must be none/first_shard/all_shards"
+            )
+        return self
+
+
 class OutputConfig(BaseModel):
     root_dir: str = Field(default="outputs")
     run_id_format: str = Field(default="{label_stem}_{timestamp}")
@@ -52,6 +82,13 @@ class OutputConfig(BaseModel):
     save_full_paths: bool = False
     save_sampled_paths: bool = True
     save_raw_waveform: bool = False
+    sharding: OutputShardingConfig = Field(default_factory=OutputShardingConfig)
+
+    @model_validator(mode="after")
+    def check_output_values(self) -> OutputConfig:
+        if self.compression not in ("gzip", "lzf", "none"):
+            raise ValueError("output.compression must be gzip/lzf/none")
+        return self
 
 
 class SpectrumConfig(BaseModel):
@@ -67,6 +104,7 @@ class SpectrumConfig(BaseModel):
     normalize: str = Field(default="per_link_max")
     aggregate_subcarriers: str = Field(default="mean")
     aggregate_symbols: str = Field(default="mean")
+    link_chunk_size: int = Field(default=512, ge=1)
 
     @model_validator(mode="after")
     def check_supported_values(self) -> SpectrumConfig:
@@ -181,6 +219,7 @@ class PHYConfig(BaseModel):
     mimo_detector: str = "lmmse"
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
+    su_mimo_link_batch_size: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def check_fft_consistent(self) -> PHYConfig:
@@ -316,6 +355,7 @@ class MeasurementConfig(BaseModel):
     """Complete measurement simulation configuration."""
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
     input: InputConfig = Field(default_factory=InputConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     carrier: CarrierConfig = Field(default_factory=CarrierConfig)

@@ -4,6 +4,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from sionna_measurement_sim.config.schema import OutputShardingConfig
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
@@ -62,6 +63,44 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
     readback = read_truth_cfr(results_path)
     assert readback.shape == (1, 1, 1, 1, 8)
     assert readback.dtype == np.dtype("complex64")
+
+
+def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
+    output_dir = tmp_path / "phase2_rt_truth_sharded"
+
+    result_dir = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("data/scenes/test/test5.json"),
+            scene_file=Path("data/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_tx=1,
+            max_rx=3,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=2,
+                filename_pattern="result_{shard_index:03d}.h5",
+                parallel_workers=1,
+                visualization_mode="none",
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert len(manifest["results"]) == 2
+    assert [item["global_rx_count"] for item in manifest["results"]] == [2, 1]
+
+    for index, expected_rx in enumerate(([0, 1], [2])):
+        path = output_dir / f"result_{index:03d}.h5"
+        assert path.is_file()
+        validate_hdf5_contract(path)
+        with h5py.File(path, "r") as h5:
+            np.testing.assert_array_equal(
+                h5["shard/global_rx_indices"][()],
+                np.asarray(expected_rx, dtype=np.int64),
+            )
 
 
 def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):

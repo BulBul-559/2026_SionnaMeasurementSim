@@ -78,6 +78,116 @@ class InputSpec:
 
 
 @dataclass(frozen=True)
+class ShardSpec:
+    """Requested topology shard selection."""
+
+    shard_index: int
+    shard_count: int
+    axis: str = "rx"
+    rx_start: int = 0
+    rx_count: int | None = None
+    rx_indices: tuple[int, ...] | None = None
+    tx_indices: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.shard_count < 1:
+            msg = "shard_count must be positive"
+            raise ValueError(msg)
+        if self.shard_index < 0 or self.shard_index >= self.shard_count:
+            msg = "shard_index must be in [0, shard_count)"
+            raise ValueError(msg)
+        if not self.axis:
+            msg = "axis must not be empty"
+            raise ValueError(msg)
+        if self.rx_start < 0:
+            msg = "rx_start must be non-negative"
+            raise ValueError(msg)
+        if self.rx_count is not None and self.rx_count < 1:
+            msg = "rx_count must be positive when provided"
+            raise ValueError(msg)
+        if self.rx_indices is not None:
+            _validate_non_negative_indices("rx_indices", self.rx_indices)
+            object.__setattr__(self, "rx_indices", tuple(int(i) for i in self.rx_indices))
+        if self.tx_indices is not None:
+            _validate_non_negative_indices("tx_indices", self.tx_indices)
+            object.__setattr__(self, "tx_indices", tuple(int(i) for i in self.tx_indices))
+
+
+@dataclass(frozen=True)
+class ShardMetadata:
+    """HDF5 `/shard` metadata mapping local topology indices to global indices."""
+
+    shard_index: int
+    shard_count: int
+    axis: str
+    global_rx_start: int
+    global_rx_indices: np.ndarray
+    global_tx_indices: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.shard_count < 1:
+            msg = "shard_count must be positive"
+            raise ValueError(msg)
+        if self.shard_index < 0 or self.shard_index >= self.shard_count:
+            msg = "shard_index must be in [0, shard_count)"
+            raise ValueError(msg)
+        if not self.axis:
+            msg = "axis must not be empty"
+            raise ValueError(msg)
+        if self.global_rx_start < 0:
+            msg = "global_rx_start must be non-negative"
+            raise ValueError(msg)
+
+        rx_indices = np.asarray(self.global_rx_indices, dtype=np.int64)
+        tx_indices = np.asarray(self.global_tx_indices, dtype=np.int64)
+        require_shape("global_rx_indices", rx_indices, (None,))
+        require_shape("global_tx_indices", tx_indices, (None,))
+        if rx_indices.size == 0:
+            msg = "global_rx_indices must not be empty"
+            raise ValueError(msg)
+        if tx_indices.size == 0:
+            msg = "global_tx_indices must not be empty"
+            raise ValueError(msg)
+        if np.any(rx_indices < 0):
+            msg = "global_rx_indices must be non-negative"
+            raise ValueError(msg)
+        if np.any(tx_indices < 0):
+            msg = "global_tx_indices must be non-negative"
+            raise ValueError(msg)
+
+        object.__setattr__(self, "global_rx_indices", rx_indices)
+        object.__setattr__(self, "global_tx_indices", tx_indices)
+
+    @classmethod
+    def from_spec(
+        cls,
+        spec: ShardSpec,
+        *,
+        global_rx_indices: np.ndarray,
+        global_tx_indices: np.ndarray,
+    ) -> ShardMetadata:
+        rx_indices = np.asarray(global_rx_indices, dtype=np.int64)
+        rx_start = int(rx_indices[0]) if rx_indices.size else spec.rx_start
+        return cls(
+            shard_index=spec.shard_index,
+            shard_count=spec.shard_count,
+            axis=spec.axis,
+            global_rx_start=rx_start,
+            global_rx_indices=rx_indices,
+            global_tx_indices=np.asarray(global_tx_indices, dtype=np.int64),
+        )
+
+
+def _validate_non_negative_indices(name: str, values: tuple[int, ...]) -> None:
+    if not values:
+        msg = f"{name} must not be empty"
+        raise ValueError(msg)
+    if any(int(value) < 0 for value in values):
+        msg = f"{name} must be non-negative"
+        raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class DeviceState:
     """Static or snapshot device state in SI units."""
 
@@ -166,6 +276,7 @@ class MeasurementSimulationResult:
     calibration: CalibrationResult | None = None
     diagnostics: DiagnosticsReport | None = None
     link: LinkConfig | None = None
+    shard: ShardMetadata | None = None
     waveform_extras: dict | None = None
     array_outputs: dict | None = None
 
@@ -190,6 +301,13 @@ class MeasurementSimulationResult:
         if self.devices.rx_velocity_mps.shape[1] != rx:
             msg = "device rx state dimension must match topology"
             raise ValueError(msg)
+        if self.shard is not None:
+            if self.shard.global_tx_indices.shape[0] != tx:
+                msg = "shard global_tx_indices length must match topology"
+                raise ValueError(msg)
+            if self.shard.global_rx_indices.shape[0] != rx:
+                msg = "shard global_rx_indices length must match topology"
+                raise ValueError(msg)
         if self.motion is not None and self.truth.cfr_snapshots is not None:
             if self.truth.cfr_snapshots.shape[0] != self.motion.num_time_steps:
                 msg = "cfr_snapshots must match motion num_time_steps"

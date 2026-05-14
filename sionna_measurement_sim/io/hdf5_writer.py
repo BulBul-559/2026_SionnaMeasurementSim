@@ -6,6 +6,7 @@ native objects.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -15,38 +16,56 @@ import numpy as np
 from sionna_measurement_sim.domain.results import MeasurementSimulationResult
 
 UTF8_DTYPE = h5py.string_dtype(encoding="utf-8")
+_ACTIVE_COMPRESSION: ContextVar[str] = ContextVar(
+    "_ACTIVE_COMPRESSION",
+    default="gzip",
+)
 
 
-def write_measurement_result(path: str | Path, result: MeasurementSimulationResult) -> Path:
+def write_measurement_result(
+    path: str | Path,
+    result: MeasurementSimulationResult,
+    *,
+    compression: str = "gzip",
+) -> Path:
     """Write a truth-only result to an HDF5 file."""
+
+    if compression not in ("gzip", "lzf", "none"):
+        msg = f"Unsupported HDF5 compression: {compression!r}"
+        raise ValueError(msg)
 
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with h5py.File(output_path, "w") as h5:
-        _write_meta(h5, result)
-        _write_input(h5, result)
-        _write_topology(h5, result)
-        _write_devices(h5, result)
-        _write_antenna(h5, result)
-        _write_scene(h5, result)
-        _write_frequency(h5, result)
-        _write_derived(h5, result)
-        _write_truth(h5, result)
-        _write_path_samples(h5, result)
-        _write_nlos_path_truth(h5, result)
-        _write_path_full(h5, result)
-        _write_cir_truth(h5, result)
-        _write_waveform(h5, result)
-        _write_array(h5, result)
-        _write_observation(h5, result)
-        _write_impairments(h5, result)
-        _write_receiver(h5, result)
-        _write_evaluation(h5, result)
-        _write_calibration(h5, result)
-        _write_motion(h5, result)
-        _write_link(h5, result)
-        _write_runtime(h5, result)
+    compression_token = _ACTIVE_COMPRESSION.set(compression)
+    try:
+        with h5py.File(output_path, "w") as h5:
+            _write_meta(h5, result)
+            _write_input(h5, result)
+            _write_shard(h5, result)
+            _write_topology(h5, result)
+            _write_devices(h5, result)
+            _write_antenna(h5, result)
+            _write_scene(h5, result)
+            _write_frequency(h5, result)
+            _write_derived(h5, result)
+            _write_truth(h5, result)
+            _write_path_samples(h5, result)
+            _write_nlos_path_truth(h5, result)
+            _write_path_full(h5, result)
+            _write_cir_truth(h5, result)
+            _write_waveform(h5, result)
+            _write_array(h5, result)
+            _write_observation(h5, result)
+            _write_impairments(h5, result)
+            _write_receiver(h5, result)
+            _write_evaluation(h5, result)
+            _write_calibration(h5, result)
+            _write_motion(h5, result)
+            _write_link(h5, result)
+            _write_runtime(h5, result)
+    finally:
+        _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
 
@@ -78,6 +97,19 @@ def _write_input(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "scene_file", input_spec.scene_file)
     _write_scalar(group, "input_dataset_id", input_spec.input_dataset_id)
     _write_scalar(group, "input_schema", input_spec.input_schema)
+
+
+def _write_shard(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    shard = result.shard
+    if shard is None:
+        return
+    group = h5.require_group("shard")
+    _write_scalar(group, "shard_index", np.int32(shard.shard_index))
+    _write_scalar(group, "shard_count", np.int32(shard.shard_count))
+    _write_scalar(group, "axis", shard.axis)
+    _write_scalar(group, "global_rx_start", np.int64(shard.global_rx_start))
+    _write_dataset(group, "global_rx_indices", shard.global_rx_indices)
+    _write_dataset(group, "global_tx_indices", shard.global_tx_indices)
 
 
 def _write_topology(h5: h5py.File, result: MeasurementSimulationResult) -> None:
@@ -607,8 +639,9 @@ def _write_dataset(
 ) -> h5py.Dataset:
     array = np.asarray(value)
     kwargs: dict[str, Any] = {}
-    if array.ndim > 0 and array.size > 0:
-        kwargs["compression"] = "gzip"
+    compression = _ACTIVE_COMPRESSION.get()
+    if array.ndim > 0 and array.size > 0 and compression != "none":
+        kwargs["compression"] = compression
         kwargs["shuffle"] = True
 
     dataset = group.create_dataset(name, data=array, **kwargs)

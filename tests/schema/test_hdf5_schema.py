@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from sionna_measurement_sim.domain.path import PathSamples
-from sionna_measurement_sim.domain.results import create_phase1_minimal_result
+from sionna_measurement_sim.domain.results import ShardMetadata, create_phase1_minimal_result
 from sionna_measurement_sim.io.hdf5_reader import read_metadata, read_truth_cfr
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.schema_validator import SchemaValidationError, validate_hdf5_contract
@@ -68,6 +68,46 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
         assert h5["derived/geometric_distance_m"][0, 0] == pytest.approx(5.0)
         assert h5["derived/tx_rx_distance_m"][0, 0] == pytest.approx(5.0)
         assert np.isnan(h5["derived/first_path_delay_s"][0, 0])
+
+
+def test_write_and_validate_shard_metadata(tmp_path: Path):
+    output_path = tmp_path / "result_0001.h5"
+    result = replace(
+        create_phase1_minimal_result(),
+        shard=ShardMetadata(
+            shard_index=1,
+            shard_count=4,
+            axis="rx",
+            global_rx_start=12,
+            global_rx_indices=np.array([12], dtype=np.int64),
+            global_tx_indices=np.array([3], dtype=np.int64),
+        ),
+    )
+
+    write_measurement_result(output_path, result)
+
+    validate_hdf5_contract(output_path)
+    with h5py.File(output_path, "r") as h5:
+        assert h5["shard/shard_index"][()] == 1
+        assert h5["shard/shard_count"][()] == 4
+        assert h5["shard/axis"][()].decode("utf-8") == "rx"
+        assert h5["shard/global_rx_start"][()] == 12
+        np.testing.assert_array_equal(h5["shard/global_rx_indices"][()], np.array([12]))
+        np.testing.assert_array_equal(h5["shard/global_tx_indices"][()], np.array([3]))
+
+
+def test_write_measurement_result_can_disable_compression(tmp_path: Path):
+    output_path = tmp_path / "results_uncompressed.h5"
+
+    write_measurement_result(
+        output_path,
+        create_phase1_minimal_result(),
+        compression="none",
+    )
+
+    validate_hdf5_contract(output_path)
+    with h5py.File(output_path, "r") as h5:
+        assert h5["channel/truth/cfr"].compression is None
 
 
 def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):

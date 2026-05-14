@@ -23,6 +23,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
+| `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
+| `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 
 ## 有效配置项
 
@@ -37,7 +39,19 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
-大规模 NR PUSCH 目前仍是单进程逐链路 SU-MIMO 调度。`3 BS × 3000 UE × 4x4` 已验证可在单卡 GPU 上完成；`6 BS × 8884 UE × 4x4` 会进入 GPU 路径，但单进程效率较低，生产运行建议按 UE/BS shard 拆分到多 GPU。
+大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE/RX shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `result_xxx.h5`，再由根目录 `manifest.json` 汇总。
+
+### `debug` — 性能日志
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否启用性能 profiling 日志 |
+| `hardware_interval_s` | float | 1.0 | GPU/CPU/RSS 采样间隔 |
+| `link_log_interval` | int | 250 | 预留的 link chunk 汇总间隔 |
+| `torch_synchronize` | bool | true | 阶段计时前后是否同步 CUDA，避免异步 kernel 扭曲耗时 |
+| `write_hardware_samples` | bool | true | 是否写 `logs/hardware_samples*.csv` |
+
+开启后会在输出目录 `logs/` 下写入 `perf_events*.jsonl`、`hardware_samples*.csv`、`perf_summary*.json`。shard 模式下文件名带 `shard_000` 后缀，避免多进程互相覆盖。
 
 ### `input` — 输入数据
 
@@ -56,7 +70,22 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 |------|------|--------|------|
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
+| `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none` |
 | `save_full_paths` | bool | false | 是否保存全量路径表 `/paths/full` |
+
+#### `output.sharding`
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否启用 shard 输出 |
+| `axis` | str | "rx" | shard 维度；当前支持 `"rx"`，`"ue"` 会作为别名归一为 `"rx"` |
+| `shard_size` | int | 1000 | 每个 shard 的 UE/RX 数量 |
+| `filename_pattern` | str | `result_{shard_index:03d}.h5` | shard HDF5 文件名模板 |
+| `parallel_workers` | int | 1 | 并行 worker 数 |
+| `gpu_ids` | list[int] | [] | shard worker 轮询绑定的 GPU ID |
+| `visualization_mode` | str | "first_shard" | `none`、`first_shard`、`all_shards` |
+
+shard 模式下，`run-full` 返回输出目录，根目录 `manifest.json` 汇总所有 `result_xxx.h5`。每个 HDF5 内有 `/shard` group，记录局部索引对应的全局 UE/RX/BS 索引。本项目不把 shard 物理合并成单个巨大 HDF5。
 
 ### `carrier` — 载波与频率
 
@@ -102,6 +131,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `normalize` | str | "per_link_max" | 每条 link 最大值归一化 |
 | `aggregate_subcarriers` | str | "mean" | 子载波聚合方式 |
 | `aggregate_symbols` | str | "mean" | OFDM symbol 聚合方式 |
+| `link_chunk_size` | int | 512 | Bartlett 空间谱按 link chunk 向量化时的 chunk 大小 |
 
 `/paths/nlos_truth` 默认始终保存所有 NLoS path 的 AoA/AoD、功率、延迟和类型；
 `/paths/full` 仍只由 `output.save_full_paths` 控制。
@@ -232,6 +262,7 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 | `mimo_detector` | str | "lmmse" | MIMO 检测器：`"lmmse"` \| `"kbest"` |
 | `channel_estimator` | str | "pusch_ls" | 信道估计：`"pusch_ls"` \| `"perfect"` |
 | `receiver_failure_policy` | str | "fail_fast" | 失败策略：`"fail_fast"` \| `"mark_invalid"` |
+| `su_mimo_link_batch_size` | int | 1 | SU-MIMO 独立 link batching 大小；NR PUSCH 模板和性能模板设为 64 |
 
 > **MIMO 配置提示：**
 > - 4x4 SU-MIMO: `mimo_mode="su_mimo"`, `num_layers=4`, `num_antenna_ports=4`

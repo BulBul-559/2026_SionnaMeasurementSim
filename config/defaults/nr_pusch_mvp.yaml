@@ -11,6 +11,13 @@ runtime:
   seed: 42
   device: "cpu"
 
+debug:
+  enabled: false
+  hardware_interval_s: 1.0
+  link_log_interval: 250
+  torch_synchronize: true
+  write_hardware_samples: true
+
 input:
   label_file: "data/scenes/test/test5.json"
   scene_file: "data/scenes/test/scene.xml"
@@ -22,7 +29,16 @@ input:
 output:
   root_dir: "outputs"
   hdf5_filename: "results.h5"
+  compression: "gzip"
   save_full_paths: false
+  sharding:
+    enabled: false
+    axis: "rx"
+    shard_size: 1000
+    filename_pattern: "result_{shard_index:03d}.h5"
+    parallel_workers: 1
+    gpu_ids: []
+    visualization_mode: "first_shard"
 
 carrier:
   center_frequency_hz: 3500000000.0
@@ -59,6 +75,7 @@ array:
     normalize: "per_link_max"
     aggregate_subcarriers: "mean"
     aggregate_symbols: "mean"
+    link_chunk_size: 512
 
 visualization:
   enabled: true
@@ -130,6 +147,7 @@ phy:
   mimo_detector: "lmmse"        # "lmmse" | "kbest"
   channel_estimator: "pusch_ls" # "pusch_ls" | "perfect"
   receiver_failure_policy: "fail_fast"  # "fail_fast" | "mark_invalid"
+  su_mimo_link_batch_size: 64   # batch independent SU-MIMO links per receiver call
   tx_power_dbm: 0.0
 
 impairments:

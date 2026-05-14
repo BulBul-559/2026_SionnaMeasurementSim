@@ -130,6 +130,28 @@ class ApplyOFDMChannelBackend:
             num_ofdm_symbols=num_ofdm_symbols,
         )
 
+    def perfect_h_batch(
+        self,
+        link_indices: list[tuple[int, int, int]],
+        num_ofdm_symbols: int = 14,
+    ) -> torch.Tensor:
+        """Perfect-CSI tensor for multiple SU-MIMO links.
+
+        ``link_indices`` contains ``(snap_idx, ul_tx_idx, ul_rx_idx)`` tuples.
+        Returns
+        ``[batch, 1, num_ul_rx_ant, 1, num_ul_tx_ant, num_ofdm_symbols, fft_size]``.
+        """
+        if not link_indices:
+            raise ValueError("link_indices must not be empty")
+
+        h_slices = [
+            self._channel.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
+            for snap_idx, ul_tx_idx, ul_rx_idx in link_indices
+        ]
+        h_t = torch.as_tensor(np.stack(h_slices, axis=0), dtype=torch.complex64)
+        h_t = h_t.unsqueeze(1).unsqueeze(3).unsqueeze(-2)
+        return h_t.expand(-1, -1, -1, -1, -1, num_ofdm_symbols, -1)
+
     def apply(
         self,
         x: torch.Tensor,
@@ -171,6 +193,26 @@ class ApplyOFDMChannelBackend:
             self._apply = ApplyOFDMChannel()
 
         h = self.perfect_h(snap_idx, ul_tx_idx, ul_rx_idx, num_ofdm_symbols)
+        y = self._apply(x, h, no)
+        return ChannelApplyResult(y=y, h=h)
+
+    def apply_batch_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        link_indices: list[tuple[int, int, int]],
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply a batch of independent SU-MIMO links.
+
+        Each batch item maps to one ``(snap, ul_tx, ul_rx)`` tuple.
+        """
+        if self._apply is None:
+            from sionna.phy.channel import ApplyOFDMChannel
+            self._apply = ApplyOFDMChannel()
+
+        h = self.perfect_h_batch(link_indices, num_ofdm_symbols)
         y = self._apply(x, h, no)
         return ChannelApplyResult(y=y, h=h)
 
@@ -492,6 +534,38 @@ class CIRDatasetOFDMChannelBackend:
         )
         y, h = ofdm_ch(x, no)
         return ChannelApplyResult(y=y, h=h)
+
+    def apply_batch_with_h(
+        self,
+        x: torch.Tensor,
+        no: torch.Tensor,
+        link_indices: list[tuple[int, int, int]],
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply a batch of independent SU-MIMO links.
+
+        The CIRDataset backend currently builds one OFDMChannel per link, then
+        concatenates results so the receiver/estimator can still run batched.
+        """
+        y_parts = []
+        h_parts = []
+        for batch_idx, (snap_idx, ul_tx_idx, ul_rx_idx) in enumerate(link_indices):
+            result = self.apply_with_h(
+                x[batch_idx:batch_idx + 1],
+                no,
+                snap_idx=snap_idx,
+                ul_tx_idx=ul_tx_idx,
+                ul_rx_idx=ul_rx_idx,
+                num_ofdm_symbols=num_ofdm_symbols,
+                resource_grid=resource_grid,
+            )
+            y_parts.append(result.y)
+            h_parts.append(result.h)
+        return ChannelApplyResult(
+            y=torch.cat(y_parts, dim=0),
+            h=torch.cat(h_parts, dim=0),
+        )
 
     def apply_full_with_h(
         self,

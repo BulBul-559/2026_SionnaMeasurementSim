@@ -21,9 +21,11 @@ class ArraySpectrumConfig:
     normalize: str = "per_link_max"
     aggregate_subcarriers: str = "mean"
     aggregate_symbols: str = "mean"
+    link_chunk_size: int = 512
 
     def __post_init__(self) -> None:
         sources = tuple(str(source) for source in self.sources)
+        link_chunk_size = int(self.link_chunk_size)
         allowed_sources = {"truth_cfr", "cfr_est", "rx_grid"}
         unknown_sources = set(sources) - allowed_sources
         if unknown_sources:
@@ -42,7 +44,10 @@ class ArraySpectrumConfig:
             raise ValueError("zenith_max_rad must be greater than zenith_min_rad")
         if self.azimuth_max_rad <= self.azimuth_min_rad:
             raise ValueError("azimuth_max_rad must be greater than azimuth_min_rad")
+        if link_chunk_size < 1:
+            raise ValueError("link_chunk_size must be >= 1")
         object.__setattr__(self, "sources", sources)
+        object.__setattr__(self, "link_chunk_size", link_chunk_size)
 
     @property
     def policy(self) -> str:
@@ -54,5 +59,6 @@ class ArraySpectrumConfig:
             f"azimuth=[{self.azimuth_min_rad},{self.azimuth_max_rad}];"
             f"normalize={self.normalize};"
             f"aggregate_subcarriers={self.aggregate_subcarriers};"
-            f"aggregate_symbols={self.aggregate_symbols}"
+            f"aggregate_symbols={self.aggregate_symbols};"
+            f"link_chunk_size={self.link_chunk_size}"
         )

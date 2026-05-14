@@ -225,7 +225,9 @@ def _process_one_pusch_link(snap, ul_tx, ul_rx, backend, tx, rx, no,
     # 6. NMSE: cfr_est_slice vs truth_slice
 ```
 
-当前 SU-MIMO 路径是单进程 Python 逐链路调度。它可以使用 `runtime.device: "cuda"` 把 PUSCH/Sionna 张量计算放到 GPU 上，但在数千到数万 link 的大规模场景中，GPU 利用率会受 Python 循环、小 kernel 启动和数据搬运限制。已验证 `3 BS × 3000 UE × 4x4` 可完成；`6 BS × 8884 UE × 4x4` 单进程会进入 GPU 路径但效率较低，生产运行建议按 UE/BS shard 拆分到多进程/多 GPU。
+SU-MIMO 支持两条路径：`su_mimo_link_batch_size <= 1` 时使用逐 link 稳定路径；大于 1 时使用 batched path，把多个独立 `(snapshot, ul_tx, ul_rx)` link 合成一个 PUSCHTransmitter/ApplyOFDMChannel/PUSCHReceiver batch。batch 失败时会递归降级到更小 batch，最终可回退到单 link，并在 manifest 的 `nr_pusch_batching` 记录 fallback 统计。
+
+GPU 大规模生产运行建议同时开启 UE/RX shard：多个进程分别绑定 GPU、分别写 `result_xxx.h5`，避免多个进程竞争同一个 HDF5 文件。
 
 ### MU-MIMO per-snapshot 处理：`_process_mu_mimo()`
 

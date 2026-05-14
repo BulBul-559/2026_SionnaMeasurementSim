@@ -6,6 +6,8 @@
 
 本文从最初的 5x5000 性能报告和本轮优化计划出发，只记录非 `DONE` 项：已经部分完成但还不能作为生产能力使用的工作、计划中提到但尚未完成的工作、本轮额外发现的问题，以及最初没明确提出但现在应该补齐的工作。
 
+更新：`run-full` 原生 UE/RX shard、CLI override、debug profiling、NR PUSCH SU-MIMO batching、空间谱 chunk 和 HDF5 compression 配置已经完成生产化验收，详见 `docs/performance/nr_pusch_sharded_productionization.md`。下方早期条目中涉及这些能力的内容以新报告为准，后续 TODO 重点转向 HDF5 写盘、RT-only 参数矩阵、空间谱继续优化和 visualization 开销。
+
 相关背景文档：
 
 - `docs/performance/nr_pusch_5x5000_profile_zh.md`

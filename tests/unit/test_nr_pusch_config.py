@@ -212,6 +212,53 @@ class TestRunNRPUSCHObservation:
         assert np.any(np.abs(grids["rx_grid"]) > 0.0)
         np.testing.assert_allclose(grids["noise_variance"], 1e-4, rtol=1e-5)
 
+    def test_su_mimo_batch_size_1_and_4_schema_shapes_match(self):
+        cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 2, 2, 1, 1, 2), dtype=np.float32) * 1e-9
+
+        link = LinkConfig(reciprocity_applied=False)
+        carrier = CarrierConfig()
+
+        def _run(batch_size: int):
+            phy = PHYConfig(
+                num_prb=4,
+                snr_db=40.0,
+                num_antenna_ports=1,
+                num_layers=1,
+                perfect_csi=False,
+            )
+            object.__setattr__(phy, "nr_pusch_batch_size", batch_size)
+            return run_nr_pusch_observation(cir_coeff, cir_delays, link, phy, carrier)
+
+        result_1 = _run(1)
+        result_4 = _run(4)
+
+        for key in ("cfr_est", "cfr_clean_ref"):
+            assert result_4[key].shape == result_1[key].shape
+            assert result_4[key].dtype == result_1[key].dtype
+
+        for key in ("tx_grid", "rx_grid", "noise_variance"):
+            assert (
+                result_4["waveform_grids"][key].shape
+                == result_1["waveform_grids"][key].shape
+            )
+            assert (
+                result_4["waveform_grids"][key].dtype
+                == result_1["waveform_grids"][key].dtype
+            )
+
+        for key in ("nmse_db", "nmse_db_total", "amplitude_error_db"):
+            assert getattr(result_4["evaluation"], key).shape == getattr(
+                result_1["evaluation"], key,
+            ).shape
+        assert result_4["observation"].cfr_est.shape == result_1["observation"].cfr_est.shape
+        assert set(result_4["pusch_config"]) == set(result_1["pusch_config"])
+        assert set(result_4["array_outputs"]) == set(result_1["array_outputs"])
+        assert result_1["batching_stats"]["requested_batch_size"] == 1
+        assert result_4["batching_stats"]["requested_batch_size"] == 4
+        assert result_4["batching_stats"]["effective_batch_size"] == 4
+        assert result_4["batching_stats"]["num_batches"] == 1
+
     def test_array_outputs_have_deterministic_fallback_shapes(self):
         rx_grid = np.zeros((1, 2, 3, 4, 14, 48), dtype=np.complex64)
 

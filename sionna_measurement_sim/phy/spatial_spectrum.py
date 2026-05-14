@@ -124,26 +124,49 @@ def build_bartlett_spectrum(
     flat_steering = steering.reshape(-1, num_rx_ant)
     output = np.zeros((*array.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
 
-    for index in np.ndindex(array.shape[:3]):
-        x = array[index].reshape(num_rx_ant, -1)
-        if x.size == 0 or not np.any(np.isfinite(x)) or not np.any(np.abs(x) > 0.0):
+    num_links = int(np.prod(array.shape[:3]))
+    sample_count = int(np.prod(array.shape[4:]))
+    flat_samples = array.reshape(num_links, num_rx_ant, sample_count)
+    flat_output = output.reshape(flat_samples.shape[0], -1)
+    chunk_size = int(config.link_chunk_size)
+
+    for start in range(0, flat_samples.shape[0], chunk_size):
+        stop = min(start + chunk_size, flat_samples.shape[0])
+        x = flat_samples[start:stop]
+        if x.size == 0 or x.shape[2] == 0:
             continue
-        x = np.nan_to_num(x, copy=False)
-        covariance = (x @ np.conjugate(x.T)) / np.float32(x.shape[1])
+
+        active = np.any(np.isfinite(x), axis=(1, 2)) & np.any(
+            np.abs(x) > 0.0,
+            axis=(1, 2),
+        )
+        if not np.any(active):
+            continue
+
+        active_x = np.nan_to_num(x[active], copy=True)
+        covariance = np.matmul(
+            active_x,
+            np.conjugate(np.swapaxes(active_x, -1, -2)),
+        ) / np.float32(active_x.shape[2])
         projected = np.einsum(
-            "bi,ij,bj->b",
+            "ba,cad,bd->cb",
             np.conjugate(flat_steering),
             covariance,
             flat_steering,
             optimize=True,
         ).real
         projected = np.maximum(projected, 0.0).astype(np.float32, copy=False)
-        peak = float(np.max(projected)) if projected.size else 0.0
-        if peak > 0.0 and np.isfinite(peak):
-            projected = projected / np.float32(peak)
-        else:
-            projected = np.zeros_like(projected)
-        output[index] = projected.reshape(angle_grid.shape[:2])
+
+        peaks = np.max(projected, axis=1)
+        valid_peaks = (peaks > 0.0) & np.isfinite(peaks)
+        normalized = np.zeros_like(projected)
+        normalized[valid_peaks] = (
+            projected[valid_peaks] / peaks[valid_peaks, np.newaxis]
+        )
+
+        chunk_output = np.zeros((stop - start, flat_output.shape[1]), dtype=np.float32)
+        chunk_output[active] = normalized
+        flat_output[start:stop] = chunk_output
     return output
 
 

@@ -27,12 +27,13 @@ rt/truth_pipeline.py  →  编排执行
 
 ### 1.2 配置顶层结构
 
-`MeasurementConfig` 包含 12 个分组：
+`MeasurementConfig` 包含这些顶层分组：
 
 ```yaml
 runtime:       # 运行环境 (seed, device, precision)
+debug:         # 可选性能 profiling 日志
 input:         # 输入数据 (label_file, scene_file, max_tx, max_rx)
-output:        # 输出控制 (root_dir, hdf5_filename, compression)
+output:        # 输出控制 (root_dir, hdf5_filename, compression, sharding)
 carrier:       # 载波频率 (center_frequency_hz, bandwidth_hz, num_subcarriers)
 antenna:       # 天线阵列 (tx_array, rx_array)
 rt:            # 射线追踪 (max_depth, los, specular_reflection, ...)
@@ -42,6 +43,7 @@ impairments:   # 损伤模型 (awgn, cfo, sfo, phase_noise, timing, agc_adc)
 receiver:      # 接收机 (estimator_type, mimo_detector, failure_policy)
 motion:        # 运动/多普勒 (mobility_mode, num_time_steps, velocity)
 calibration:   # 校准 (profile_id)
+visualization: # 采样可视化
 ```
 
 ### 1.3 各组字段详表
@@ -59,6 +61,16 @@ calibration:   # 校准 (profile_id)
 当前依赖锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装。`runtime.device: "cuda"` 会驱动 NR PUSCH 的 PyTorch/Sionna 频域链路在 CUDA 设备上执行；如果 CUDA 不可用则报错，不自动回退到 CPU。
 
 当前 pipeline 实际驱动设备选择的是 `device` 字段；`require_gpu`、`precision`、`torch_deterministic` 是 schema 保留字段，尚未完整接入所有执行路径。
+
+#### `debug` — 性能 profiling
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写性能日志 |
+| `hardware_interval_s` | float | 1.0 | GPU/CPU/RSS 采样间隔 |
+| `link_log_interval` | int | 250 | link chunk 汇总间隔 |
+| `torch_synchronize` | bool | true | 阶段计时前后同步 CUDA |
+| `write_hardware_samples` | bool | true | 是否写硬件采样 CSV |
 
 #### `input` — 输入数据
 
@@ -84,6 +96,10 @@ calibration:   # 校准 (profile_id)
 | `save_full_paths` | bool | false | 是否保存 `/paths/full`（全量路径表） |
 | `save_sampled_paths` | bool | true | 是否保存 `/paths/samples` |
 | `save_raw_waveform` | bool | false | 是否保存原始波形 |
+
+`compression` 可选 `gzip`、`lzf`、`none`。大规模性能排查时可用 `none` 或 `lzf` 分离写盘压缩成本。
+
+`output.sharding` 子段控制 UE/RX shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`parallel_workers`、`gpu_ids`、`visualization_mode`。当前生产化的是 UE/RX range shard，`axis: "ue"` 会作为别名归一为 `"rx"`，输出文件直接命名为 `result_000.h5`，不套额外 shard 目录。
 
 #### `carrier` — 载波与频率
 
@@ -130,6 +146,7 @@ calibration:   # 校准 (profile_id)
 | `normalize` | str | `"per_link_max"` | 每条 link 最大值归一到 1 |
 | `aggregate_subcarriers` | str | `"mean"` | 子载波聚合口径 |
 | `aggregate_symbols` | str | `"mean"` | OFDM symbol 聚合口径 |
+| `link_chunk_size` | int | 512 | Bartlett 空间谱按 link chunk 向量化的 chunk 大小 |
 
 这里的“全向”指扫描角度范围覆盖完整方向域；天线方向图仍由
 `antenna.*.pattern` 控制，默认模板使用 `iso`。
@@ -237,6 +254,7 @@ pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full
 | `mimo_detector` | str | `"lmmse"` | `"lmmse"`\|`"kbest"` |
 | `channel_estimator` | str | `"pusch_ls"` | `"pusch_ls"`\|`"perfect"` |
 | `receiver_failure_policy` | str | `"fail_fast"` | `"fail_fast"`\|`"mark_invalid"` |
+| `su_mimo_link_batch_size` | int | 1 | SU-MIMO 独立 link batching；NR PUSCH 模板设为 64 |
 
 #### `impairments` — 损伤模型
 
@@ -390,13 +408,14 @@ MIMO backend 支持矩阵：
 - **契约驱动**：所有 HDF5 输出必须通过 `schema_validator.py` 校验
 - **纯 Python 写入**：writer 只接受 domain 对象，不导入 Sionna
 - **自描述**：每个 dataset 标注 `unit` 和 `index_order` attribute
-- **大数组压缩**：ndim > 0 且 size > 0 的数组启用 gzip + shuffle filter
+- **大数组压缩**：ndim > 0 且 size > 0 的数组按 `output.compression` 启用 `gzip`/`lzf` + shuffle，也可配置为 `none`
 
 ### 2.2 Group 层级总览
 
 ```
 results.h5
 ├── /meta                          # 元数据
+├── /shard                         # shard 模式下的全局索引映射
 ├── /input                         # 输入引用
 ├── /topology                      # TX/RX 位置与标签
 ├── /devices                       # 设备状态（速度、朝向）
@@ -447,7 +466,22 @@ results.h5
 | `config_snapshot` | string | 完整 YAML 配置快照 |
 | `software_versions` | string | 软件版本摘要 |
 
-### 2.4 `/input` — 输入引用
+### 2.4 `/shard` — Shard 元数据
+
+普通单文件运行不写 `/shard`。开启 `output.sharding.enabled=true` 时，每个 `result_xxx.h5` 自包含局部数据，并写入以下映射：
+
+| Dataset | 类型/Shape | 说明 |
+|---------|------------|------|
+| `shard_index` | int32 | 当前 shard 序号 |
+| `shard_count` | int32 | 总 shard 数 |
+| `axis` | string | 实际 shard 维度，当前为 `"rx"`；配置里的 `"ue"` 会作为别名归一 |
+| `global_rx_start` | int64 | 当前 shard 第一个全局 UE/RX 索引 |
+| `global_rx_indices` | [local_rx] int64 | 本文件局部 RX 对应的全局 UE/RX 索引 |
+| `global_tx_indices` | [local_tx] int64 | 本文件局部 TX 对应的全局 BS/TX 索引 |
+
+根目录 aggregate `manifest.json` 会汇总每个 shard 的文件路径、全局索引覆盖范围、可视化摘要和性能日志路径。
+
+### 2.5 `/input` — 输入引用
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -456,7 +490,7 @@ results.h5
 | `input_dataset_id` | string | 数据集标识 |
 | `input_schema` | string | 标签 schema 版本 |
 
-### 2.5 `/topology` — 拓扑
+### 2.6 `/topology` — 拓扑
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
@@ -465,7 +499,7 @@ results.h5
 | `tx_labels` | [num_tx] | — | TX 标签 string |
 | `rx_labels` | [num_rx] | — | RX 标签 string |
 
-### 2.6 `/devices` — 设备状态
+### 2.7 `/devices` — 设备状态
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
@@ -474,7 +508,7 @@ results.h5
 | `tx_orientation_rad` | [num_tx, 3] | rad | TX 朝向角 float32 |
 | `rx_orientation_rad` | [num_rx, 3] | rad | RX 朝向角 float32 |
 
-### 2.7 `/antenna` — 天线
+### 2.8 `/antenna` — 天线
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -496,7 +530,7 @@ results.h5
 | `tx_orientation_mode` | string | TX 朝向模式 |
 | `rx_orientation_mode` | string | RX 朝向模式 |
 
-### 2.8 `/scene` — 场景
+### 2.9 `/scene` — 场景
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|

@@ -87,20 +87,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     full.add_argument("--label-file", default=_DEFAULT_LABEL)
     full.add_argument("--scene-file", default=_DEFAULT_SCENE)
-    full.add_argument("--output-dir", default="outputs/e2e_full")
-    full.add_argument("--num-subcarriers", type=int, default=64)
-    full.add_argument("--seed", type=int, default=42)
-    full.add_argument("--snr-db", type=float, default=30.0)
-    full.add_argument("--cfo-hz", type=float, default=100.0)
-    full.add_argument("--sfo-ppm", type=float, default=5.0)
-    full.add_argument("--phase-offset-rad", type=float, default=0.5)
-    full.add_argument("--timing-offset-samples", type=float, default=2.0)
-    full.add_argument("--clipping-threshold", type=float, default=3.0)
-    full.add_argument("--num-time-steps", type=int, default=3)
-    full.add_argument("--sampling-frequency-hz", type=float, default=100.0)
-    full.add_argument("--max-tx", type=int, default=6)
-    full.add_argument("--max-rx", type=int, default=30)
-    full.add_argument("--phy-standard", default="custom_ofdm",
+    full.add_argument("--output-dir", default=None)
+    full.add_argument("--num-subcarriers", type=int, default=None)
+    full.add_argument("--seed", type=int, default=None)
+    full.add_argument("--snr-db", type=float, default=None)
+    full.add_argument("--cfo-hz", type=float, default=None)
+    full.add_argument("--sfo-ppm", type=float, default=None)
+    full.add_argument("--phase-offset-rad", type=float, default=None)
+    full.add_argument("--timing-offset-samples", type=float, default=None)
+    full.add_argument("--clipping-threshold", type=float, default=None)
+    full.add_argument("--num-time-steps", type=int, default=None)
+    full.add_argument("--sampling-frequency-hz", type=float, default=None)
+    full.add_argument("--max-tx", type=int, default=None)
+    full.add_argument("--max-rx", type=int, default=None)
+    full.add_argument("--phy-standard", default=None,
                       choices=["custom_ofdm", "nr_pusch"])
 
     visualize = subparsers.add_parser(
@@ -240,42 +240,60 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.config:
             from sionna_measurement_sim.config.loader import load_config_or_exit
             from sionna_measurement_sim.domain.array import ArraySpectrumConfig
+            from sionna_measurement_sim.domain.link import LinkConfig as DomainLinkConfig
             from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 
             cfg = load_config_or_exit(args.config)
-            # CLI overrides (non-default wins)
-            _max_rx = (args.max_rx if hasattr(args, 'max_rx')
-                       and args.max_rx != 30 else cfg.input.max_rx)
-            _max_tx = (args.max_tx if hasattr(args, 'max_tx')
-                       and args.max_tx != 6 else cfg.input.max_tx)
-            _snr = (args.snr_db if hasattr(args, 'snr_db')
-                    and args.snr_db != 30.0 else cfg.phy.snr_db)
-            _nsub = (args.num_subcarriers if hasattr(args, 'num_subcarriers')
-                     and args.num_subcarriers != 64 else cfg.carrier.num_subcarriers)
-            _outdir = (args.output_dir if hasattr(args, 'output_dir')
-                       and args.output_dir != "outputs/e2e_full"
-                       else cfg.output.root_dir)
+            # CLI overrides: None means "not provided"; any explicit value wins.
+            _max_rx = args.max_rx if args.max_rx is not None else cfg.input.max_rx
+            _max_tx = args.max_tx if args.max_tx is not None else cfg.input.max_tx
+            _seed = args.seed if args.seed is not None else cfg.runtime.seed
+            _snr = args.snr_db if args.snr_db is not None else cfg.phy.snr_db
+            _nsub = (
+                args.num_subcarriers
+                if args.num_subcarriers is not None
+                else cfg.carrier.num_subcarriers
+            )
+            _outdir = args.output_dir if args.output_dir is not None else cfg.output.root_dir
+            _phy_standard = (
+                args.phy_standard if args.phy_standard is not None else cfg.phy.standard
+            )
 
             # Impairments: respect .enabled flags
             imp = cfg.impairments
             impairment = ImpairmentConfig(
                 random_seed=imp.impairment_seed,
-                cfo_hz=imp.cfo.cfo_hz if imp.cfo.enabled else None,
-                sfo_ppm=imp.sfo.sfo_ppm if imp.sfo.enabled else None,
+                cfo_hz=(
+                    args.cfo_hz
+                    if args.cfo_hz is not None
+                    else imp.cfo.cfo_hz if imp.cfo.enabled else None
+                ),
+                sfo_ppm=(
+                    args.sfo_ppm
+                    if args.sfo_ppm is not None
+                    else imp.sfo.sfo_ppm if imp.sfo.enabled else None
+                ),
                 phase_offset_rad=imp.phase_noise.phase_offset_rad
-                if imp.phase_noise.enabled else None,
+                if args.phase_offset_rad is None and imp.phase_noise.enabled
+                else args.phase_offset_rad,
                 timing_offset_samples=imp.timing_offset.timing_offset_samples
-                if imp.timing_offset.enabled else None,
+                if args.timing_offset_samples is None and imp.timing_offset.enabled
+                else args.timing_offset_samples,
                 agc_gain_db=imp.agc_adc.agc_gain_db if imp.agc_adc.enabled else 0.0,
                 clipping_threshold=imp.agc_adc.clipping_threshold
-                if imp.agc_adc.enabled else None,
+                if args.clipping_threshold is None and imp.agc_adc.enabled
+                else args.clipping_threshold,
             )
             # PHY: only enable if cfg.phy.enabled
             phy_enabled = cfg.phy.enabled
             obs_snr = _snr if phy_enabled else None
             # Motion: respect enabled flag
             mot = cfg.motion
-            motion_enabled = mot.enabled
+            motion_cli_override = (
+                args.num_time_steps is not None
+                or args.sampling_frequency_hz is not None
+            )
+            motion_enabled = mot.enabled or motion_cli_override
             run_config = RTTruthRunConfig(
                 label_file=Path(cfg.input.label_file),
                 scene_file=Path(cfg.input.scene_file),
@@ -285,7 +303,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 center_frequency_hz=cfg.carrier.center_frequency_hz,
                 bandwidth_hz=cfg.carrier.bandwidth_hz,
                 num_subcarriers=_nsub,
-                seed=cfg.runtime.seed,
+                seed=_seed,
                 device=cfg.runtime.device,
                 max_depth=cfg.rt.max_depth,
                 los=cfg.rt.los,
@@ -299,7 +317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 normalize_delays=cfg.rt.normalize_delays,
                 observation_snr_db=obs_snr,
                 impairment_config=impairment,
-                phy_standard=cfg.phy.standard,
+                phy_standard=_phy_standard,
                 subcarrier_spacing_khz=cfg.phy.subcarrier_spacing_khz,
                 num_prb=cfg.phy.num_prb,
                 num_layers=cfg.phy.num_layers,
@@ -312,9 +330,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pusch_dmrs_additional_position=cfg.phy.pusch_dmrs_additional_position,
                 pusch_num_cdm_groups_without_data=cfg.phy.pusch_num_cdm_groups_without_data,
                 tx_power_dbm=cfg.phy.tx_power_dbm,
-                num_time_steps=mot.num_time_steps if motion_enabled else 1,
+                su_mimo_link_batch_size=cfg.phy.su_mimo_link_batch_size,
+                num_time_steps=(
+                    args.num_time_steps
+                    if args.num_time_steps is not None
+                    else mot.num_time_steps if motion_enabled else 1
+                ),
                 sampling_frequency_hz=(
-                    mot.sampling_frequency_hz if motion_enabled else 0.0
+                    args.sampling_frequency_hz
+                    if args.sampling_frequency_hz is not None
+                    else mot.sampling_frequency_hz if motion_enabled else 0.0
                 ),
                 max_tx=_max_tx,
                 max_rx=_max_rx,
@@ -339,8 +364,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cfg.antenna.rx_array.horizontal_spacing_lambda,
                 ),
                 hdf5_filename=cfg.output.hdf5_filename,
+                hdf5_compression=cfg.output.compression,
                 save_full_paths=cfg.output.save_full_paths,
                 calibration_enabled=cfg.calibration.enabled,
+                link_config=DomainLinkConfig(
+                    duplex_mode=cfg.link.duplex_mode,
+                    phy_link_direction=cfg.link.phy_link_direction,
+                    rt_trace_direction=cfg.link.rt_trace_direction,
+                    reciprocity_mode=cfg.link.reciprocity_mode,
+                    reciprocity_applied=cfg.link.reciprocity_applied,
+                ),
+                debug_config=cfg.debug,
+                output_sharding_config=cfg.output.sharding,
                 visualization_config=VisualizationRunConfig(
                     enabled=cfg.visualization.enabled,
                     output_dir=cfg.visualization.output_dir,
@@ -366,6 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     normalize=cfg.array.spectrum.normalize,
                     aggregate_subcarriers=cfg.array.spectrum.aggregate_subcarriers,
                     aggregate_symbols=cfg.array.spectrum.aggregate_symbols,
+                    link_chunk_size=cfg.array.spectrum.link_chunk_size,
                 ),
                 tx_velocity_mps=(
                     cfg.motion.tx_velocity_mps[0],
@@ -377,32 +413,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cfg.motion.rx_velocity_mps[1],
                     cfg.motion.rx_velocity_mps[2],
                 ) if motion_enabled else (0.0, 0.0, 0.0),
+                mimo_mode=cfg.phy.mimo_mode,
+                channel_backend=cfg.phy.channel_backend,
+                mimo_detector=cfg.phy.mimo_detector,
+                channel_estimator=cfg.phy.channel_estimator,
+                receiver_failure_policy=cfg.phy.receiver_failure_policy,
             )
         else:
+            seed = args.seed if args.seed is not None else 42
             impairment = ImpairmentConfig(
-                random_seed=args.seed + _SEED_OFFSET_IMPAIRMENT,
-                cfo_hz=args.cfo_hz,
-                sfo_ppm=args.sfo_ppm,
-                phase_offset_rad=args.phase_offset_rad,
-                timing_offset_samples=args.timing_offset_samples,
-                clipping_threshold=args.clipping_threshold,
+                random_seed=seed + _SEED_OFFSET_IMPAIRMENT,
+                cfo_hz=args.cfo_hz if args.cfo_hz is not None else 100.0,
+                sfo_ppm=args.sfo_ppm if args.sfo_ppm is not None else 5.0,
+                phase_offset_rad=(
+                    args.phase_offset_rad
+                    if args.phase_offset_rad is not None
+                    else 0.5
+                ),
+                timing_offset_samples=(
+                    args.timing_offset_samples
+                    if args.timing_offset_samples is not None
+                    else 2.0
+                ),
+                clipping_threshold=(
+                    args.clipping_threshold
+                    if args.clipping_threshold is not None
+                    else 3.0
+                ),
             )
             run_config = RTTruthRunConfig(
                 label_file=Path(args.label_file),
                 scene_file=Path(args.scene_file),
-                output_dir=Path(args.output_dir),
-                num_subcarriers=args.num_subcarriers,
-                seed=args.seed,
+                output_dir=Path(args.output_dir or "outputs/e2e_full"),
+                num_subcarriers=args.num_subcarriers or 64,
+                seed=seed,
                 max_depth=1,
                 specular_reflection=True,
-                observation_snr_db=args.snr_db,
-                observation_seed=args.seed + _SEED_OFFSET_OBSERVATION,
+                observation_snr_db=args.snr_db if args.snr_db is not None else 30.0,
+                observation_seed=seed + _SEED_OFFSET_OBSERVATION,
                 impairment_config=impairment,
-                phy_standard=args.phy_standard,
-                num_time_steps=args.num_time_steps,
-                sampling_frequency_hz=args.sampling_frequency_hz,
-                max_tx=args.max_tx,
-                max_rx=args.max_rx,
+                phy_standard=args.phy_standard or "custom_ofdm",
+                num_time_steps=args.num_time_steps if args.num_time_steps is not None else 3,
+                sampling_frequency_hz=(
+                    args.sampling_frequency_hz
+                    if args.sampling_frequency_hz is not None
+                    else 100.0
+                ),
+                max_tx=args.max_tx if args.max_tx is not None else 6,
+                max_rx=args.max_rx if args.max_rx is not None else 30,
             )
         output_path = run_rt_truth_pipeline(run_config)
         print(output_path)

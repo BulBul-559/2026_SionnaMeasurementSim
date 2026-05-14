@@ -1,0 +1,136 @@
+runtime:
+  seed: 42
+  device: "cuda"
+
+debug:
+  enabled: true
+  hardware_interval_s: 1.0
+  link_log_interval: 250
+  torch_synchronize: true
+  write_hardware_samples: true
+
+input:
+  label_file: "data/scenes/test/test5.json"
+  scene_file: "data/scenes/test/scene.xml"
+  scene_id: "scene"
+  map_id: ""
+  max_tx: 6
+  max_rx: 8884
+
+output:
+  root_dir: "outputs/perf_nrp6x8884_sharded"
+  hdf5_filename: "results.h5"
+  compression: "gzip"
+  save_full_paths: false
+  sharding:
+    enabled: true
+    axis: "rx"
+    shard_size: 1000
+    filename_pattern: "result_{shard_index:03d}.h5"
+    parallel_workers: 4
+    gpu_ids: [0, 1, 2, 3]
+    visualization_mode: "first_shard"
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 20000000.0
+  num_subcarriers: 48
+
+antenna:
+  tx_array:
+    num_rows: 2
+    num_cols: 2
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+  rx_array:
+    num_rows: 2
+    num_cols: 2
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+
+array:
+  spectrum:
+    enabled: true
+    sources: ["truth_cfr", "cfr_est", "rx_grid"]
+    method: "bartlett"
+    zenith_bins: 91
+    azimuth_bins: 181
+    zenith_min_rad: 0.0
+    zenith_max_rad: 3.141592653589793
+    azimuth_min_rad: -3.141592653589793
+    azimuth_max_rad: 3.141592653589793
+    normalize: "per_link_max"
+    aggregate_subcarriers: "mean"
+    aggregate_symbols: "mean"
+    link_chunk_size: 512
+
+visualization:
+  enabled: true
+  output_dir: "figures"
+  sample_policy: "valid_links_first"
+  random_seed: 42
+  max_bs: 5
+  sample_ue_count: 3
+  max_ue: 5
+  dpi: 140
+  format: "png"
+
+rt:
+  max_depth: 3
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: false
+  diffraction: false
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+  rt_trace_direction: "bs_to_ue"
+  reciprocity_mode: "transpose_rt_channel"
+  reciprocity_applied: true
+
+phy:
+  enabled: true
+  standard: "nr_pusch"
+  mimo_mode: "su_mimo"
+  channel_backend: "apply_ofdm"
+  perfect_csi: false
+  snr_db: 30.0
+  ebno_db: null
+  num_prb: 4
+  num_layers: 4
+  num_antenna_ports: 4
+  mcs_index: 14
+  mcs_table: 1
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 14
+  pusch_dmrs_config_type: 1
+  pusch_dmrs_length: 1
+  pusch_dmrs_additional_position: 1
+  pusch_num_cdm_groups_without_data: 2
+  mimo_detector: "lmmse"
+  channel_estimator: "pusch_ls"
+  receiver_failure_policy: "fail_fast"
+  su_mimo_link_batch_size: 64
+  tx_power_dbm: 0.0
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  tx_velocity_mps: [0.0, 0.0, 0.0]
+  rx_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: true
+  profile_id: "synthetic_default"
