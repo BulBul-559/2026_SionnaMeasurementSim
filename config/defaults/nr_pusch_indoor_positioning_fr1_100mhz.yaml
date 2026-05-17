@@ -11,10 +11,9 @@
 #   - UE uplink antenna model: 1x2, matching a 2T-style handset uplink model
 #
 # Note:
-#   This template still uses NR PUSCH/DMRS as the current project PHY observation
-#   path. For a fully standard positioning waveform, future work should add NR SRS
-#   for uplink positioning. In papers, describe this as a PUSCH-DMRS CSI proxy
-#   unless/ until SRS support is implemented.
+#   This template uses NR PUSCH/DMRS as a CSI proxy. For sounding-style positioning
+#   experiments, compare against nr_srs_indoor_positioning_fr1_100mhz.yaml, which
+#   implements full-band SRS-like uplink sounding (not yet complete 3GPP NR SRS).
 
 runtime:
   seed: 42
@@ -33,7 +32,7 @@ input:
   scene_id: "bistro_0000"
   map_id: ""
   max_tx: 6                 # indoor gNB/TRP count
-  max_rx: 1000              # stage validation UE/sample-position count
+  max_rx: 1000              # target UE/sample-position count; run small smoke first
 
 output:
   root_dir: "outputs/indoor_fr1_100mhz_positioning"
@@ -43,10 +42,10 @@ output:
   sharding:
     enabled: true
     axis: "rx"
-    shard_size: 500
+    shard_size: 5           # 100 MHz / 3276 SC needs small shards on 24 GB GPUs
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
-    gpu_ids: [0]
+    gpu_ids: []
     visualization_mode: "first_shard"
 
 carrier:
@@ -146,9 +145,9 @@ phy:
   snr_db: 30.0
   ebno_db: null
   num_prb: 273
-  num_layers: 1
+  num_layers: 2
   num_antenna_ports: 2
-  mcs_index: 4
+  mcs_index: 14
   mcs_table: 1
   subcarrier_spacing_khz: 30
   num_ofdm_symbols: 14

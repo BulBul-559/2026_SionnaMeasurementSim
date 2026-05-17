@@ -114,9 +114,16 @@ def to_project_cir(
     tau = np.asarray(raw_tau)
     if tau.ndim == 6:
         tau = tau[0]
+    if tau.ndim == 3:
+        tau = tau[:, np.newaxis, :, np.newaxis, :]
+    if tau.ndim != 5:
+        msg = f"Sionna CIR tau must be rank 5 or synthetic rank 3, got {tau.shape}"
+        raise ValueError(msg)
 
     a_tx = np.transpose(a, (5, 2, 0, 1, 3, 4))  # [time, tx, rx, rx_ant, tx_ant, path]
     tau_tx = np.transpose(tau, (2, 0, 1, 3, 4))  # [tx, rx, rx_ant, tx_ant, path]
+    if tau_tx.shape != valid_5d.shape:
+        tau_tx = np.broadcast_to(tau_tx, valid_5d.shape)
 
     tau_6d = np.broadcast_to(
         tau_tx[np.newaxis, ...],

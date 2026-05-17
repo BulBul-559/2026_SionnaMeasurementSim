@@ -2,6 +2,12 @@
 
 本文记录一次对 `/array/aoa_label_rad`、`/array/spatial_spectrum_label`、`/array/spatial_spectrum_truth`、`/array/spatial_spectrum_cfr_est`、`/array/spatial_spectrum_observation` 不一致现象的简要分析。
 
+> 状态更新：reverse/uplink 端点问题已经修复。当前当
+> `reciprocity_applied=true` 且 `phy_link_direction="uplink"` 时，
+> `/derived/*aoa*` 和 `/array/aoa_label_rad` 使用原 RT 的 AoD，表示 BS 作为
+> uplink receiver 看到的到达方向。本文其余关于 first-path label、多径 Bartlett
+> 谱、观测谱质量和 steering 坐标校准的判断仍然成立。
+
 分析样本来自：
 
 ```text
@@ -28,7 +34,7 @@ truth vs observation:
 
 ### 1. Label 与空间谱的接收端点不一致
 
-当前 `spatial_spectrum_label` 来自：
+历史问题中，`spatial_spectrum_label` 来自：
 
 ```text
 /array/aoa_label_rad
@@ -41,13 +47,13 @@ derived.first_path_aoa_zenith_rad
 derived.first_path_aoa_azimuth_rad
 ```
 
-而 `derived.first_path_aoa_*` 当前取自 RT path table 的 receiver-side AoA：
+当时 `derived.first_path_aoa_*` 取自 RT path table 的 receiver-side AoA：
 
 ```text
 theta_r_rad / phi_r_rad
 ```
 
-当前 NR PUSCH 配置是上行链路：
+NR PUSCH 配置是上行链路：
 
 ```text
 rt_trace_direction: bs_to_ue
@@ -55,7 +61,7 @@ phy_link_direction: uplink
 reciprocity_applied: true
 ```
 
-也就是说，RT trace 是 BS -> UE 的下行几何路径，但 PUSCH 空间谱是在 UE -> BS 的上行接收阵列上生成。当前 label 更接近“到达 UE 侧的 AoA”，而 truth/observation 空间谱是在“BS 接收阵列”上扫描方向。两者物理端点不同，峰值自然会明显偏离。
+也就是说，RT trace 是 BS -> UE 的下行几何路径，但 PUSCH 空间谱是在 UE -> BS 的上行接收阵列上生成。旧 label 更接近“到达 UE 侧的 AoA”，而 truth/observation 空间谱是在“BS 接收阵列”上扫描方向。两者物理端点不同，峰值自然会明显偏离。当前代码已经将 reverse/uplink 的 derived AoA 改为原 RT AoD。
 
 ### 2. Label 是 first-path one-hot，不等价于多径空间谱
 
@@ -122,7 +128,7 @@ phase = 2*pi*(element_y*direction_y + element_z*direction_z)
 
 下一步建议先做小规模 sanity check，而不是直接在大规模数据上判断：
 
-1. 新增 BS 侧上行 AoA label：从 RT 的 departure-side angle，即 `theta_t_rad / phi_t_rad`，派生 reciprocal uplink receive AoA。
+1. 已完成：BS 侧上行 AoA label 从 RT 的 departure-side angle，即 `theta_t_rad / phi_t_rad`，派生 reciprocal uplink receive AoA。
 2. 保留现有 UE 侧 AoA label，明确区分：
    - `dl_rx_aoa_label_rad`
    - `ul_rx_aoa_label_rad`
@@ -150,4 +156,3 @@ spatial_spectrum_cfr_est:
 spatial_spectrum_observation:
   从 rx_grid 生成的接收信号空间谱，混合数据符号、导频、噪声和接收处理影响。
 ```
-

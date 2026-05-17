@@ -45,6 +45,36 @@ def paths_to_table(paths: Any) -> tuple[PathTable, np.ndarray, np.ndarray, np.nd
     vertices_m = _vertices_to_tx_first(_to_numpy(paths.vertices))
     path_depth = np.count_nonzero(interaction_type != INTERACTION_NONE, axis=-1).astype(np.int32)
     path_type = _classify_path_types(interaction_type)
+    (
+        valid,
+        tau_s,
+        doppler_hz,
+        theta_t_rad,
+        phi_t_rad,
+        theta_r_rad,
+        phi_r_rad,
+        interaction_type,
+        object_id,
+        primitive_id,
+        vertices_m,
+        path_type,
+        path_depth,
+    ) = _broadcast_path_metadata_to_coefficients(
+        a.shape,
+        valid,
+        tau_s,
+        doppler_hz,
+        theta_t_rad,
+        phi_t_rad,
+        theta_r_rad,
+        phi_r_rad,
+        interaction_type,
+        object_id,
+        primitive_id,
+        vertices_m,
+        path_type,
+        path_depth,
+    )
 
     path_table = PathTable(
         valid=valid,
@@ -216,6 +246,55 @@ def _classify_path_types(interaction_type: np.ndarray) -> np.ndarray:
         else:
             output[index] = "unknown"
     return output
+
+
+def _broadcast_path_metadata_to_coefficients(
+    coefficient_shape: tuple[int, int, int, int, int],
+    valid: np.ndarray,
+    tau_s: np.ndarray,
+    doppler_hz: np.ndarray,
+    theta_t_rad: np.ndarray,
+    phi_t_rad: np.ndarray,
+    theta_r_rad: np.ndarray,
+    phi_r_rad: np.ndarray,
+    interaction_type: np.ndarray,
+    object_id: np.ndarray,
+    primitive_id: np.ndarray,
+    vertices_m: np.ndarray,
+    path_type: np.ndarray,
+    path_depth: np.ndarray,
+) -> tuple[np.ndarray, ...]:
+    """Broadcast synthetic-array path metadata to element-level coefficients."""
+
+    scalar_arrays = (
+        valid,
+        tau_s,
+        doppler_hz,
+        theta_t_rad,
+        phi_t_rad,
+        theta_r_rad,
+        phi_r_rad,
+        path_type,
+        path_depth,
+    )
+    broadcast_scalars = tuple(
+        np.broadcast_to(array, coefficient_shape).copy()
+        if array.shape != coefficient_shape
+        else array
+        for array in scalar_arrays
+    )
+    depth = interaction_type.shape[-1]
+    interaction_shape = (*coefficient_shape, depth)
+    broadcast_interactions = tuple(
+        np.broadcast_to(array, interaction_shape).copy()
+        if array.shape != interaction_shape
+        else array
+        for array in (interaction_type, object_id, primitive_id)
+    )
+    vertex_shape = (*coefficient_shape, depth, 3)
+    if vertices_m.shape != vertex_shape:
+        vertices_m = np.broadcast_to(vertices_m, vertex_shape).copy()
+    return (*broadcast_scalars[:7], *broadcast_interactions, vertices_m, *broadcast_scalars[7:])
 
 
 def _path_gain_db(value: np.complex64) -> np.float32:

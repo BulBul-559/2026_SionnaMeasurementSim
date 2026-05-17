@@ -51,7 +51,10 @@ def validate_hdf5_contract(path: str | Path) -> None
 7. **NR PUSCH 专有字段**（当 `waveform/standard == "nr_pusch"`）：
    - `num_prb`、`num_layers`、`num_antenna_ports`、`mimo_detector` 等
    - `num_layers >= 1`、`num_antenna_ports >= num_layers`
-8. **BLER 契约**（NR PUSCH）：
+8. **NR SRS-like 专有字段**（当 `waveform/standard == "nr_srs"`）：
+   - `srs_tx_grid`、`srs_rx_grid`、`srs_noise_variance`、`srs_pilot_code`
+   - `/observation/srs_cfr_est` 与 `/observation/cfr_est` shape 一致
+9. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
    - `bler == num_block_errors / num_blocks`
@@ -85,7 +88,7 @@ def load_topology_from_label(label_file: Path, max_tx: int, max_rx: int) -> Topo
 | 目录 | 内容 | 示例 |
 |------|------|------|
 | `tests/unit/` | 单元测试 | domain 模型、config 加载、impairments、MIMO channel bridge、MIMO config/detector builder |
-| `tests/schema/` | HDF5 schema 测试 | truth schema、CIR schema、NR PUSCH schema |
+| `tests/schema/` | HDF5 schema 测试 | truth schema、CIR schema、NR PUSCH/SRS schema |
 | `tests/adapter/` | Sionna adapter 测试 | RT shape contracts、CIR adapter、truth adapter |
 | `tests/integration/` | 集成测试 | RT truth pipeline、4x4 SU-MIMO、MU-MIMO、batch、calibration |
 | `tests/statistical/` | 统计测试 | AWGN observation、impairments、motion、NR PUSCH link metrics、MIMO metrics |
@@ -106,7 +109,8 @@ tests/
 ├── schema/
 │   ├── test_hdf5_schema.py               # 基础 HDF5 契约
 │   ├── test_rt_cir_schema.py             # CIR shape/dtype 校验
-│   └── test_nr_pusch_schema.py           # NR PUSCH 字段 + BLER 契约
+│   ├── test_nr_pusch_schema.py           # NR PUSCH 字段 + BLER 契约
+│   └── test_nr_srs_schema.py             # NR SRS-like 字段 + schema 契约
 ├── integration/
 │   ├── test_rt_truth_pipeline.py         # RT 最小闭环
 │   ├── test_rt_mimo_4x4_pipeline.py      # RT 4x4 MIMO CFR shape

@@ -7,6 +7,7 @@ mappings are explicit and testable.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -249,20 +250,47 @@ def _cir_to_cfr_internal(
 
     a = torch.as_tensor(cir_coefficients, dtype=torch.complex64)
     tau = torch.as_tensor(cir_delays, dtype=torch.float32)
-
-    # Sionna expects: a:  [..., rx, rx_ant, tx, tx_ant, path, 1]
-    #                 tau: [..., rx, rx_ant, tx, tx_ant, path]
-    # Input: [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, path]
-    # Permute (0,2,3,1,4,5) -> [snap, ul_rx, ul_rx_ant, ul_tx, ul_tx_ant, path]
-    a_perm = a.permute(0, 2, 3, 1, 4, 5).unsqueeze(-1)
-    tau_perm = tau.permute(0, 2, 3, 1, 4, 5)
+    num_snap, num_ul_tx, num_ul_rx, num_rx_ant, num_tx_ant, num_paths = a.shape
+    num_links = num_snap * num_ul_tx * num_ul_rx
 
     freqs = subcarrier_frequencies(num_subcarriers, subcarrier_spacing_hz)
-    # cir_to_ofdm_channel returns: [snap, rx, rx_ant, tx, tx_ant, 1, subcarrier]
-    h_f = cir_to_ofdm_channel(freqs, a_perm, tau_perm)
-    h_f = h_f.squeeze(-2)  # [snap, ul_rx, ul_rx_ant, ul_tx, ul_tx_ant, subcarrier]
+    chunk_size = _get_cir_to_cfr_link_chunk_size(num_links)
+    out = np.empty(
+        (num_links, num_rx_ant, num_tx_ant, num_subcarriers),
+        dtype=np.complex64,
+    )
 
-    # Back to project convention: permute (0,3,1,2,4,5)
-    # -> [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, subcarrier]
-    h_f = h_f.permute(0, 3, 1, 2, 4, 5)
-    return h_f.detach().cpu().numpy()
+    # Flatten only independent links.  Each chunk is presented to Sionna as a
+    # batch of single-RX/single-TX MIMO links, avoiding a large
+    # [snap, rx, tx, path, subcarrier] expansion for 100 MHz indoor scenes.
+    a_links = a.reshape(num_links, num_rx_ant, num_tx_ant, num_paths)
+    tau_links = tau.reshape(num_links, num_rx_ant, num_tx_ant, num_paths)
+    with torch.no_grad():
+        for start in range(0, num_links, chunk_size):
+            stop = min(start + chunk_size, num_links)
+            a_chunk = a_links[start:stop].unsqueeze(1).unsqueeze(3).unsqueeze(-1)
+            tau_chunk = tau_links[start:stop].unsqueeze(1).unsqueeze(3)
+            h_chunk = cir_to_ofdm_channel(freqs, a_chunk, tau_chunk)
+            # [batch, 1, rx_ant, 1, tx_ant, 1, subcarrier] -> [batch, rx_ant, tx_ant, subcarrier]
+            h_chunk = h_chunk[:, 0, :, 0, :, 0, :]
+            out[start:stop] = h_chunk.detach().cpu().numpy()
+
+    return out.reshape(
+        num_snap,
+        num_ul_tx,
+        num_ul_rx,
+        num_rx_ant,
+        num_tx_ant,
+        num_subcarriers,
+    )
+
+
+def _get_cir_to_cfr_link_chunk_size(num_links: int) -> int:
+    raw = os.environ.get("SIONNA_CIR_TO_CFR_LINK_CHUNK_SIZE")
+    if raw is None:
+        return min(4, max(num_links, 1))
+    try:
+        value = int(raw)
+    except ValueError:
+        return min(4, max(num_links, 1))
+    return min(max(value, 1), max(num_links, 1))

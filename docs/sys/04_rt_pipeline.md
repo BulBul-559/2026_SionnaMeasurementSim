@@ -48,7 +48,7 @@ class RTTruthRunConfig:
     merge_shapes: bool = False
 
     # ── PHY ──
-    phy_standard: str = "custom_ofdm"    # "custom_ofdm" | "nr_pusch"
+    phy_standard: str = "custom_ofdm"    # "custom_ofdm" | "nr_pusch" | "nr_srs"
     observation_snr_db: float | None = None  # None = 仅 RT
     observation_seed: int = 11
     impairment_config: ImpairmentConfig | None = None
@@ -108,10 +108,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
    ├── PathSamples
    └── PathTable (if save_full_paths)
 4. if observation_snr_db is not None:
-   ├── if phy_standard == "nr_pusch":
-   │     run_nr_pusch_observation()  → ObservationResult + Evaluation
-   └── else:
-         run_awgn_ls_observation()   → PHYObservationBundle
+   └── get_phy_module(phy_standard).run(PHYContext(...))
+       → PHYModuleResult → ObservationResult + Evaluation
 5. DiagnosticsReport.from_evaluation()
 6. write_measurement_result()        → HDF5
 7. validate_hdf5_contract()          → schema check
@@ -122,17 +120,16 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 
 `run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE/RX 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，根目录 `manifest.json` 记录所有 shard 的全局 UE/RX 索引覆盖范围和每个 shard 的性能日志。
 
-**NR PUSCH 分支** (`_run_nr_pusch_obs`):
-- 从 adapter 结果提取 CIR：`adapter_result.cir_truth.coefficients` 和 `delays_s`
-- 调用 `run_nr_pusch_observation(cir_coefficients, cir_delays, link_config, phy_config, carrier_config)`
-- 将 `RTTruthRunConfig` 同时作为 `phy_config` 和 `carrier_config` 传入（`RTTruthRunConfig` 包含两者的所有字段）
-- 返回 `PHYObservationBundle` + NR PUSCH 补充字段（`waveform_extras`）：num_prb、subcarrier_spacing、slot_number、cyclic_prefix、target_coderate、modulation、num_layers、num_antenna_ports、DMRS 配置
-- NR PUSCH batching 统计会写入 shard/local manifest 的 `nr_pusch_batching`，包括 requested/effective batch、fallback 次数和 batch 数。
+**PHY module 分支** (`phy/modules.py`):
+- `custom_ofdm` 适配现有 `run_awgn_ls_observation()`
+- `nr_pusch` 适配现有 `run_nr_pusch_observation()`，并保留 waveform grid、array 输出和 batching 统计
+- `nr_srs` 调用 `run_nr_srs_observation()`，写 SRS-like full-band sounding 的 `srs_*` grid 和 LS CSI
+- pipeline 在 derived labels 可用后统一补齐 `/array` AoA label 和空间谱
 
 ## 关键设计点
 
 1. **单配置对象**：`RTTruthRunConfig` 承载了从 RT 到 PHY 到 MIMO 的全部参数，避免多个配置对象同步问题
 2. **PHY 可选**：`observation_snr_db=None` 时跳过 PHY 链，仅输出 RT 真值
-3. **双标准**：`phy_standard` 控制走 custom OFDM 还是 NR PUSCH 分支
+3. **插件化 PHY**：`phy_standard` 通过 registry 选择 custom OFDM、NR PUSCH 或 NR SRS-like 模块
 4. **HDF5 schema 校验内置**：每次运行结束自动调用 `validate_hdf5_contract()`
 5. **Debug profiling 可选**：`debug.enabled=true` 时记录阶段耗时、GPU/CPU/RSS 采样和每 shard summary；默认关闭，不影响普通运行。

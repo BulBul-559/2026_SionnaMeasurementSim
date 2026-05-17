@@ -38,6 +38,15 @@ class TestCIRShape:
         assert delays.shape == (1, 1, 1, 1, 1, 4)
         assert v.shape == (1, 1, 1, 1, 1, 4)
 
+    def test_synthetic_array_tau_broadcasts_to_valid_antennas(self):
+        a = np.ones((1, 2, 1, 16, 4, 1), dtype=np.complex64)
+        tau = np.ones((1, 1, 4), dtype=np.float32)
+        valid = np.ones((1, 1, 2, 16, 4), dtype=np.bool_)
+        coeff, delays, v = to_project_cir(a, tau, valid, num_time_steps=1)
+        assert coeff.shape == (1, 1, 1, 2, 16, 4)
+        assert delays.shape == (1, 1, 1, 2, 16, 4)
+        assert v.shape == (1, 1, 1, 2, 16, 4)
+
     def test_multi_snapshot_6d(self):
         a = np.ones((1, 1, 1, 1, 4, 3), dtype=np.complex64)
         tau = np.ones((1, 1, 1, 1, 4), dtype=np.float32)

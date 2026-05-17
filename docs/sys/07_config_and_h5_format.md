@@ -226,7 +226,7 @@ pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
 |------|------|--------|------|------|
 | `enabled` | bool | true | — | 是否启用 PHY 观测 |
-| `standard` | str | `"custom_ofdm"` | `"custom_ofdm"`\|`"nr_pusch"` | 波形标准 |
+| `standard` | str | `"custom_ofdm"` | `"custom_ofdm"`\|`"nr_pusch"`\|`"nr_srs"` | 波形标准 |
 | `snr_db` | float | 30.0 | — | 信噪比 dB |
 | `fft_size` | int | 64 | ≥2 | FFT 大小 |
 | `cp_length` | int | 0 | ≥0 | 循环前缀长度 |
@@ -255,6 +255,14 @@ pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full
 | `channel_estimator` | str | `"pusch_ls"` | `"pusch_ls"`\|`"perfect"` |
 | `receiver_failure_policy` | str | `"fail_fast"` | `"fail_fast"`\|`"mark_invalid"` |
 | `su_mimo_link_batch_size` | int | 1 | SU-MIMO 独立 link batching；NR PUSCH 模板设为 64 |
+
+**NR SRS-like 字段**：
+
+`standard == "nr_srs"` 使用 full-band known-pilot sounding，复用
+`subcarrier_spacing_khz`、`num_ofdm_symbols`、`tx_power_dbm` 等字段。
+`num_ofdm_symbols` 会自动取不小于 UE 发射天线数的值，以便用正交 pilot code
+分离多天线。当前实现不是完整 3GPP NR SRS；标准 comb、sequence、cyclic shift、
+hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 
 #### `impairments` — 损伤模型
 
@@ -324,6 +332,8 @@ pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full
 |------|------|----------|
 | `config/defaults/measurement_mvp.yaml` | custom OFDM + 全 impairment + motion | `standard: "custom_ofdm"`, fft_size=64, num_subcarriers=64 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink | `standard: "nr_pusch"`, 4×4 天线, num_prb=4, num_subcarriers=48 |
+| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, sources 包含 `srs_cfr_est`；已验证 6x5 probe |
 
 ### 1.6 输入数据格式
 
@@ -674,7 +684,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `standard` | string | `"custom_ofdm"` / `"nr_pusch"` |
+| `standard` | string | `"custom_ofdm"` / `"nr_pusch"` / `"nr_srs"` |
 | `sample_rate_hz` | float64 | 采样率 Hz |
 | `fft_size` | int32 | FFT 大小 |
 | `cp_length` | int32 | 循环前缀长度 |
@@ -707,6 +717,15 @@ results.h5
 | `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域接收 grid |
 | `noise_variance` | float32 [snap, ul_tx, ul_rx] | 信道施加时使用的噪声方差 |
 
+**NR SRS-like 专有**（仅 `standard == "nr_srs"`）：
+
+| Dataset | 类型 | 说明 |
+|---------|------|------|
+| `srs_tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | SRS-like 全带宽已知 pilot 发送 grid |
+| `srs_rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 通过信道和 AWGN 后的接收 grid |
+| `srs_noise_variance` | float32 [snap, ul_tx, ul_rx] | SRS-like 接收 grid 使用的噪声方差 |
+| `srs_pilot_code` | complex64 [ul_tx_ant, ofdm_symbol] | UE 多天线正交 pilot code |
+
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
 大规模 NR PUSCH 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。`6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
@@ -715,13 +734,14 @@ results.h5
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
-| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | NR PUSCH 中由 `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
-| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` AoA 标签；缺失时为 0 |
+| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH `rx_grid` 或 SRS-like `srs_rx_grid` 聚合的接收阵列协方差/快照矩阵 |
+| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；reverse/uplink 时来自原 RT AoD，缺失时为 0 |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
 | `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
+| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS-like 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/srs_cfr_est` Bartlett 扫描得到 |
 | `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
@@ -733,6 +753,7 @@ results.h5
 | Dataset | Shape | Dtype | Unit | Index Order |
 |---------|-------|-------|------|-------------|
 | `cfr_est` | [snap, tx, rx, rx_ant, tx_ant, subcarrier] | complex64 | `linear_complex` | `snapshot,tx,rx,rx_ant,tx_ant,subcarrier` |
+| `srs_cfr_est` | [snap, tx, rx, rx_ant, tx_ant, subcarrier] | complex64 | `linear_complex` | 仅 `standard=="nr_srs"`；内容等同 SRS-like LS 估计的 `cfr_est` |
 | `valid_mask` | [snap, tx, rx] | bool | — | 快照有效性 |
 | `detection_success` | [snap, tx, rx] | bool | — | 检测成功标志 |
 | `estimation_success` | [snap, tx, rx] | bool | — | 估计成功标志 |
@@ -764,10 +785,10 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `receiver_type` | string | 接收机类型 (`"pusch_receiver"` / `"generic"`) |
+| `receiver_type` | string | 接收机类型 (`"pusch_receiver"` / `"srs_ls_receiver"` / `"generic"`) |
 | `estimator_type` | string | 估计器类型 |
 | `sync_method` | string | 同步方法 |
-| `mimo_detector` | string | MIMO 检测器 (`"lmmse"` / `"kbest"`) |
+| `mimo_detector` | string | MIMO 检测器 (`"lmmse"` / `"kbest"`；SRS-like 为 `"none"`) |
 | `input_domain` | string | 输入域 |
 | `interpolation_method` | string | 插值方法 |
 | `packet_detection_threshold` | float32 | 包检测阈值 |

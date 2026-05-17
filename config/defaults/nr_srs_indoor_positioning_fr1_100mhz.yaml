@@ -1,6 +1,6 @@
 # SionnaMeasurementSim - indoor FR1 NR SRS-like positioning template
 # This is a full-band SRS-like uplink sounding configuration, not a full 3GPP
-# NR SRS implementation. See docs/phy/nr_srs_standard_todo.md for the standard
+# NR SRS implementation. See docs/sys/nr_srs_standard_todo.md for the standard
 # details that still need to be added before calling it standards-complete SRS.
 
 runtime:
@@ -30,10 +30,10 @@ output:
   sharding:
     enabled: true
     axis: "rx"
-    shard_size: 500
+    shard_size: 5           # 100 MHz / 3276 SC needs small shards on 24 GB GPUs
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
-    gpu_ids: [0]
+    gpu_ids: []
     visualization_mode: "first_shard"
 
 carrier:

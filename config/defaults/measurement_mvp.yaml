@@ -3,6 +3,7 @@
 #
 # This config targets the custom OFDM waveform with impairments and Doppler.
 # For NR PUSCH MIMO, use config/defaults/nr_pusch_mvp.yaml instead.
+# For SRS-like sounding, use config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml.
 #
 # IMPORTANT: when switching phy.standard to "nr_pusch", the PUSCH chain
 # uses num_subcarriers = num_prb * 12.  Make sure this matches
@@ -126,13 +127,13 @@ link:
 
 phy:
   enabled: true
-  standard: "custom_ofdm"        # "custom_ofdm" | "nr_pusch"
+  standard: "custom_ofdm"        # "custom_ofdm" | "nr_pusch" | "nr_srs"
   snr_db: 30.0
   fft_size: 64
   cp_length: 0
   num_ofdm_symbols: 1
   tx_power_dbm: 0.0
-  # ── NR PUSCH fields (only used when standard == "nr_pusch") ──
+  # ── NR-family fields (used by nr_pusch and nr_srs where applicable) ──
   perfect_csi: false
   ebno_db: null
   num_prb: 16                    # must satisfy num_prb * 12 == num_subcarriers

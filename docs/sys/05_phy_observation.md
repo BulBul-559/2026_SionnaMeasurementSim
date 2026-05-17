@@ -1,6 +1,7 @@
 # 05. PHY 观测与 NR PUSCH MIMO
 
-`phy/` 目录实现 PHY 层观测链路，包括 custom OFDM 和 NR PUSCH 两条路径。
+`phy/` 目录实现 PHY 层观测链路。当前通过 PHY module registry 接入
+`custom_ofdm`、`nr_pusch`、`nr_srs` 三条路径。
 
 官方参考：
 - [Sionna 5G NR PUSCH Tutorial](https://nvlabs.github.io/sionna/phy/tutorials/notebooks/5G_NR_PUSCH.html)
@@ -11,13 +12,31 @@
 
 ```
 phy/
+├── modules.py                # PHYContext / PHYModuleResult / registry / built-in adapters
 ├── observation_pipeline.py   # custom OFDM: AWGN + LS 估计
 ├── impairments.py            # 基带损伤模型
 ├── reciprocity.py            # TDD 互易性 transpose
 ├── nr_mimo_channel.py        # CIR → CFR 桥接 + 维度转换
 ├── nr_channel_backend.py     # 可插拔信道后端
-└── nr_pusch_observation.py   # NR PUSCH 主链路 (SU/MU-MIMO)
+├── nr_pusch_observation.py   # NR PUSCH 主链路 (SU/MU-MIMO)
+└── nr_srs_observation.py     # NR SRS-like full-band sounding
 ```
+
+## 零、PHY Module Registry (`modules.py`)
+
+pipeline 不直接分支调用某个 PHY 文件，而是通过 registry 查找模块：
+
+```python
+PHY_REGISTRY = {
+    "custom_ofdm": CustomOFDMModule(),
+    "nr_pusch": NRPUSCHModule(),
+    "nr_srs": NRSRSModule(),
+}
+```
+
+模块接收 `PHYContext(config, adapter_result)`，返回 `PHYModuleResult`。其中
+`waveform`、`observation`、`receiver`、`evaluation` 等字段最终写入 HDF5；
+`waveform_extras` 用于写 NR PUSCH/SRS-like 的频域 grid 和专属元数据。
 
 ## 一、Custom OFDM 观测 (`observation_pipeline.py`)
 
@@ -208,6 +227,24 @@ def run_nr_pusch_observation(
 13. 组装 ObservationResult + EvaluationResult
 14. 返回 dict
 ```
+
+## 六、NR SRS-like Sounding (`nr_srs_observation.py`)
+
+`nr_srs` 当前是 full-band SRS-like uplink sounding，不是完整 3GPP NR SRS：
+
+1. 将 RT truth CFR 投影到 uplink 接收端视角 `[snap, ue, bs, bs_ant, ue_ant, subcarrier]`
+2. 所有 active subcarrier 发送已知 pilot
+3. UE 多天线通过 OFDM symbol 维度的正交 DFT code 分离
+4. 通过信道和 AWGN 得到 `srs_rx_grid`
+5. LS 估计 `H_hat = Y X^H / N_symbol`
+6. 转回项目 HDF5 的 DL 视角，写入 `/observation/cfr_est` 和 `/observation/srs_cfr_est`
+
+SRS-like 不输出 BER/BLER，`evaluation` 只包含 NMSE、幅度/相位误差、correlation
+和 estimation success。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
+SRS LS 估计信道生成 `/array/spatial_spectrum_srs`。
+
+标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等尚未实现，详见
+`docs/sys/nr_srs_standard_todo.md`。
 
 ### SU-MIMO per-link 处理：`_process_su_mimo_per_link()`
 

@@ -2,7 +2,10 @@ from pathlib import Path
 
 import numpy as np
 
-from sionna_measurement_sim.adapters.sionna_rt.path_adapter import INTERACTION_SPECULAR
+from sionna_measurement_sim.adapters.sionna_rt.path_adapter import (
+    INTERACTION_SPECULAR,
+    _broadcast_path_metadata_to_coefficients,
+)
 from sionna_measurement_sim.adapters.sionna_rt.rt_solver import (
     SionnaRTConfig,
     run_sionna_rt_truth,
@@ -76,3 +79,39 @@ def test_path_adapter_extracts_path_samples_and_full_table():
     interaction_count = np.count_nonzero(samples.interaction_type != 0, axis=-1)
     assert np.all(samples.vertex_count[active] >= interaction_count[active] + 2)
     assert np.any(samples.path_type == "reflection")
+
+
+def test_path_metadata_broadcasts_synthetic_array_scalars_to_coefficients():
+    scalar_shape = (2, 3, 1, 1, 4)
+    coeff_shape = (2, 3, 2, 16, 4)
+    valid = np.ones(scalar_shape, dtype=np.bool_)
+    scalar = np.ones(scalar_shape, dtype=np.float32)
+    interaction = np.ones((*scalar_shape, 2), dtype=np.uint32)
+    vertices = np.ones((*scalar_shape, 2, 3), dtype=np.float32)
+    path_type = np.full(scalar_shape, "los", dtype=object)
+    path_depth = np.zeros(scalar_shape, dtype=np.int32)
+
+    result = _broadcast_path_metadata_to_coefficients(
+        coeff_shape,
+        valid,
+        scalar,
+        scalar,
+        scalar,
+        scalar,
+        scalar,
+        scalar,
+        interaction,
+        interaction,
+        interaction,
+        vertices,
+        path_type,
+        path_depth,
+    )
+
+    for array in result[:7]:
+        assert array.shape == coeff_shape
+    for array in result[7:10]:
+        assert array.shape == (*coeff_shape, 2)
+    assert result[10].shape == (*coeff_shape, 2, 3)
+    assert result[11].shape == coeff_shape
+    assert result[12].shape == coeff_shape

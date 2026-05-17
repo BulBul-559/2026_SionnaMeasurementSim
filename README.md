@@ -8,6 +8,8 @@
 - Custom OFDM + AWGN + LS 估计 + 全链路 impairment（CFO/SFO/相偏/定时偏/AGC/削波）
 - NR PUSCH 4x4 SU-MIMO（perfect CSI + DMRS LS 估计，LMMSE/KBest 检测器）
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
+- NR SRS-like full-band uplink sounding（全带宽已知 pilot + LS CSI；暂非完整 3GPP SRS）
+- PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
 - TB/CRC 语义的 BLER（transport block CRC pass/fail）
 - TDD 互易性（DL RT trace → UL PUSCH）
@@ -16,7 +18,7 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
 - HDF5 schema 强校验（含 NR PUSCH MIMO 必填字段）
 - 批量实验（多 seed/SNR 自动分批）
-- 220 个测试收集项（单元 / schema / adapter / 集成 / 统计）
+- 227 个测试收集项（单元 / schema / adapter / 集成 / 统计）
 
 ## 快速开始
 
@@ -36,6 +38,11 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 uv run python -m sionna_measurement_sim.app.cli run-full \
     --config config/defaults/nr_pusch_mvp.yaml \
     --output-dir outputs/nr_pusch_4x4
+
+# 运行室内 FR1 100 MHz SRS-like uplink sounding
+uv run python -m sionna_measurement_sim.app.cli run-full \
+    --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
+    --output-dir outputs/bistro_0000_nr_srs
 
 # 查看所有参数
 uv run python -m sionna_measurement_sim.app.cli run-full --help
@@ -95,12 +102,34 @@ config = RTTruthRunConfig(
 path = run_rt_truth_pipeline(config)
 ```
 
+## NR SRS-like Sounding
+
+`phy.standard: "nr_srs"` 使用全带宽已知 pilot 做上行 sounding，并通过 LS 得到
+`/observation/cfr_est`。它额外写出 `/observation/srs_cfr_est`、
+`/waveform/srs_tx_grid`、`/waveform/srs_rx_grid`、`/waveform/srs_noise_variance`，
+以及可选的 `/array/spatial_spectrum_srs`。这一路径适合先做室内定位 CSI
+基线和 PUSCH-DMRS proxy 对比，但文档和论文中应称为 “SRS-like full-band
+uplink sounding”，标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等细节
+见 [SRS TODO](docs/sys/nr_srs_standard_todo.md)。
+
+同一场景的 PUSCH 与 SRS-like 输出可用轻量脚本对比：
+
+```bash
+uv run python scripts/compare_phy_csi_outputs.py \
+    outputs/bistro_0000_pusch \
+    outputs/bistro_0000_nr_srs \
+    --label-left pusch_dmrs \
+    --label-right srs_like
+```
+
 ## 配置文件
 
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
+| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3 BS × 3000 UE shard 性能回归模板 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6 BS × 8884 UE 4 GPU shard 验收模板 |
 
@@ -123,8 +152,8 @@ path = run_rt_truth_pipeline(config)
 | `/derived` | 距离、ToA/RTT-like、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、互易性 |
-| `/waveform` | OFDM/NR PUSCH 波形；NR PUSCH 额外保存频域 `tx_grid`、`rx_grid`、`noise_variance` |
-| `/array` | NR PUSCH 阵列 snapshot、AoA 标签、空间谱标签 |
+| `/waveform` | OFDM/NR 波形；NR PUSCH 保存 `tx_grid/rx_grid/noise_variance`，NR SRS-like 保存 `srs_tx_grid/srs_rx_grid/srs_noise_variance` |
+| `/array` | 阵列 snapshot、AoA 标签、空间谱标签；SRS-like 可写 `spatial_spectrum_srs` |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/receiver` | 估计器类型、MIMO 检测器 |
 | `/evaluation` | NMSE、BER、BLER（TB CRC）、num_block_errors/num_blocks |
@@ -176,7 +205,7 @@ SionnaMeasurementSim/
     domain/           领域模型（dataclass，纯 numpy）
     adapters/sionna_rt/  Sionna RT API 适配
     rt/               RT 真值 pipeline
-    phy/              PHY 观测 + 损伤 + NR PUSCH + MIMO 信道 + backend
+    phy/              PHY module registry + 损伤 + NR PUSCH/SRS-like + MIMO 信道 + backend
     io/               HDF5 读写、schema validator、manifest、label 解析
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图
@@ -205,6 +234,9 @@ SionnaMeasurementSim/
 | [05_phy_observation](docs/sys/05_phy_observation.md) | PHY 观测与 NR PUSCH |
 | [06_io_and_testing](docs/sys/06_io_and_testing.md) | HDF5 I/O、schema 和测试 |
 | [07_config_and_h5_format](docs/sys/07_config_and_h5_format.md) | 配置与 HDF5 数据契约 |
+| [phy_module_development](docs/sys/phy_module_development.md) | 新 PHY module 接入指南 |
+| [nr_srs_standard_todo](docs/sys/nr_srs_standard_todo.md) | SRS-like 到标准 NR SRS 的 TODO |
+| [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
 
 ## 约束
 

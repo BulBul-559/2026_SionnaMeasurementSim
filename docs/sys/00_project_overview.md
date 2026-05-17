@@ -10,9 +10,10 @@
 4. 将所有数据按 HDF5 契约落盘，供后续分析使用
 5. 输出 `scene_id` 与 `/derived` 物理派生标签，便于和外部平面图/地图系统按场景对齐
 
-项目支持两种 PHY 标准：
+项目支持三种 PHY 标准：
 - **custom_ofdm**：简化 OFDM + LS 估计 + 完整 impairment 链
 - **nr_pusch**：5G NR PUSCH 上行链路，支持 4x4 SU-MIMO 和 MU-MIMO
+- **nr_srs**：SRS-like full-band uplink sounding，输出 LS CSI，不是完整 3GPP NR SRS
 
 ## 顶层架构
 
@@ -22,7 +23,7 @@
 ├──────────────────────────────────────────────────────────┤
 │  config (Pydantic Schema)  │  domain (Dataclasses)       │
 ├──────────────────────────────────────────────────────────┤
-│  rt/truth_pipeline     │  phy/observation + NR PUSCH     │
+│  rt/truth_pipeline     │  phy/modules + OFDM/PUSCH/SRS   │
 ├──────────────────────────────────────────────────────────┤
 │  adapters/sionna_rt/   │  io/ (HDF5 Writer/Reader)      │
 ├──────────────────────────────────────────────────────────┤
@@ -34,7 +35,7 @@
 - **app** 层只做编排，不直接访问 Sionna API
 - **domain** 层定义纯 Python 数据模型，零 Sionna 依赖
 - **adapters** 层封装所有 Sionna 调用，输出 domain 对象
-- **phy** 层实现 PHY 链路（OFDM、PUSCH、信道估计、MIMO 检测）
+- **phy** 层实现 PHY module registry 和具体链路（OFDM、PUSCH、SRS-like、信道估计、MIMO 检测）
 - **io** 层负责 HDF5 读写和 schema 校验
 
 ## 数据流
@@ -58,6 +59,7 @@ Label JSON + Scene XML + Config YAML
   │ PHY Observation Pipeline │
   │  custom_ofdm: AWGN + LS  │
   │  nr_pusch: PUSCH + MIMO  │──→ ObservationResult (H_obs CFR)
+  │  nr_srs: SRS-like LS     │
   └─────────────────────────┘      EvaluationResult (NMSE/BER/BLER)
         │
         ▼
@@ -115,6 +117,8 @@ Derived:       [tx, rx]
 | NR PUSCH 4x4 SU-MIMO perfect CSI | ✅ |
 | NR PUSCH 4x4 SU-MIMO estimated CSI (需 num_layers == num_antenna_ports) | ✅ |
 | NR PUSCH MU-MIMO (多 UE 联合 PUSCH) | ✅ |
+| NR SRS-like full-band sounding | ✅ |
+| PHY module registry | ✅ |
 | LMMSE / KBest MIMO 检测器 | ✅ |
 | `ApplyOFDMChannel` channel backend | ✅ |
 | `CIRDataset + OFDMChannel` channel backend (per-link, shared delay median) | ✅ |
@@ -123,9 +127,10 @@ Derived:       [tx, rx]
 | `scene_id` / `map_id` 对齐字段 | ✅ |
 | `/derived` 距离、ToA/RTT-like、AoA、LoS/NLoS 标签 | ✅ |
 | NR PUSCH 频域 tx/rx grid 与 `/array` 标签 | ✅ |
+| NR SRS-like `srs_*` grid 与 `spatial_spectrum_srs` | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
-| 测试覆盖 (190 collected / 188 passed / 2 skipped) | ✅ |
+| 测试覆盖 (227 collected / 208 passed / 19 skipped) | ✅ |
 
 ## 外部参考
 

@@ -27,7 +27,7 @@
 --max-tx N            TX（BS）数量
 --max-rx N            RX（UE）数量
 --snr-db N            信噪比
---phy-standard NAME   custom_ofdm | nr_pusch
+--phy-standard NAME   custom_ofdm | nr_pusch | nr_srs
 --output-dir PATH     输出目录
 ```
 
@@ -52,7 +52,7 @@ class MeasurementConfig(BaseModel):
     antenna: AntennaConfig        # tx_array, rx_array (ArraySpec)
     rt: RTConfig                  # max_depth, los, specular_reflection, ...
     link: LinkConfig              # duplex_mode, reciprocity_*
-    phy: PHYConfig                # standard, snr_db, nr_pusch fields
+    phy: PHYConfig                # standard, snr_db, NR-family fields
     impairments: ImpairmentsConfig # awgn, cfo, sfo, phase_noise, timing, agc_adc
     receiver: ReceiverConfig      # estimator_type, mimo_detector, failure_policy
     motion: MotionConfig          # mobility_mode, num_time_steps, velocity
@@ -65,12 +65,12 @@ class MeasurementConfig(BaseModel):
 ```python
 class PHYConfig(BaseModel):
     enabled: bool = True
-    standard: str = "custom_ofdm"     # "custom_ofdm" | "nr_pusch"
+    standard: str = "custom_ofdm"     # "custom_ofdm" | "nr_pusch" | "nr_srs"
     snr_db: float = 30.0
     fft_size: int = 64                # custom OFDM
     cp_length: int = 0
 
-    # ── NR PUSCH ──
+    # ── NR-family / NR PUSCH ──
     mimo_mode: str = "su_mimo"        # "su_mimo" | "mu_mimo"
     channel_backend: str = "apply_ofdm"  # "apply_ofdm" | "cir_dataset_ofdm"
     perfect_csi: bool = False
@@ -110,6 +110,8 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
+| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
 
@@ -143,6 +145,6 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 可视化图像保持原始采样网格，不做显示插值。涉及子载波的热力图统一把
 subcarrier 放在纵轴；CFR lines 例外，使用 subcarrier 横轴。CFR 的
 lines、heatmap、error 都分别输出幅度和相位图。空间谱按来源分开输出
-label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett 四类矩形 PNG，
+label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett、SRS-like CFR Bartlett 五类矩形 PNG，
 并额外输出对应 polar PNG；polar 图中每个 link 左侧为上半球，右侧为下半球。
 空间谱矩形图和 polar 图使用同一个 UE 内的局部颜色尺度；polar 图不放 colorbar。

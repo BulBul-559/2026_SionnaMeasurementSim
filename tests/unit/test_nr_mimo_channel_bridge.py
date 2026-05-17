@@ -90,6 +90,18 @@ class TestBuildMIMOCFRFromCIR:
         ch = build_mimo_cfr_from_cir(coeff, delays, link, 30000.0, 48)
         assert np.all(np.isfinite(ch.cfr))
 
+    def test_chunked_cfr_matches_larger_chunk(self, monkeypatch):
+        coeff, delays = _make_cir(snap=1, tx=3, rx=2, rx_ant=2, tx_ant=2, path=4)
+        link = LinkConfig(reciprocity_applied=True)
+
+        monkeypatch.setenv("SIONNA_CIR_TO_CFR_LINK_CHUNK_SIZE", "1")
+        chunked = build_mimo_cfr_from_cir(coeff, delays, link, 30000.0, 48)
+
+        monkeypatch.setenv("SIONNA_CIR_TO_CFR_LINK_CHUNK_SIZE", "128")
+        larger = build_mimo_cfr_from_cir(coeff, delays, link, 30000.0, 48)
+
+        np.testing.assert_allclose(chunked.cfr, larger.cfr, rtol=1e-5, atol=1e-6)
+
 
 class TestCFRToPUSCHPerfectH:
     """Tests for cfr_to_pusch_perfect_h."""

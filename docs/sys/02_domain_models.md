@@ -140,7 +140,8 @@ class NLoSPathTruth:
 ### `ArraySpectrumConfig` (`array.py`)
 
 空间谱输出配置。默认关闭 Bartlett 空间谱，角度网格默认覆盖 zenith `[0, pi]`、
-azimuth `[-pi, pi]`；开启后可分别从 truth CFR 和 NR PUSCH `rx_grid` 生成谱。
+azimuth `[-pi, pi]`；开启后可分别从 truth CFR、估计 CFR、NR PUSCH `rx_grid`
+和 NR SRS-like `srs_cfr_est` 生成谱。
 
 ### `ObservationResult` (`observation.py`)
 
