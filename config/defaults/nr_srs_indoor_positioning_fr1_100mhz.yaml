@@ -1,20 +1,7 @@
-# SionnaMeasurementSim – indoor FR1 NR uplink positioning template
-# All physical quantities are in SI units unless stated otherwise.
-#
-# Target deployment scenario:
-#   - Indoor FR1 private/enterprise 5G positioning
-#   - Nominal NR channel bandwidth: 100 MHz
-#   - SCS: 30 kHz
-#   - Transmission bandwidth configuration: 273 PRB
-#   - Active subcarriers: 273 * 12 = 3276
-#   - BS/gNB array: 4x4 UPA
-#   - UE uplink antenna model: 1x2, matching a 2T-style handset uplink model
-#
-# Note:
-#   This template still uses NR PUSCH/DMRS as the current project PHY observation
-#   path. For a fully standard positioning waveform, future work should add NR SRS
-#   for uplink positioning. In papers, describe this as a PUSCH-DMRS CSI proxy
-#   unless/ until SRS support is implemented.
+# SionnaMeasurementSim - indoor FR1 NR SRS-like positioning template
+# This is a full-band SRS-like uplink sounding configuration, not a full 3GPP
+# NR SRS implementation. See docs/phy/nr_srs_standard_todo.md for the standard
+# details that still need to be added before calling it standards-complete SRS.
 
 runtime:
   seed: 42
@@ -32,14 +19,14 @@ input:
   scene_file: "data/bistro_0000/scene.xml"
   scene_id: "bistro_0000"
   map_id: ""
-  max_tx: 6                 # indoor gNB/TRP count
-  max_rx: 1000              # stage validation UE/sample-position count
+  max_tx: 6
+  max_rx: 1000
 
 output:
-  root_dir: "outputs/indoor_fr1_100mhz_positioning"
+  root_dir: "outputs/bistro_0000_nr_srs_fr1_100mhz"
   hdf5_filename: "results.h5"
   compression: "gzip"
-  save_full_paths: false    # set true only for small AoA/path debugging runs
+  save_full_paths: false
   sharding:
     enabled: true
     axis: "rx"
@@ -51,14 +38,12 @@ output:
 
 carrier:
   center_frequency_hz: 3500000000.0
-  # Active occupied bandwidth for 273 PRB at 30 kHz SCS.
-  # Nominal NR channel bandwidth is 100 MHz; active BW is 273*12*30 kHz = 98.28 MHz.
   bandwidth_hz: 98280000.0
   num_subcarriers: 3276
 
 antenna:
   tx_array:
-    num_rows: 4             # BS/gNB: 4x4 = 16 receive antennas for UL PUSCH
+    num_rows: 4
     num_cols: 4
     vertical_spacing_lambda: 0.5
     horizontal_spacing_lambda: 0.5
@@ -67,7 +52,7 @@ antenna:
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
   rx_array:
-    num_rows: 1             # UE: 1x2 = 2 uplink transmit antennas
+    num_rows: 1
     num_cols: 2
     vertical_spacing_lambda: 0.5
     horizontal_spacing_lambda: 0.5
@@ -79,7 +64,7 @@ antenna:
 array:
   spectrum:
     enabled: true
-    sources: ["truth_cfr", "cfr_est"]
+    sources: ["truth_cfr", "srs_cfr_est"]
     method: "bartlett"
     zenith_bins: 91
     azimuth_bins: 181
@@ -122,8 +107,6 @@ rt:
   diffuse_reflection: false
   refraction: true
   diffraction: true
-  # Use synthetic_array for standard array-manifold/AoA experiments.
-  # Set false for element-level visibility/blockage studies.
   synthetic_array: true
   normalize_cfr: false
   normalize_delays: false
@@ -138,28 +121,27 @@ link:
 
 phy:
   enabled: true
-  standard: "nr_pusch"
+  standard: "nr_srs"
   mimo_mode: "su_mimo"
   channel_backend: "apply_ofdm"
-  # Realistic deployment observation path: estimate CSI from DMRS instead of perfect CSI.
   perfect_csi: false
   snr_db: 30.0
   ebno_db: null
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 2
   num_prb: 273
   num_layers: 1
   num_antenna_ports: 2
-  mcs_index: 4
+  mcs_index: 0
   mcs_table: 1
-  subcarrier_spacing_khz: 30
-  num_ofdm_symbols: 14
   pusch_dmrs_config_type: 1
   pusch_dmrs_length: 1
   pusch_dmrs_additional_position: 2
   pusch_num_cdm_groups_without_data: 2
-  mimo_detector: "lmmse"
-  channel_estimator: "pusch_ls"
+  mimo_detector: "none"
+  channel_estimator: "srs_ls"
   receiver_failure_policy: "mark_invalid"
-  su_mimo_link_batch_size: 16
+  su_mimo_link_batch_size: 1
   tx_power_dbm: 0.0
 
 impairments:
@@ -184,11 +166,11 @@ impairments:
   impairment_seed: 142
 
 receiver:
-  estimator_type: "pusch_ls"
-  channel_estimator: "pusch_ls"
-  mimo_detector: "lmmse"
+  estimator_type: "srs_ls"
+  channel_estimator: "srs_ls"
+  mimo_detector: "none"
   sync_method: "ideal"
-  interpolation_method: "lin"
+  interpolation_method: "none"
   failure_policy: "mark_invalid"
   calibration_profile_id: "synthetic_default"
 

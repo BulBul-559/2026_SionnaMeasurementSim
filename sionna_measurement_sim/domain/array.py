@@ -26,7 +26,7 @@ class ArraySpectrumConfig:
     def __post_init__(self) -> None:
         sources = tuple(str(source) for source in self.sources)
         link_chunk_size = int(self.link_chunk_size)
-        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid"}
+        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid", "srs_cfr_est"}
         unknown_sources = set(sources) - allowed_sources
         if unknown_sources:
             raise ValueError(f"Unsupported spectrum sources: {sorted(unknown_sources)}")

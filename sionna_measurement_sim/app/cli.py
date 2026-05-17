@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--max-tx", type=int, default=None)
     full.add_argument("--max-rx", type=int, default=None)
     full.add_argument("--phy-standard", default=None,
-                      choices=["custom_ofdm", "nr_pusch"])
+                      choices=["custom_ofdm", "nr_pusch", "nr_srs"])
 
     visualize = subparsers.add_parser(
         "visualize",
@@ -331,6 +331,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pusch_num_cdm_groups_without_data=cfg.phy.pusch_num_cdm_groups_without_data,
                 tx_power_dbm=cfg.phy.tx_power_dbm,
                 su_mimo_link_batch_size=cfg.phy.su_mimo_link_batch_size,
+                num_ofdm_symbols=cfg.phy.num_ofdm_symbols,
+                cp_length=cfg.phy.cp_length,
                 num_time_steps=(
                     args.num_time_steps
                     if args.num_time_steps is not None

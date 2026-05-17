@@ -108,7 +108,7 @@ class SpectrumConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_supported_values(self) -> SpectrumConfig:
-        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid"}
+        allowed_sources = {"truth_cfr", "cfr_est", "rx_grid", "srs_cfr_est"}
         unknown_sources = set(self.sources) - allowed_sources
         if unknown_sources:
             raise ValueError(f"Unsupported spectrum sources: {sorted(unknown_sources)}")

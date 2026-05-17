@@ -184,6 +184,7 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _validate_observation_shapes(h5)
             _validate_bler_contract(h5)
             _validate_nr_pusch_fields_if_applicable(h5)
+            _validate_nr_srs_fields_if_applicable(h5)
             if "calibration" in h5:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
         _validate_units(h5)
@@ -680,6 +681,7 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
+        "array/spatial_spectrum_srs",
     ):
         if optional_path in h5 and h5[optional_path].shape != spectrum_shape:
             msg = f"/{optional_path} must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
@@ -692,7 +694,90 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
+        "array/spatial_spectrum_srs",
         "array/angle_grid_rad",
+    ):
+        if dataset_path not in h5:
+            continue
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+NR_SRS_REQUIRED_FIELDS = (
+    "waveform/srs_tx_grid",
+    "waveform/srs_rx_grid",
+    "waveform/srs_noise_variance",
+    "waveform/srs_pilot_code",
+    "observation/srs_cfr_est",
+    "array/rx_snapshot_matrix",
+    "array/aoa_label_rad",
+    "array/aoa_heatmap_label",
+    "array/spatial_spectrum_label",
+    "array/angle_grid_rad",
+    "array/spectrum_policy",
+)
+
+
+def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
+    """When waveform/standard == 'nr_srs', enforce SRS-like fields."""
+
+    if "waveform/standard" not in h5:
+        return
+    std = h5["waveform/standard"][()]
+    if isinstance(std, bytes):
+        std = std.decode()
+    if std != "nr_srs":
+        return
+
+    _require_present(h5, NR_SRS_REQUIRED_FIELDS, kind=h5py.Dataset)
+    tx_grid = h5["waveform/srs_tx_grid"]
+    rx_grid = h5["waveform/srs_rx_grid"]
+    noise_variance = h5["waveform/srs_noise_variance"]
+    pilot_code = h5["waveform/srs_pilot_code"]
+    if tx_grid.ndim != 6:
+        raise SchemaValidationError(f"/waveform/srs_tx_grid must be rank 6, got {tx_grid.shape}")
+    if rx_grid.ndim != 6:
+        raise SchemaValidationError(f"/waveform/srs_rx_grid must be rank 6, got {rx_grid.shape}")
+    if noise_variance.shape != tx_grid.shape[:3]:
+        msg = "/waveform/srs_noise_variance must match [snapshot,ul_tx,ul_rx]"
+        raise SchemaValidationError(msg)
+    if pilot_code.shape != tx_grid.shape[3:5]:
+        msg = "/waveform/srs_pilot_code must match [ul_tx_ant,ofdm_symbol]"
+        raise SchemaValidationError(msg)
+    if rx_grid.shape[:3] != tx_grid.shape[:3]:
+        msg = "/waveform/srs_tx_grid and /waveform/srs_rx_grid link dimensions must match"
+        raise SchemaValidationError(msg)
+    if h5["observation/srs_cfr_est"].shape != h5["observation/cfr_est"].shape:
+        msg = "/observation/srs_cfr_est must match /observation/cfr_est"
+        raise SchemaValidationError(msg)
+
+    link_shape = rx_grid.shape[:3]
+    num_rx_ant = rx_grid.shape[3]
+    snapshot_matrix = h5["array/rx_snapshot_matrix"]
+    aoa = h5["array/aoa_label_rad"]
+    angle_grid = h5["array/angle_grid_rad"]
+    spectrum_shape = (*link_shape, *angle_grid.shape[:2])
+    if snapshot_matrix.shape != (*link_shape, num_rx_ant, num_rx_ant):
+        msg = "/array/rx_snapshot_matrix must match SRS RX grid receiver antennas"
+        raise SchemaValidationError(msg)
+    if aoa.shape != (*link_shape, 2):
+        msg = "/array/aoa_label_rad must match SRS link dimensions"
+        raise SchemaValidationError(msg)
+    if (
+        "array/spatial_spectrum_srs" in h5
+        and h5["array/spatial_spectrum_srs"].shape != spectrum_shape
+    ):
+        msg = "/array/spatial_spectrum_srs must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "waveform/srs_tx_grid",
+        "waveform/srs_rx_grid",
+        "waveform/srs_noise_variance",
+        "waveform/srs_pilot_code",
+        "observation/srs_cfr_est",
+        "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:
             continue
@@ -728,6 +813,7 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
+        "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:
             continue
@@ -752,6 +838,7 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
+        "array/spatial_spectrum_srs",
         "array/angle_grid_rad",
     ):
         if dataset_path not in h5:

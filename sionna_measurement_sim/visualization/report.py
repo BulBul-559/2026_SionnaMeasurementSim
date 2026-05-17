@@ -542,6 +542,11 @@ def _plot_spatial_spectrum(
             "array/spatial_spectrum_observation",
             "Bartlett spectrum from RX grid / spatial_spectrum_observation",
         ),
+        (
+            "srs",
+            "array/spatial_spectrum_srs",
+            "Bartlett spectrum from SRS-like CFR / spatial_spectrum_srs",
+        ),
     )
     generated: list[Path] = []
     for suffix, dataset_path, title in candidates:

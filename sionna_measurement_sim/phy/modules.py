@@ -153,9 +153,48 @@ class NRPUSCHModule:
         )
 
 
+class NRSRSModule:
+    """Adapter for the NR SRS-like full-band sounding observation path."""
+
+    standard = "nr_srs"
+
+    def run(self, context: PHYContext) -> PHYModuleResult:
+        config = context.config
+        adapter_result = context.adapter_result
+        from sionna_measurement_sim.phy.nr_srs_observation import (
+            run_nr_srs_observation,
+        )
+
+        srs_result = run_nr_srs_observation(
+            truth_cfr=adapter_result.truth.cfr,
+            cfr_snapshots=adapter_result.truth.cfr_snapshots,
+            has_signal=adapter_result.truth.has_geometric_signal,
+            link_config=config.link_config,
+            phy_config=config,
+            carrier_config=config,
+        )
+        waveform_extras = {
+            "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
+            "subcarrier_spacing_hz": config.subcarrier_spacing_khz * 1000.0,
+            "cyclic_prefix": "normal",
+            "modulation": "known_full_band_pilot",
+            **srs_result["waveform_grids"],
+        }
+        return PHYModuleResult(
+            waveform=srs_result["nr_waveform_spec"],
+            observation=srs_result["observation"],
+            impairments=srs_result["impairments"],
+            receiver=srs_result["receiver_spec"],
+            evaluation=srs_result["evaluation"],
+            waveform_extras=waveform_extras,
+            metadata=srs_result.get("metadata", {}),
+        )
+
+
 PHY_REGISTRY: dict[str, PHYModule] = {
     CustomOFDMModule.standard: CustomOFDMModule(),
     NRPUSCHModule.standard: NRPUSCHModule(),
+    NRSRSModule.standard: NRSRSModule(),
 }
 
 

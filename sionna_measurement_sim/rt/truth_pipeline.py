@@ -107,8 +107,8 @@ class RTTruthRunConfig:
     debug_config: Any | None = None
     output_sharding_config: Any | None = None
     shard_spec: ShardSpec | None = None
-    phy_standard: str = "custom_ofdm"  # "custom_ofdm" | "nr_pusch"
-    # NR PUSCH fields (used when phy_standard == "nr_pusch")
+    phy_standard: str = "custom_ofdm"  # "custom_ofdm" | "nr_pusch" | "nr_srs"
+    # NR-family fields (used by nr_pusch and nr_srs where applicable)
     subcarrier_spacing_khz: int = 30
     num_prb: int = 16
     num_layers: int = 1
@@ -318,7 +318,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
                 if observation_bundle and observation_bundle.observation
                 else None
             )
-            _attach_nr_array_outputs(
+            _attach_phy_array_outputs(
                 phy_extra, derived, config, adapter_result.truth.cfr, cfr_est
             )
         elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
@@ -727,7 +727,7 @@ def _build_motion_spec(config: RTTruthRunConfig) -> MotionSpec | None:
     )
 
 
-def _attach_nr_array_outputs(
+def _attach_phy_array_outputs(
     phy_extra: dict,
     derived,
     config,
@@ -736,6 +736,9 @@ def _attach_nr_array_outputs(
 ) -> None:
     waveform_extras = phy_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
+    srs_rx_grid = waveform_extras.get("srs_rx_grid")
+    if rx_grid is None and srs_rx_grid is not None:
+        rx_grid = srs_rx_grid
     if rx_grid is None:
         return
     from sionna_measurement_sim.phy.nr_pusch_observation import (
@@ -767,6 +770,11 @@ def _attach_nr_array_outputs(
         truth_spectrum_samples=project_cfr_to_ul_receiver_samples(truth_cfr),
         cfr_est_spectrum_samples=(
             project_cfr_to_ul_receiver_samples(cfr_est) if cfr_est is not None else None
+        ),
+        srs_cfr_est_spectrum_samples=(
+            project_cfr_to_ul_receiver_samples(cfr_est)
+            if cfr_est is not None and config.phy_standard == "nr_srs"
+            else None
         ),
     )
 
@@ -878,6 +886,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "ebno_db": config.ebno_db,
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
+        "phy_standard": config.phy_standard,
         "link_config": {
             "duplex_mode": config.link_config.duplex_mode,
             "phy_link_direction": config.link_config.phy_link_direction,
