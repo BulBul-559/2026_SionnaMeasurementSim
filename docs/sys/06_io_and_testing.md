@@ -74,7 +74,7 @@ def write_manifest(path: str | Path, data: dict) -> Path
 def load_topology_from_label(label_file: Path, max_tx: int, max_rx: int) -> Topology
 ```
 
-解析测试标签 JSON（`data/scenes/test/test5.json`），提取 BS/UE 位置。
+解析测试标签 JSON（`tests/fixtures/scenes/test/test5.json`），提取 BS/UE 位置。
 
 ## 测试体系
 

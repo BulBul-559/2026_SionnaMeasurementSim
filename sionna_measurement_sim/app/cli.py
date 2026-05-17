@@ -8,8 +8,8 @@ from collections.abc import Sequence
 from sionna_measurement_sim import __version__
 from sionna_measurement_sim.preflight.system import collect_basic_environment
 
-_DEFAULT_LABEL = "data/scenes/test/test5.json"
-_DEFAULT_SCENE = "data/scenes/test/scene.xml"
+_DEFAULT_LABEL = "tests/fixtures/scenes/test/test5.json"
+_DEFAULT_SCENE = "tests/fixtures/scenes/test/scene.xml"
 _SEED_OFFSET_IMPAIRMENT = 100
 _SEED_OFFSET_OBSERVATION = 200
 _SEED_OFFSET_BATCH = 1000

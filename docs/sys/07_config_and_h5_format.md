@@ -76,8 +76,8 @@ visualization: # 采样可视化
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
 |------|------|--------|------|------|
-| `label_file` | str | `"data/scenes/test/test5.json"` | — | TX/RX 位置标签 JSON |
-| `scene_file` | str | `"data/scenes/test/scene.xml"` | — | Mitsuba 场景 XML |
+| `label_file` | str | `"tests/fixtures/scenes/test/test5.json"` | — | TX/RX 位置标签 JSON |
+| `scene_file` | str | `"tests/fixtures/scenes/test/scene.xml"` | — | Mitsuba 场景 XML |
 | `scene_id` | str | scene 文件名 stem | — | 与地图/平面图系统对齐的稳定场景 ID |
 | `map_id` | str | `""` | — | 可选地图版本 ID |
 | `label_schema` | str | `"simplesionna_v1"` | — | 标签 schema 版本 |

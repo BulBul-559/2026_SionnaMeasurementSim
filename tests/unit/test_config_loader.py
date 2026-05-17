@@ -12,8 +12,8 @@ def test_load_yaml_config(tmp_path: Path):
 runtime:
   seed: 1
 input:
-  label_file: "data/scenes/test/test5.json"
-  scene_file: "data/scenes/test/scene.xml"
+  label_file: "tests/fixtures/scenes/test/test5.json"
+  scene_file: "tests/fixtures/scenes/test/scene.xml"
 carrier:
   center_frequency_hz: 3500000000.0
   bandwidth_hz: 20000000.0

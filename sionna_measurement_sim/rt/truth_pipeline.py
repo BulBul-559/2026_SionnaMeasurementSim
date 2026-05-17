@@ -334,7 +334,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         input_spec=InputSpec(
             label_file=config.label_file.as_posix(),
             scene_file=config.scene_file.as_posix(),
-            input_dataset_id="data/scenes/test",
+            input_dataset_id=config.label_file.parent.as_posix(),
             input_schema="test5_json",
         ),
         topology=topology,

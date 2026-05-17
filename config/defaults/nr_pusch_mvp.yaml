@@ -19,8 +19,8 @@ debug:
   write_hardware_samples: true
 
 input:
-  label_file: "data/scenes/test/test5.json"
-  scene_file: "data/scenes/test/scene.xml"
+  label_file: "tests/fixtures/scenes/test/test5.json"
+  scene_file: "tests/fixtures/scenes/test/scene.xml"
   scene_id: "scene"
   map_id: ""
   max_tx: 1               # 1 BS

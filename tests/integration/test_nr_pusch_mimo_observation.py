@@ -30,8 +30,8 @@ def _run_4x4_mimo_pipeline(
     )
 
     config = RTTruthRunConfig(
-        label_file=Path("data/scenes/test/test5.json"),
-        scene_file=Path("data/scenes/test/scene.xml"),
+        label_file=Path("tests/fixtures/scenes/test/test5.json"),
+        scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
         output_dir=tmp_path / "output_4x4",
         num_subcarriers=48,
         seed=42,

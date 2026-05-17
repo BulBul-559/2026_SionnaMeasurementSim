@@ -3,11 +3,15 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+/outputs
 outputs/
 artifacts/*
 !artifacts/phase_reports/
 !artifacts/phase_reports/*.md
 
+data/*
+!data/.gitkeep
+!data/README.md
 data/measurements/
 data/scenes/**/large/
 data/scenes/test/scene.obj

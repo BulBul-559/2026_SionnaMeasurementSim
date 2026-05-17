@@ -19,8 +19,8 @@ from sionna_measurement_sim.rt.truth_pipeline import (
 def _run_nr_pusch(snr_db: float, tmp_path: Path) -> Path:
     """Run the NR PUSCH pipeline at the given SNR and return the HDF5 path."""
     config = RTTruthRunConfig(
-        label_file=Path("data/scenes/test/test5.json"),
-        scene_file=Path("data/scenes/test/scene.xml"),
+        label_file=Path("tests/fixtures/scenes/test/test5.json"),
+        scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
         output_dir=tmp_path / f"output_{snr_db}",
         num_subcarriers=48,
         seed=42,

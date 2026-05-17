@@ -18,8 +18,8 @@ class TestNRPUSCHIntegration:
         )
 
         config = RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=tmp_path / "output",
             num_subcarriers=48,
             seed=1,

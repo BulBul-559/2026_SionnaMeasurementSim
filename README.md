@@ -77,8 +77,8 @@ from pathlib import Path
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 
 config = RTTruthRunConfig(
-    label_file=Path("data/scenes/test/test5.json"),
-    scene_file=Path("data/scenes/test/scene.xml"),
+    label_file=Path("tests/fixtures/scenes/test/test5.json"),
+    scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
     output_dir=Path("outputs/my_run"),
     num_subcarriers=48, seed=42,
     max_tx=1, max_rx=1,
@@ -181,7 +181,8 @@ SionnaMeasurementSim/
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图
   config/defaults/    默认 YAML 配置
-  data/scenes/test/   测试场景
+  data/               本地数据占位目录（真实场景/输出不进 git）
+  tests/fixtures/scenes/test/   测试场景
   tests/
     unit/ domain / config / impairments / MIMO channel / MIMO config
     schema/           HDF5 truth / CIR / NR PUSCH
@@ -189,7 +190,7 @@ SionnaMeasurementSim/
     integration/      RT truth / 4x4 SU-MIMO / MU-MIMO / batch / calibration
     statistical/      AWGN / impairments / motion / NR PUSCH MIMO metrics
   docs/               设计文档
-  outputs/            仿真输出（gitignore）
+  outputs/            仿真输出（gitignore，可为本地 symlink）
 ```
 
 ## 文档索引

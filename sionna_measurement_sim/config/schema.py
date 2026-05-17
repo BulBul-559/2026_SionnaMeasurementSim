@@ -35,8 +35,8 @@ class DebugConfig(BaseModel):
 
 # ── input ────────────────────────────────────────────────────────────
 class InputConfig(BaseModel):
-    label_file: str = Field(default="data/scenes/test/test5.json")
-    scene_file: str = Field(default="data/scenes/test/scene.xml")
+    label_file: str = Field(default="tests/fixtures/scenes/test/test5.json")
+    scene_file: str = Field(default="tests/fixtures/scenes/test/scene.xml")
     scene_id: str = ""
     map_id: str = ""
     label_schema: str = Field(default="simplesionna_v1")

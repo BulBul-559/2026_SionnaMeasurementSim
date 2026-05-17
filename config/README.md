@@ -26,6 +26,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 
+仓库里的 `data/` 只是占位目录。生产场景、floor-plan、label 和 HDF5 不进入 git；可以在本地把 `data/bistro_0000` 这类路径做成 symlink，或在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
+
 ## 有效配置项
 
 以下仅列出当前 pipeline 中实际生效的字段。
@@ -57,8 +59,8 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `label_file` | str | data/scenes/test/test5.json | TX/RX 位置标签 JSON |
-| `scene_file` | str | data/scenes/test/scene.xml | Mitsuba 场景 XML |
+| `label_file` | str | tests/fixtures/scenes/test/test5.json | TX/RX 位置标签 JSON |
+| `scene_file` | str | tests/fixtures/scenes/test/scene.xml | Mitsuba 场景 XML |
 | `scene_id` | str | scene 文件名 stem | 与平面图/地图系统对齐的稳定场景 ID |
 | `map_id` | str | "" | 可选地图版本 ID |
 | `max_tx` | int (>=1) | 6 | TX 数量上限 |

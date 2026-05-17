@@ -29,8 +29,8 @@ def _run_4x4_pipeline(
 
     label = f"{'perfect' if perfect_csi else 'estimated'}_{ebno_db}dB"
     config = RTTruthRunConfig(
-        label_file=Path("data/scenes/test/test5.json"),
-        scene_file=Path("data/scenes/test/scene.xml"),
+        label_file=Path("tests/fixtures/scenes/test/test5.json"),
+        scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
         output_dir=tmp_path / f"output_{label}",
         num_subcarriers=48,
         seed=42,

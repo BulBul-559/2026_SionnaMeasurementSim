@@ -61,8 +61,8 @@ class TestBuildMultiUserPUSCHConfigs:
 
         # Use RTTruthRunConfig which allows arbitrary attributes
         phy = RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=Path("/tmp"),
             num_prb=4,
             num_layers=1,
@@ -83,8 +83,8 @@ class TestBuildMultiUserPUSCHConfigs:
         from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig
 
         phy = RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=Path("/tmp"),
             num_prb=4,
             num_layers=1,

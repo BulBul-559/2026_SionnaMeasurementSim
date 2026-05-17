@@ -18,8 +18,8 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
@@ -70,8 +70,8 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
 
     result_dir = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
@@ -108,8 +108,8 @@ def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
@@ -141,8 +141,8 @@ def test_rt_truth_pipeline_can_generate_sample_visualizations(tmp_path: Path):
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
@@ -175,8 +175,8 @@ def test_path_pipeline_writes_samples_full_paths_and_plot(tmp_path: Path):
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
@@ -224,8 +224,8 @@ def test_observation_pipeline_writes_awgn_ls_outputs(tmp_path: Path):
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
-            label_file=Path("data/scenes/test/test5.json"),
-            scene_file=Path("data/scenes/test/scene.xml"),
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
