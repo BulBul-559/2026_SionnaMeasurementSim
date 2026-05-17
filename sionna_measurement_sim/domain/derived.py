@@ -8,6 +8,7 @@ import numpy as np
 
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.path import PathTable
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.domain.validation import require_shape
@@ -102,6 +103,7 @@ def build_derived_labels(
     truth: RTTruthResult,
     path_table: PathTable | None = None,
     cir_truth: CIRTruth | None = None,
+    link_config: LinkConfig | None = None,
 ) -> DerivedLabels:
     """Build the `/derived` label set."""
 
@@ -128,6 +130,7 @@ def build_derived_labels(
     if path_table is not None:
         _populate_path_labels(
             path_table,
+            angle_source=_receiver_angle_source(link_config),
             first_path_delay_s=first_path_delay_s,
             strongest_path_delay_s=strongest_path_delay_s,
             los_distance_m=los_distance_m,
@@ -172,6 +175,7 @@ def build_derived_labels(
 def _populate_path_labels(
     table: PathTable,
     *,
+    angle_source: str,
     first_path_delay_s: np.ndarray,
     strongest_path_delay_s: np.ndarray,
     los_distance_m: np.ndarray,
@@ -198,6 +202,7 @@ def _populate_path_labels(
                 tx,
                 rx,
                 first_local,
+                angle_source,
                 first_path_delay_s,
                 first_path_aoa_azimuth_rad,
                 first_path_aoa_zenith_rad,
@@ -207,6 +212,7 @@ def _populate_path_labels(
                 tx,
                 rx,
                 strongest_local,
+                angle_source,
                 strongest_path_delay_s,
                 strongest_aoa_azimuth_rad,
                 strongest_aoa_zenith_rad,
@@ -217,6 +223,7 @@ def _populate_path_labels(
                     tx,
                     rx,
                     los_local,
+                    angle_source,
                     los_distance_m,
                     los_aoa_azimuth_rad,
                     los_aoa_zenith_rad,
@@ -229,6 +236,7 @@ def _copy_delay_and_aoa(
     tx: int,
     rx: int,
     local_index: tuple[int, int, int],
+    angle_source: str,
     delay_out: np.ndarray,
     aoa_azimuth_out: np.ndarray,
     aoa_zenith_out: np.ndarray,
@@ -237,8 +245,25 @@ def _copy_delay_and_aoa(
 ) -> None:
     rx_ant, tx_ant, path = local_index
     delay_out[tx, rx] = table.tau_s[tx, rx, rx_ant, tx_ant, path] * delay_scale
-    aoa_azimuth_out[tx, rx] = table.phi_r_rad[tx, rx, rx_ant, tx_ant, path]
-    aoa_zenith_out[tx, rx] = table.theta_r_rad[tx, rx, rx_ant, tx_ant, path]
+    if angle_source == "aod":
+        aoa_azimuth_out[tx, rx] = table.phi_t_rad[tx, rx, rx_ant, tx_ant, path]
+        aoa_zenith_out[tx, rx] = table.theta_t_rad[tx, rx, rx_ant, tx_ant, path]
+    else:
+        aoa_azimuth_out[tx, rx] = table.phi_r_rad[tx, rx, rx_ant, tx_ant, path]
+        aoa_zenith_out[tx, rx] = table.theta_r_rad[tx, rx, rx_ant, tx_ant, path]
+
+
+def _receiver_angle_source(link_config: LinkConfig | None) -> str:
+    """Return which raw RT direction should label the PHY receiver side."""
+
+    if link_config is None:
+        return "aoa"
+    if (
+        bool(link_config.reciprocity_applied)
+        and str(link_config.phy_link_direction).lower() == "uplink"
+    ):
+        return "aod"
+    return "aoa"
 
 
 def _select_min_tau(valid: np.ndarray, tau_s: np.ndarray) -> tuple[int, int, int] | None:

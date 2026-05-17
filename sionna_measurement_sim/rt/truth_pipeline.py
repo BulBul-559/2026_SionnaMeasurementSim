@@ -44,11 +44,7 @@ from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
 from sionna_measurement_sim.phy.impairments import ImpairmentConfig
-from sionna_measurement_sim.phy.observation_pipeline import (
-    AWGNObservationConfig,
-    PHYObservationBundle,
-    run_awgn_ls_observation,
-)
+from sionna_measurement_sim.phy.modules import PHYContext, get_phy_module
 from sionna_measurement_sim.preflight.system import collect_basic_environment
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.report import generate_visualization_report
@@ -291,34 +287,42 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     elapsed_seconds = time.perf_counter() - start
     environment = collect_basic_environment()
     observation_bundle = None
-    nr_pusch_extra: dict = {}
+    phy_extra: dict = {}
     if config.observation_snr_db is not None:
-        if config.phy_standard == "nr_pusch":
-            with tracer.span("nr_pusch_observation"):
-                observation_bundle, nr_pusch_extra = _run_nr_pusch_obs(config, adapter_result)
-        else:
-            with tracer.span("custom_ofdm_observation"):
-                observation_bundle = _run_custom_ofdm_obs(config, adapter_result)
+        phy_module = get_phy_module(config.phy_standard)
+        with tracer.span(f"{phy_module.standard}_observation"):
+            phy_result = phy_module.run(PHYContext(config=config, adapter_result=adapter_result))
+        observation_bundle = phy_result.to_bundle()
+        phy_extra = {
+            "waveform_extras": phy_result.waveform_extras,
+            "array_outputs": phy_result.array_outputs,
+            "diagnostics": phy_result.diagnostics,
+            "metadata": phy_result.metadata,
+        }
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     scene_id = config.scene_id or config.scene_file.stem
     with tracer.span("derived_nlos"):
         derived = build_derived_labels(
-            topology, adapter_result.truth, adapter_result.path_table, adapter_result.cir_truth
+            topology,
+            adapter_result.truth,
+            adapter_result.path_table,
+            adapter_result.cir_truth,
+            link_config=config.link_config,
         )
         nlos_path_truth = build_nlos_path_truth(adapter_result.path_table)
     with tracer.span("array_outputs"):
-        if nr_pusch_extra.get("waveform_extras"):
+        if phy_extra.get("waveform_extras"):
             cfr_est = (
                 observation_bundle.observation.cfr_est
                 if observation_bundle and observation_bundle.observation
                 else None
             )
             _attach_nr_array_outputs(
-                nr_pusch_extra, derived, config, adapter_result.truth.cfr, cfr_est
+                phy_extra, derived, config, adapter_result.truth.cfr, cfr_est
             )
         elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
-            nr_pusch_extra["array_outputs"] = _build_truth_array_outputs(
+            phy_extra["array_outputs"] = _build_truth_array_outputs(
                 config, derived, adapter_result.truth.cfr
             )
     shard_metadata = _build_shard_metadata(config, topology)
@@ -382,8 +386,8 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         ),
         link=config.link_config,
         shard=shard_metadata,
-        waveform_extras=nr_pusch_extra.get("waveform_extras"),
-        array_outputs=nr_pusch_extra.get("array_outputs"),
+        waveform_extras=phy_extra.get("waveform_extras"),
+        array_outputs=phy_extra.get("array_outputs"),
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -425,8 +429,9 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         "observation_snr_db": config.observation_snr_db,
         "elapsed_seconds": elapsed_seconds,
     }
-    if nr_pusch_extra.get("batching_stats"):
-        manifest_data["nr_pusch_batching"] = nr_pusch_extra["batching_stats"]
+    batching_stats = dict(phy_extra.get("diagnostics", {})).get("batching_stats", {})
+    if batching_stats:
+        manifest_data["nr_pusch_batching"] = batching_stats
     if visualization_summary is not None:
         manifest_data["visualization"] = _manifest_visualization_summary(visualization_summary)
     if result.diagnostics is not None:
@@ -722,74 +727,14 @@ def _build_motion_spec(config: RTTruthRunConfig) -> MotionSpec | None:
     )
 
 
-def _run_custom_ofdm_obs(config, adapter_result):
-    return run_awgn_ls_observation(
-        adapter_result.truth.cfr,
-        AWGNObservationConfig(
-            snr_db=config.observation_snr_db,
-            random_seed=config.observation_seed,
-            sample_rate_hz=config.bandwidth_hz,
-            fft_size=config.num_subcarriers,
-            impairment=config.impairment_config,
-        ),
-        has_signal=adapter_result.truth.has_geometric_signal,
-        cfr_snapshots=adapter_result.truth.cfr_snapshots,
-    )
-
-
-def _run_nr_pusch_obs(config, adapter_result):
-    from sionna_measurement_sim.phy.nr_pusch_observation import (
-        run_nr_pusch_observation,
-    )
-
-    nr_result = run_nr_pusch_observation(
-        cir_coefficients=adapter_result.cir_truth.coefficients,
-        cir_delays=adapter_result.cir_truth.delays_s,
-        link_config=config.link_config,
-        phy_config=config,  # RTTruthRunConfig acts as phy_config
-        carrier_config=config,  # RTTruthRunConfig acts as carrier_config
-    )
-    # Map NR result into existing bundle format
-    bundle = PHYObservationBundle(
-        waveform=nr_result["nr_waveform_spec"],
-        observation=nr_result["observation"],
-        impairments=nr_result["impairments"],
-        receiver=nr_result["receiver_spec"],
-        evaluation=nr_result["evaluation"],
-    )
-    return bundle, {
-        "pusch_config": nr_result["pusch_config"],
-        "waveform_extras": {
-            "num_prb": config.num_prb,
-            "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
-            "subcarrier_spacing_hz": config.subcarrier_spacing_khz * 1000.0,
-            "slot_number": 0,
-            "cyclic_prefix": "normal",
-            "target_coderate": 0.54,
-            "modulation": "16QAM",
-            "num_layers": config.num_layers,
-            "num_antenna_ports": config.num_antenna_ports,
-            "mcs_index": config.mcs_index,
-            "mcs_table": config.mcs_table,
-            "dmrs_config_type": config.pusch_dmrs_config_type,
-            "dmrs_length": config.pusch_dmrs_length,
-            "dmrs_additional_position": config.pusch_dmrs_additional_position,
-            "num_cdm_groups_without_data": config.pusch_num_cdm_groups_without_data,
-            **nr_result["waveform_grids"],
-        },
-        "array_outputs": nr_result["array_outputs"],
-        "batching_stats": nr_result.get("batching_stats", {}),
-    }
-
-
 def _attach_nr_array_outputs(
-    nr_pusch_extra: dict,
+    phy_extra: dict,
     derived,
     config,
     truth_cfr: np.ndarray,
     cfr_est: np.ndarray | None,
 ) -> None:
-    waveform_extras = nr_pusch_extra.get("waveform_extras") or {}
+    waveform_extras = phy_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
     if rx_grid is None:
         return
@@ -812,7 +757,7 @@ def _attach_nr_array_outputs(
         axis=-1,
     ).astype(np.float32, copy=False)
     aoa = np.broadcast_to(aoa_2d[np.newaxis, ...], (num_snap, *aoa_2d.shape))
-    nr_pusch_extra["array_outputs"] = build_array_outputs_from_waveform(
+    phy_extra["array_outputs"] = build_array_outputs_from_waveform(
         rx_grid,
         aoa_label_rad=aoa,
         spectrum_config=config.spectrum_config,

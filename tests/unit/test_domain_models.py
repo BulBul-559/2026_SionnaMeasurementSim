@@ -4,6 +4,7 @@ import pytest
 from sionna_measurement_sim.domain.channel import RTTruthResult
 from sionna_measurement_sim.domain.derived import SPEED_OF_LIGHT_MPS, build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.path import PathTable, build_nlos_path_truth
 from sionna_measurement_sim.domain.results import create_phase1_minimal_result
 from sionna_measurement_sim.domain.topology import Topology
@@ -104,6 +105,53 @@ def test_derived_labels_select_paths_globally_over_antennas():
     assert derived.strongest_aoa_zenith_rad[0, 0] == pytest.approx(2.7)
     assert derived.los_aoa_azimuth_rad[0, 0] == pytest.approx(0.8)
     assert derived.los_aoa_zenith_rad[0, 0] == pytest.approx(0.7)
+
+
+def test_derived_labels_use_aod_for_reverse_uplink_receiver_direction():
+    topology = Topology(
+        tx_positions_m=np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
+        rx_positions_m=np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+        tx_labels=("bs0",),
+        rx_labels=("ue0",),
+    )
+    truth = RTTruthResult(
+        cfr=np.ones((1, 1, 1, 1, 4), dtype=np.complex64),
+        path_power_db=np.array([[-10.0]], dtype=np.float32),
+        has_geometric_signal=np.array([[True]], dtype=np.bool_),
+        geometric_path_count=np.array([[1]], dtype=np.int32),
+        los_exists=np.array([[True]], dtype=np.bool_),
+        nlos_exists=np.array([[False]], dtype=np.bool_),
+    )
+    shape = (1, 1, 1, 1, 1)
+    table = PathTable(
+        valid=np.ones(shape, dtype=np.bool_),
+        a=np.ones(shape, dtype=np.complex64),
+        tau_s=np.full(shape, 1e-9, dtype=np.float32),
+        doppler_hz=np.zeros(shape, dtype=np.float32),
+        theta_t_rad=np.full(shape, 0.11, dtype=np.float32),
+        phi_t_rad=np.full(shape, 0.22, dtype=np.float32),
+        theta_r_rad=np.full(shape, 1.11, dtype=np.float32),
+        phi_r_rad=np.full(shape, 1.22, dtype=np.float32),
+        interaction_type=np.zeros((*shape, 1), dtype=np.uint32),
+        object_id=np.zeros((*shape, 1), dtype=np.uint32),
+        primitive_id=np.zeros((*shape, 1), dtype=np.uint32),
+        vertices_m=np.zeros((*shape, 1, 3), dtype=np.float32),
+        path_type=np.array([[[[["los"]]]]], dtype=object),
+        path_depth=np.zeros(shape, dtype=np.int32),
+    )
+
+    downlink = build_derived_labels(
+        topology,
+        truth,
+        table,
+        link_config=LinkConfig(reciprocity_applied=False),
+    )
+    uplink = build_derived_labels(topology, truth, table, link_config=LinkConfig())
+
+    assert downlink.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(1.22)
+    assert downlink.first_path_aoa_zenith_rad[0, 0] == pytest.approx(1.11)
+    assert uplink.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(0.22)
+    assert uplink.first_path_aoa_zenith_rad[0, 0] == pytest.approx(0.11)
 
 
 def test_nlos_truth_masks_los_and_invalid_paths():
