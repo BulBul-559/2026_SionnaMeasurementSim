@@ -24,8 +24,8 @@
 关键参数：
 ```
 --config PATH         YAML 配置文件
---max-tx N            TX（BS）数量
---max-rx N            RX（UE）数量
+--max-bs N            BS 数量
+--max-ue N            UE 数量
 --snr-db N            信噪比
 --phy-standard NAME   custom_ofdm | nr_pusch | nr_srs
 --output-dir PATH     输出目录
@@ -46,12 +46,12 @@
 ```python
 class MeasurementConfig(BaseModel):
     runtime: RuntimeConfig        # seed, device
-    input: InputConfig            # label_file, scene_file, max_tx, max_rx
+    input: InputConfig            # label_file, scene_file, max_bs, max_ue
     output: OutputConfig          # root_dir, hdf5_filename, compression
     carrier: CarrierConfig        # center_frequency_hz, bandwidth_hz, num_subcarriers
-    antenna: AntennaConfig        # tx_array, rx_array (ArraySpec)
+    antenna: AntennaConfig        # bs_array, ue_array (ArraySpec)
     rt: RTConfig                  # max_depth, los, specular_reflection, ...
-    link: LinkConfig              # duplex_mode, reciprocity_*
+    link: LinkConfig              # duplex_mode, phy_link_direction
     phy: PHYConfig                # standard, snr_db, NR-family fields
     impairments: ImpairmentsConfig # awgn, cfo, sfo, phase_noise, timing, agc_adc
     receiver: ReceiverConfig      # estimator_type, mimo_detector, failure_policy

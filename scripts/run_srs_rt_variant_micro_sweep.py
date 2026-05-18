@@ -189,8 +189,8 @@ def _single_link_config(
 ) -> dict[str, Any]:
     config = json.loads(json.dumps(base_config))
     config["input"]["label_file"] = label_path.as_posix()
-    config["input"]["max_tx"] = 1
-    config["input"]["max_rx"] = 1
+    config["input"]["max_bs"] = 1
+    config["input"]["max_ue"] = 1
     config["output"]["root_dir"] = output_dir.as_posix()
     config["output"]["hdf5_filename"] = "results.h5"
     config["output"]["sharding"]["enabled"] = False

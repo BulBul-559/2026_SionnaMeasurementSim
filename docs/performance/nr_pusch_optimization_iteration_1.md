@@ -4,7 +4,7 @@
 
 来源：性能优化实验分支。本文记录实验结论和建议实现方式，内容应能独立带回 `main`；不要求读者保留或检出实验分支代码。
 
-状态更新：本文是优化迭代 1 的历史报告。文中关于 CLI override、正式 batch 配置、run-full 原生 UE/RX shard、多 GPU shard 和空间谱 chunk 的“后续建议”，已经在后续生产化工作中完成；当前状态以 `docs/performance/nr_pusch_sharded_productionization.md` 和 `docs/performance/nr_pusch_performance_optimization_todo.md` 为准。
+状态更新：本文是优化迭代 1 的历史报告。文中关于 CLI override、正式 batch 配置、run-full 原生 UE shard、多 GPU shard 和空间谱 chunk 的“后续建议”，已经在后续生产化工作中完成；当前状态以 `docs/performance/nr_pusch_sharded_productionization.md` 和 `docs/performance/nr_pusch_performance_optimization_todo.md` 为准。当前配置命名已改为 BS/UE（`max_bs/max_ue`），下文旧 `max_tx/max_rx` 只表示历史实验记录。
 
 ## 结论
 

@@ -17,8 +17,8 @@ class RTTruthRunConfig:
     output_dir: Path
     scene_id: str = ""
     map_id: str = ""
-    max_tx: int = 1
-    max_rx: int = 1
+    max_bs: int = 1
+    max_ue: int = 1
 
     # ── 频率 ──
     center_frequency_hz: float = 3.5e9
@@ -26,12 +26,12 @@ class RTTruthRunConfig:
     num_subcarriers: int = 8
 
     # ── 天线 ──
-    tx_num_rows: int = 1; tx_num_cols: int = 1
-    rx_num_rows: int = 1; rx_num_cols: int = 1
-    tx_polarization: str = "V"; rx_polarization: str = "V"
-    tx_pattern: str = "iso"; rx_pattern: str = "iso"
-    tx_spacing_lambda: tuple = (0.5, 0.5)
-    rx_spacing_lambda: tuple = (0.5, 0.5)
+    bs_num_rows: int = 1; bs_num_cols: int = 1
+    ue_num_rows: int = 1; ue_num_cols: int = 1
+    bs_polarization: str = "V"; ue_polarization: str = "V"
+    bs_pattern: str = "iso"; ue_pattern: str = "iso"
+    bs_spacing_lambda: tuple = (0.5, 0.5)
+    ue_spacing_lambda: tuple = (0.5, 0.5)
 
     # ── RT ──
     seed: int = 1
@@ -75,8 +75,8 @@ class RTTruthRunConfig:
     # ── 运动 ──
     num_time_steps: int = 1
     sampling_frequency_hz: float = 0.0
-    tx_velocity_mps: tuple = (0, 0, 0)
-    rx_velocity_mps: tuple = (0, 0, 0)
+    bs_velocity_mps: tuple = (0, 0, 0)
+    ue_velocity_mps: tuple = (0, 0, 0)
 
     # ── 其他 ──
     hdf5_filename: str = "results.h5"
@@ -100,34 +100,35 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 **内部流程：**
 
 ```
-1. load_topology_from_label()     → Topology
-2. FrequencyGrid.from_center_bandwidth() → FrequencyGrid
-3. run_sionna_rt_truth()          → SionnaRTTruthAdapterResult
+1. load_role_topology_from_label() → RoleTopology(BS/UE)
+2. resolve_link_roles() + resolve_role_topology() → Topology(TX/RX)
+3. FrequencyGrid.from_center_bandwidth() → FrequencyGrid
+4. run_sionna_rt_truth()          → SionnaRTTruthAdapterResult
    ├── RTTruthResult (CFR)
    ├── CIRTruth
    ├── PathSamples
    └── PathTable (if save_full_paths)
-4. if observation_snr_db is not None:
+5. if observation_snr_db is not None:
    └── get_phy_module(phy_standard).run(PHYContext(...))
        → PHYModuleResult → ObservationResult + Evaluation
-5. DiagnosticsReport.from_evaluation()
-6. write_measurement_result()        → HDF5
-7. validate_hdf5_contract()          → schema check
-8. write_manifest()                  → manifest.json
+6. DiagnosticsReport.from_evaluation()
+7. write_measurement_result()        → HDF5
+8. validate_hdf5_contract()          → schema check
+9. write_manifest()                  → manifest.json
 ```
 
 **Shard 外壳：**
 
-`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE/RX 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，根目录 `manifest.json` 记录所有 shard 的全局 UE/RX 索引覆盖范围和每个 shard 的性能日志。
+`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，根目录 `manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。
 
 **链路方向口径：**
 
-当前已验证的 uplink 路径是 `rt_trace_direction="bs_to_ue"` 加
-`reciprocity_mode="transpose_rt_channel"`。也就是说，RT 阶段仍从 BS 指向 UE 求路径，
-随后在 PHY/HDF5 输出中转成 uplink view。这个口径和 TDD 互易性一致，但在
-`synthetic_array=false` 时会让 BS 阵列元素成为大量 RT source endpoint，可能触发
-Sionna RT/Dr.Jit 底层 OOM。后续如果要高保真模拟 UE→BS uplink，应新增 direct uplink
-RT 分支，而不是只改 HDF5 维度命名。
+配置和 label 层只表达 BS/UE。`link.phy_link_direction` 决定进入 RT/PHY 前的
+TX/RX 映射：`uplink` 为 UE→BS，`downlink` 为 BS→UE。HDF5 中
+`/channel/truth/cfr`、`/observation/cfr_est` 等张量始终使用 resolved TX/RX
+link-view，并在 `/link/tx_role`、`/link/rx_role` 记录 TX/RX 分别对应 `ue` 还是
+`bs`。旧的 `rt_trace_direction`、`reciprocity_*` 用户配置口径已移除；低层 legacy
+transpose 只作为内部测试/兼容路径存在。
 
 **PHY module 分支** (`phy/modules.py`):
 - `custom_ofdm` 适配现有 `run_awgn_ls_observation()`

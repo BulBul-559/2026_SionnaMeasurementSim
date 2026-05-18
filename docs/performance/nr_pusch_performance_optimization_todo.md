@@ -6,9 +6,9 @@
 
 已完成能力以 `docs/performance/nr_pusch_sharded_productionization.md` 为准，包括：
 
-- CLI `--max-tx` / `--max-rx` override 修复和测试。
+- CLI `--max-bs` / `--max-ue` override 修复和测试。
 - 配置驱动 debug profiling。
-- `run-full` 原生 UE/RX shard 输出，直接生成 `result_xxx.h5`。
+- `run-full` 原生 UE shard 输出，直接生成 `result_xxx.h5`。
 - 4 GPU UE shard 运行与 `6x8884` 全量验收。
 - NR PUSCH SU-MIMO batch 配置与 batch64 验证。
 - 空间谱 link chunk 生成。

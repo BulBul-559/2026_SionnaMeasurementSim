@@ -2,11 +2,12 @@
 
 本文记录一次对 `/array/aoa_label_rad`、`/array/spatial_spectrum_label`、`/array/spatial_spectrum_truth`、`/array/spatial_spectrum_cfr_est`、`/array/spatial_spectrum_observation` 不一致现象的简要分析。
 
-> 状态更新：reverse/uplink 端点问题已经修复。当前当
-> `reciprocity_applied=true` 且 `phy_link_direction="uplink"` 时，
-> `/derived/*aoa*` 和 `/array/aoa_label_rad` 使用原 RT 的 AoD，表示 BS 作为
-> uplink receiver 看到的到达方向。本文其余关于 first-path label、多径 Bartlett
-> 谱、观测谱质量和 steering 坐标校准的判断仍然成立。
+> 状态更新：reverse/uplink 端点问题已经通过 BS/UE 与 TX/RX 语义解耦修复。
+> 当前配置层使用 BS/UE，`phy_link_direction="uplink"` 会直接解析为 TX=UE、
+> RX=BS；`/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 resolved RX 侧 AoA。
+> 只有低层 legacy transpose fallback 才需要从原 RT AoD 推导 uplink receiver
+> 方向。本文其余关于 first-path label、多径 Bartlett 谱、观测谱质量和 steering
+> 坐标校准的判断仍然成立。
 
 分析样本来自：
 
@@ -53,15 +54,13 @@ derived.first_path_aoa_azimuth_rad
 theta_r_rad / phi_r_rad
 ```
 
-NR PUSCH 配置是上行链路：
+历史 NR PUSCH 配置是上行链路：
 
 ```text
-rt_trace_direction: bs_to_ue
 phy_link_direction: uplink
-reciprocity_applied: true
 ```
 
-也就是说，RT trace 是 BS -> UE 的下行几何路径，但 PUSCH 空间谱是在 UE -> BS 的上行接收阵列上生成。旧 label 更接近“到达 UE 侧的 AoA”，而 truth/observation 空间谱是在“BS 接收阵列”上扫描方向。两者物理端点不同，峰值自然会明显偏离。当前代码已经将 reverse/uplink 的 derived AoA 改为原 RT AoD。
+当时 RT trace 是 BS -> UE 的下行几何路径，但 PUSCH 空间谱是在 UE -> BS 的上行接收阵列上生成。旧 label 更接近“到达 UE 侧的 AoA”，而 truth/observation 空间谱是在“BS 接收阵列”上扫描方向。两者物理端点不同，峰值自然会明显偏离。当前代码已经改为 direct role mapping：uplink 下 RT/PHY/HDF5 都在 TX=UE、RX=BS 的 link-view 中运行。
 
 ### 2. Label 是 first-path one-hot，不等价于多径空间谱
 

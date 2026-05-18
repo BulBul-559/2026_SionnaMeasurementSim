@@ -9,8 +9,8 @@
 
 - `phy.standard: "nr_srs"`
 - `runtime.device: "cuda"`
-- `input.max_tx: 6`
-- `input.max_rx: 5`
+- `input.max_bs: 6`
+- `input.max_ue: 5`
 - `rt.synthetic_array: false`
 - `array.spectrum.enabled: true`
 - `array.spectrum.sources: ["truth_cfr", "srs_cfr_est"]`
@@ -109,7 +109,7 @@ micro-sweep 口径后，观察到：
 复相关 0.3344、NMSE 6.35 dB、幅度 MAE 5.28 dB、相位圆周 MAE 0.726 rad。
 这说明当前 bistro 场景和 100 MHz 宽带配置下，`synthetic_array=true` 与 `false`
 不能视为“数据影响微乎其微”。`true` 更像可扩展的阵列响应近似，`false` 更像
-element-level 几何 probe，但当前普通 RX shard 会在 6 个 BS 同时参与 RT 时 OOM。
+element-level 几何 probe，但当前普通 UE shard 会在 6 个 BS 同时参与 RT 时 OOM。
 
 补跑的 synthetic-array micro true 性能：
 
@@ -164,12 +164,12 @@ uv run python scripts/compare_srs_rt_variants.py \
 
 ## 建议
 
-1. 如果继续保持 `synthetic_array=false`，不要使用单纯 RX shard 直接跑 `6x5` 或 `6x1`；
+1. 如果继续保持 `synthetic_array=false`，不要使用单纯 UE shard 直接跑 `6x5` 或 `6x1`；
    当前场景会在 RT 阶段 OOM。
-2. 下一步生产化应支持二维 shard，例如 `tx_block_size=1`、`rx_block_size=N`，
+2. 下一步生产化应支持二维 shard，例如 `bs_block_size=1`、`ue_block_size=N`，
    并让 manifest 汇总全局 BS/UE 覆盖。
-3. 值得优先评估 direct uplink (`ue_to_bs`) RT：当前 `bs_to_ue + reciprocity`
-   在 `synthetic_array=false` 下会把 `6 BS x 16` 个 BS 阵列元素放在 source 侧；
-   direct uplink 可以把 UE 元素放在 source 侧，可能显著降低 PathSolver 的 source endpoint 压力。
+3. 当前主线已经用 `phy_link_direction` 直接解析 direct uplink/downlink。若
+   `synthetic_array=false` 仍 OOM，应优先做二维 BS/UE shard 和 RT 参数 sweep，
+   而不是回到旧的 trace+transpose 口径。
 4. 论文生产数据如果只需要 path 与 `cfr_est`，应继续评估关闭 `truth_cfr` 和部分空间谱 source
    后的体积下降；本次估算包含当前模板默认的 truth CFR、SRS CFR、空间谱和相关派生字段。

@@ -190,10 +190,12 @@ class ReceiverSpec:
 class LinkConfig:
     duplex_mode: str = "tdd"
     phy_link_direction: str = "uplink"
-    rt_trace_direction: str = "bs_to_ue"
-    reciprocity_mode: str = "transpose_rt_channel"
-    reciprocity_applied: bool = True
+    tx_role: str = "ue"
+    rx_role: str = "bs"
 ```
+
+`tx_role` 和 `rx_role` 是由 `phy_link_direction` 解析出的 link-view 元数据。
+配置/label 层使用 BS/UE；RT、PHY 和 HDF5 张量使用 resolved TX/RX。
 
 ### `MotionSpec` (`motion.py`)
 

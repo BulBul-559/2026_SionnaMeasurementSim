@@ -74,10 +74,11 @@ def write_manifest(path: str | Path, data: dict) -> Path
 ### `label_parser.py`
 
 ```python
-def load_topology_from_label(label_file: Path, max_tx: int, max_rx: int) -> Topology
+def load_role_topology_from_label(label_file: Path, max_bs: int, max_ue: int) -> RoleTopology
 ```
 
-解析测试标签 JSON（`tests/fixtures/scenes/test/test5.json`），提取 BS/UE 位置。
+解析标签 JSON，提取 BS/UE 位置。pipeline 随后根据 `link.phy_link_direction`
+解析为 TX/RX link-view topology。
 
 ## 测试体系
 

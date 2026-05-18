@@ -12,9 +12,9 @@
 - PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
 - TB/CRC 语义的 BLER（transport block CRC pass/fail）
-- TDD 互易性（DL RT trace → UL PUSCH）
+- BS/UE role-view 配置到 TX/RX link-view 仿真的显式映射
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
-- `run-full` UE/RX shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
+- `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
 - HDF5 schema 强校验（含 NR PUSCH MIMO 必填字段）
 - 批量实验（多 seed/SNR 自动分批）
@@ -50,7 +50,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full --help
 
 项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
 
-> `--config` 参数会加载 YAML 配置文件；CLI 的 `--snr-db`、`--max-tx`等参数可覆盖 YAML 中的对应值。
+> `--config` 参数会加载 YAML 配置文件；CLI 的 `--snr-db`、`--max-bs`、`--max-ue` 等参数可覆盖 YAML 中的对应值。
 
 ## 命令行
 
@@ -74,7 +74,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
     --output-dir outputs/nr_pusch_su_mimo
 
 # 4x4 SU-MIMO perfect CSI：修改 YAML 中 phy.perfect_csi = true
-# MU-MIMO：设置 phy.mimo_mode = "mu_mimo" 且 input.max_rx > 1
+# MU-MIMO：设置 phy.mimo_mode = "mu_mimo" 且 input.max_ue > 1
 ```
 
 也可直接用 Python API：
@@ -88,9 +88,9 @@ config = RTTruthRunConfig(
     scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
     output_dir=Path("outputs/my_run"),
     num_subcarriers=48, seed=42,
-    max_tx=1, max_rx=1,
-    tx_num_rows=2, tx_num_cols=2,      # BS 4 antennas
-    rx_num_rows=2, rx_num_cols=2,      # UE 4 antennas
+    max_bs=1, max_ue=1,
+    bs_num_rows=2, bs_num_cols=2,      # BS 4 antennas
+    ue_num_rows=2, ue_num_cols=2,      # UE 4 antennas
     max_depth=3, los=True, specular_reflection=True,
     observation_snr_db=40.0,
     phy_standard="nr_pusch", num_prb=4,
@@ -113,7 +113,7 @@ uplink sounding”，标准 NR SRS 的 comb、sequence、cyclic shift、hopping 
 见 [SRS TODO](docs/sys/nr_srs_standard_todo.md)。
 
 Bistro 100 MHz SRS-like 模板当前默认 `rt.synthetic_array=false`。这个口径更接近
-element-level 几何 probe，但普通 `6 BS x N UE` RX shard 可能在 Sionna RT
+element-level 几何 probe，但普通 `6 BS x N UE` UE shard 可能在 Sionna RT
 PathSolver 阶段 OOM；当前参数对比使用 `1 BS x 1 UE` micro-sweep，详见
 [SRS RT variant sweep](docs/performance/nr_srs_rt_variant_sweep_6x5.md)。
 
@@ -142,12 +142,12 @@ uv run python scripts/compare_phy_csi_outputs.py \
 
 ## HDF5 输出结构
 
-普通运行生成 `outputs/<run_dir>/results.h5`。开启 `output.sharding.enabled=true` 时，输出目录下直接生成 `result_000.h5`、`result_001.h5` 等多个自包含 HDF5 文件，并由根目录 `manifest.json` 记录全局 UE/RX 覆盖范围。
+普通运行生成 `outputs/<run_dir>/results.h5`。开启 `output.sharding.enabled=true` 时，输出目录下直接生成 `result_000.h5`、`result_001.h5` 等多个自包含 HDF5 文件，并由根目录 `manifest.json` 记录全局 UE 覆盖范围和 resolved TX/RX 索引。
 
 | Group | 内容 |
 |-------|------|
 | `/meta` | schema 版本、运行 ID、随机种子、配置快照 |
-| `/shard` | shard 模式下的局部到全局 UE/RX/BS 索引映射 |
+| `/shard` | shard 模式下的局部 TX/RX 到全局 BS/UE 索引映射 |
 | `/input` | 标签文件、场景文件 |
 | `/topology` | TX/RX 三维位置 |
 | `/scene` | 场景文件、`scene_id`、`map_id` |
@@ -156,7 +156,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | `/channel/truth` | 真值 CFR `[tx, rx, rx_ant, tx_ant, subcarrier]`、CIR、LoS/NLoS |
 | `/derived` | 距离、ToA/RTT-like、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
-| `/link` | 双工模式、互易性 |
+| `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
 | `/waveform` | OFDM/NR 波形；NR PUSCH 保存 `tx_grid/rx_grid/noise_variance`，NR SRS-like 保存 `srs_tx_grid/srs_rx_grid/srs_noise_variance` |
 | `/array` | 阵列 snapshot、AoA 标签、空间谱标签；SRS-like 可写 `spatial_spectrum_srs` |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
@@ -177,7 +177,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | `3 BS × 3000 UE × 4x4 PUSCH` | shard+batch64 运行完成，3 个 HDF5 schema 通过，端到端约 178 s |
 | `6 BS × 8884 UE × 4x4 PUSCH` | 4 GPU shard+batch64 运行完成，9 个 HDF5 schema 通过，端到端约 279 s |
 
-生产级大规模 PUSCH 推荐开启 UE/RX shard：
+生产级大规模 PUSCH 推荐开启 UE shard：
 
 ```bash
 uv run python -m sionna_measurement_sim.app.cli run-full \

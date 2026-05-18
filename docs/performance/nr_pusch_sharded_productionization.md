@@ -2,7 +2,7 @@
 
 日期：2026-05-14
 
-本文记录 `run-full` 原生 UE/RX shard、NR PUSCH SU-MIMO batching、空间谱 chunk、HDF5 compression 配置和 debug profiling 的生产化验收结果。
+本文记录 `run-full` 原生 UE shard、NR PUSCH SU-MIMO batching、空间谱 chunk、HDF5 compression 配置和 debug profiling 的生产化验收结果。
 
 ## 实现摘要
 
@@ -10,8 +10,8 @@
 |---|---|---|
 | CLI override | DONE | `run-full --config` 下显式传入的 CLI 参数会覆盖 YAML |
 | Debug profiling | DONE | `debug.enabled=true` 输出 `perf_events*.jsonl`、`hardware_samples*.csv`、`perf_summary*.json` |
-| UE/RX shard | DONE | 直接输出 `result_000.h5`、`result_001.h5`；不并发写同一个 HDF5 |
-| Shard manifest | DONE | 根目录 `manifest.json` 汇总 shard 文件、全局 UE/RX 索引、batching stats、perf summary |
+| UE shard | DONE | 直接输出 `result_000.h5`、`result_001.h5`；不并发写同一个 HDF5 |
+| Shard manifest | DONE | 根目录 `manifest.json` 汇总 shard 文件、全局 UE 覆盖、resolved TX/RX 索引、batching stats、perf summary |
 | `/shard` HDF5 元数据 | DONE | 每个 shard 写入局部到全局索引映射 |
 | SU-MIMO batching | DONE | `phy.su_mimo_link_batch_size` 控制独立 link batch；失败时可降级 |
 | 空间谱 chunk | DONE | `array.spectrum.link_chunk_size` 控制 Bartlett link chunk |
@@ -46,7 +46,7 @@
 
 ## 6x8884 验收
 
-命令基于 `config/perf/nr_pusch_6x8884_sharded.yaml`，实际使用空闲 GPU `[0, 2, 3, 4]`，9 个 UE/RX shard、batch size 64、空间谱三源和首 shard visualization 开启。
+命令基于 `config/perf/nr_pusch_6x8884_sharded.yaml`，实际使用空闲 GPU `[0, 2, 3, 4]`，9 个 UE shard、batch size 64、空间谱三源和首 shard visualization 开启。
 
 | 指标 | 结果 |
 |---|---|

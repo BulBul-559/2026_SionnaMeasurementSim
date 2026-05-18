@@ -98,7 +98,9 @@ class PUSCHMIMOChannel:
     reciprocity_applied: bool
 ```
 
-> **UL 约定**：CFR 在 channel bridge 内部使用 UL（uplink）视角。BS 的 TX 天线（project `tx_ant`）变为 UL 接收天线（`ul_rx_ant`）；UE 的 RX 天线（project `rx_ant`）变为 UL 发射天线（`ul_tx_ant`）。写回 HDF5 前会 reverse 到 DL 视角。
+> **Link-view 约定**：CFR 在 channel bridge 内部已经是 resolved TX/RX 视角。
+> `phy_link_direction="uplink"` 时 TX=UE、RX=BS；`downlink` 时 TX=BS、RX=UE。
+> 旧的 reciprocity transpose 仅作为低层 legacy fallback，不是当前用户配置口径。
 
 ### 核心函数
 
@@ -106,8 +108,8 @@ class PUSCHMIMOChannel:
 def build_mimo_cfr_from_cir(cir_coeff, cir_delays, link_config,
                              sc_spacing_hz, num_subcarriers) -> PUSCHMIMOChannel
 ```
-- 应用 TDD 互易性（若配置）
-- 转为 UL 视角
+- 读取 resolved link-view CIR
+- 必要时只对 legacy fallback 应用 TDD 互易性 transpose
 - 调用 Sionna `cir_to_ofdm_channel` 将 CIR 转为 CFR
 
 ```python
@@ -264,7 +266,7 @@ def _process_one_pusch_link(snap, ul_tx, ul_rx, backend, tx, rx, no,
 
 SU-MIMO 支持两条路径：`su_mimo_link_batch_size <= 1` 时使用逐 link 稳定路径；大于 1 时使用 batched path，把多个独立 `(snapshot, ul_tx, ul_rx)` link 合成一个 PUSCHTransmitter/ApplyOFDMChannel/PUSCHReceiver batch。batch 失败时会递归降级到更小 batch，最终可回退到单 link，并在 manifest 的 `nr_pusch_batching` 记录 fallback 统计。
 
-GPU 大规模生产运行建议同时开启 UE/RX shard：多个进程分别绑定 GPU、分别写 `result_xxx.h5`，避免多个进程竞争同一个 HDF5 文件。
+GPU 大规模生产运行建议同时开启 UE shard：多个进程分别绑定 GPU、分别写 `result_xxx.h5`，避免多个进程竞争同一个 HDF5 文件。
 
 ### MU-MIMO per-snapshot 处理：`_process_mu_mimo()`
 

@@ -140,13 +140,13 @@ WiFi-like 或 custom OFDM 不应复制 NR PUSCH 的 `run_nr_pusch_observation()`
 
 ## 多文件 `result_xxx.h5` 和 Shard 设计
 
-5x5000 报告已经说明，`results.h5` 单文件写入会成为明显瓶颈。目前 NR PUSCH 生产路径已经支持 UE/RX shard：`run-full` 可直接写多个 `result_xxx.h5`，多进程各自绑定 GPU，根目录 `manifest.json` 汇总全局索引、schema 状态和 debug 性能日志。后续设计重点应从“是否使用 shard”转向 shard-aware reader、write-only benchmark、更多 GPU 数扩展性和 HDF5 写盘优化。
+5x5000 报告已经说明，`results.h5` 单文件写入会成为明显瓶颈。目前 NR PUSCH 生产路径已经支持 UE shard：`run-full` 可直接写多个 `result_xxx.h5`，多进程各自绑定 GPU，根目录 `manifest.json` 汇总全局 UE 覆盖、resolved TX/RX 索引、schema 状态和 debug 性能日志。后续设计重点应从“是否使用 shard”转向 shard-aware reader、write-only benchmark、更多 GPU 数扩展性和 HDF5 写盘优化。
 
 推荐命名：
 
 | 文件 | 内容 |
 |---|---|
-| `result_000.h5` | 第 0 个 UE/RX shard 的完整局部结果 |
+| `result_000.h5` | 第 0 个 UE shard 的完整局部结果 |
 | `result_001.h5` | 第 1 个 shard |
 | `manifest.json` | shard 列表、global index 范围、配置摘要、schema/debug 状态 |
 | `rt_cache_000.h5` | 可选，对应 shard 的 RT cache |
@@ -240,7 +240,7 @@ TX/BS 分组会影响 path cache、输出文件和下游样本组织，但不应
 
 ## 不要踩的坑
 
-1. 不要把 `max_tx/max_rx` 当作 shard。它们当前是截断，不是带 global offset 的分片。
+1. 不要把 `max_bs/max_ue` 当作 shard。它们当前是截断，不是带 global offset 的分片。
 2. 不要把 `run-batch` 当作 UE/BS 分块。它主要是多 seed / 多实验批次。
 3. 不要让 NR PUSCH batch 结构污染通用 RT cache。RT cache 应服务所有 PHY。
 4. 不要为了省空间删除 CIR/delay/path metadata。RT 调参和定位标签需要这些信息。
