@@ -98,8 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--clipping-threshold", type=float, default=None)
     full.add_argument("--num-time-steps", type=int, default=None)
     full.add_argument("--sampling-frequency-hz", type=float, default=None)
-    full.add_argument("--max-tx", type=int, default=None)
-    full.add_argument("--max-rx", type=int, default=None)
+    full.add_argument("--max-bs", type=int, default=None)
+    full.add_argument("--max-ue", type=int, default=None)
     full.add_argument("--phy-standard", default=None,
                       choices=["custom_ofdm", "nr_pusch", "nr_srs"])
 
@@ -245,8 +245,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             cfg = load_config_or_exit(args.config)
             # CLI overrides: None means "not provided"; any explicit value wins.
-            _max_rx = args.max_rx if args.max_rx is not None else cfg.input.max_rx
-            _max_tx = args.max_tx if args.max_tx is not None else cfg.input.max_tx
+            _max_ue = args.max_ue if args.max_ue is not None else cfg.input.max_ue
+            _max_bs = args.max_bs if args.max_bs is not None else cfg.input.max_bs
             _seed = args.seed if args.seed is not None else cfg.runtime.seed
             _snr = args.snr_db if args.snr_db is not None else cfg.phy.snr_db
             _nsub = (
@@ -343,27 +343,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if args.sampling_frequency_hz is not None
                     else mot.sampling_frequency_hz if motion_enabled else 0.0
                 ),
-                max_tx=_max_tx,
-                max_rx=_max_rx,
-                tx_num_rows=cfg.antenna.tx_array.num_rows,
-                tx_num_cols=cfg.antenna.tx_array.num_cols,
-                rx_num_rows=cfg.antenna.rx_array.num_rows,
-                rx_num_cols=cfg.antenna.rx_array.num_cols,
-                tx_polarization=cfg.antenna.tx_array.polarization,
-                rx_polarization=cfg.antenna.rx_array.polarization,
-                tx_pattern=cfg.antenna.tx_array.pattern,
-                rx_pattern=cfg.antenna.rx_array.pattern,
-                tx_orientation_mode=cfg.antenna.tx_array.orientation_mode,
-                tx_orientation_rad=tuple(cfg.antenna.tx_array.orientation_rad),
-                rx_orientation_mode=cfg.antenna.rx_array.orientation_mode,
-                rx_orientation_rad=tuple(cfg.antenna.rx_array.orientation_rad),
+                max_tx=_max_bs,
+                max_rx=_max_ue,
+                tx_num_rows=cfg.antenna.bs_array.num_rows,
+                tx_num_cols=cfg.antenna.bs_array.num_cols,
+                rx_num_rows=cfg.antenna.ue_array.num_rows,
+                rx_num_cols=cfg.antenna.ue_array.num_cols,
+                tx_polarization=cfg.antenna.bs_array.polarization,
+                rx_polarization=cfg.antenna.ue_array.polarization,
+                tx_pattern=cfg.antenna.bs_array.pattern,
+                rx_pattern=cfg.antenna.ue_array.pattern,
+                tx_orientation_mode=cfg.antenna.bs_array.orientation_mode,
+                tx_orientation_rad=tuple(cfg.antenna.bs_array.orientation_rad),
+                rx_orientation_mode=cfg.antenna.ue_array.orientation_mode,
+                rx_orientation_rad=tuple(cfg.antenna.ue_array.orientation_rad),
                 tx_spacing_lambda=(
-                    cfg.antenna.tx_array.vertical_spacing_lambda,
-                    cfg.antenna.tx_array.horizontal_spacing_lambda,
+                    cfg.antenna.bs_array.vertical_spacing_lambda,
+                    cfg.antenna.bs_array.horizontal_spacing_lambda,
                 ),
                 rx_spacing_lambda=(
-                    cfg.antenna.rx_array.vertical_spacing_lambda,
-                    cfg.antenna.rx_array.horizontal_spacing_lambda,
+                    cfg.antenna.ue_array.vertical_spacing_lambda,
+                    cfg.antenna.ue_array.horizontal_spacing_lambda,
                 ),
                 hdf5_filename=cfg.output.hdf5_filename,
                 hdf5_compression=cfg.output.compression,
@@ -372,9 +372,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 link_config=DomainLinkConfig(
                     duplex_mode=cfg.link.duplex_mode,
                     phy_link_direction=cfg.link.phy_link_direction,
-                    rt_trace_direction=cfg.link.rt_trace_direction,
-                    reciprocity_mode=cfg.link.reciprocity_mode,
-                    reciprocity_applied=cfg.link.reciprocity_applied,
                 ),
                 debug_config=cfg.debug,
                 output_sharding_config=cfg.output.sharding,
@@ -406,14 +403,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     link_chunk_size=cfg.array.spectrum.link_chunk_size,
                 ),
                 tx_velocity_mps=(
-                    cfg.motion.tx_velocity_mps[0],
-                    cfg.motion.tx_velocity_mps[1],
-                    cfg.motion.tx_velocity_mps[2],
+                    cfg.motion.bs_velocity_mps[0],
+                    cfg.motion.bs_velocity_mps[1],
+                    cfg.motion.bs_velocity_mps[2],
                 ) if motion_enabled else (0.0, 0.0, 0.0),
                 rx_velocity_mps=(
-                    cfg.motion.rx_velocity_mps[0],
-                    cfg.motion.rx_velocity_mps[1],
-                    cfg.motion.rx_velocity_mps[2],
+                    cfg.motion.ue_velocity_mps[0],
+                    cfg.motion.ue_velocity_mps[1],
+                    cfg.motion.ue_velocity_mps[2],
                 ) if motion_enabled else (0.0, 0.0, 0.0),
                 mimo_mode=cfg.phy.mimo_mode,
                 channel_backend=cfg.phy.channel_backend,
@@ -461,8 +458,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if args.sampling_frequency_hz is not None
                     else 100.0
                 ),
-                max_tx=args.max_tx if args.max_tx is not None else 6,
-                max_rx=args.max_rx if args.max_rx is not None else 30,
+                max_tx=args.max_bs if args.max_bs is not None else 6,
+                max_rx=args.max_ue if args.max_ue is not None else 30,
             )
         output_path = run_rt_truth_pipeline(run_config)
         print(output_path)

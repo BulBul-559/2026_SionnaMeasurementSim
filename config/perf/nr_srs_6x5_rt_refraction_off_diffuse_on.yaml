@@ -18,8 +18,8 @@ input:
   scene_file: "data/bistro_0000/scene.xml"
   scene_id: "bistro_0000"
   map_id: ""
-  max_tx: 6
-  max_rx: 5
+  max_bs: 6
+  max_ue: 5
 
 output:
   root_dir: "outputs/rt_sweep_srs_6x5/refraction_off_diffuse_on"
@@ -28,7 +28,7 @@ output:
   save_full_paths: false
   sharding:
     enabled: true
-    axis: "rx"
+    axis: "ue"
     shard_size: 1
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
@@ -41,7 +41,7 @@ carrier:
   num_subcarriers: 3276
 
 antenna:
-  tx_array:
+  bs_array:
     num_rows: 4
     num_cols: 4
     vertical_spacing_lambda: 0.5
@@ -50,7 +50,7 @@ antenna:
     pattern: "iso"
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
-  rx_array:
+  ue_array:
     num_rows: 1
     num_cols: 2
     vertical_spacing_lambda: 0.5
@@ -114,9 +114,6 @@ rt:
 link:
   duplex_mode: "tdd"
   phy_link_direction: "uplink"
-  rt_trace_direction: "bs_to_ue"
-  reciprocity_mode: "transpose_rt_channel"
-  reciprocity_applied: true
 
 phy:
   enabled: true
@@ -178,8 +175,8 @@ motion:
   mobility_mode: "static"
   num_time_steps: 1
   sampling_frequency_hz: 0.0
-  tx_velocity_mps: [0.0, 0.0, 0.0]
-  rx_velocity_mps: [0.0, 0.0, 0.0]
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:
   enabled: true

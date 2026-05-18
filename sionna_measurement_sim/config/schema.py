@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sionna_measurement_sim.visualization.config import (
     ALLOWED_VISUALIZATION_PLOTS,
@@ -35,14 +35,16 @@ class DebugConfig(BaseModel):
 
 # ── input ────────────────────────────────────────────────────────────
 class InputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label_file: str = Field(default="tests/fixtures/scenes/test/test5.json")
     scene_file: str = Field(default="tests/fixtures/scenes/test/scene.xml")
     scene_id: str = ""
     map_id: str = ""
     label_schema: str = Field(default="simplesionna_v1")
     coordinate_system: str = Field(default="scene_local_xyz_m")
-    max_tx: int = Field(default=6, ge=1)
-    max_rx: int = Field(default=100, ge=1)
+    max_bs: int = Field(default=6, ge=1)
+    max_ue: int = Field(default=100, ge=1)
 
     @model_validator(mode="after")
     def default_scene_id(self) -> InputConfig:
@@ -54,7 +56,7 @@ class InputConfig(BaseModel):
 # ── output ───────────────────────────────────────────────────────────
 class OutputShardingConfig(BaseModel):
     enabled: bool = False
-    axis: str = Field(default="rx")
+    axis: str = Field(default="ue")
     shard_size: int = Field(default=1000, ge=1)
     filename_pattern: str = Field(default="result_{shard_index:03d}.h5")
     parallel_workers: int = Field(default=1, ge=1)
@@ -63,8 +65,8 @@ class OutputShardingConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_sharding_values(self) -> OutputShardingConfig:
-        if self.axis not in ("rx", "ue"):
-            raise ValueError("output.sharding.axis must be 'rx' or 'ue'")
+        if self.axis != "ue":
+            raise ValueError("output.sharding.axis must be 'ue'")
         if "{shard_index" not in self.filename_pattern:
             raise ValueError("output.sharding.filename_pattern must include {shard_index...}")
         if self.visualization_mode not in ("none", "first_shard", "all_shards"):
@@ -168,8 +170,10 @@ class ArraySpec(BaseModel):
 
 
 class AntennaConfig(BaseModel):
-    tx_array: ArraySpec = Field(default_factory=ArraySpec)
-    rx_array: ArraySpec = Field(default_factory=ArraySpec)
+    model_config = ConfigDict(extra="forbid")
+
+    bs_array: ArraySpec = Field(default_factory=ArraySpec)
+    ue_array: ArraySpec = Field(default_factory=ArraySpec)
 
 
 # ── rt ───────────────────────────────────────────────────────────────
@@ -283,16 +287,18 @@ class ReceiverConfig(BaseModel):
 
 # ── motion ───────────────────────────────────────────────────────────
 class MotionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
     mobility_mode: str = Field(default="static")
     num_time_steps: int = Field(default=3, ge=1)
     sampling_frequency_hz: float = Field(default=100.0, ge=0)
-    tx_velocity_mps: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
-    rx_velocity_mps: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    bs_velocity_mps: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    ue_velocity_mps: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
 
     @model_validator(mode="after")
     def check_velocity_shape(self) -> MotionConfig:
-        for name in ("tx_velocity_mps", "rx_velocity_mps"):
+        for name in ("bs_velocity_mps", "ue_velocity_mps"):
             v = getattr(self, name)
             if len(v) != 3:
                 raise ValueError(f"{name} must have 3 components, got {len(v)}")
@@ -301,13 +307,20 @@ class MotionConfig(BaseModel):
 
 # ── link ─────────────────────────────────────────────────────────────
 class LinkConfig(BaseModel):
-    """NR PUSCH link configuration for TDD reciprocity."""
+    """Link direction configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     duplex_mode: str = Field(default="tdd")
     phy_link_direction: str = Field(default="uplink")
-    rt_trace_direction: str = Field(default="bs_to_ue")
-    reciprocity_mode: str = Field(default="transpose_rt_channel")
-    reciprocity_applied: bool = True
+
+    @model_validator(mode="after")
+    def check_link_values(self) -> LinkConfig:
+        if self.duplex_mode != "tdd":
+            raise ValueError("Only TDD duplex mode is supported")
+        if self.phy_link_direction not in ("uplink", "downlink"):
+            raise ValueError("link.phy_link_direction must be uplink/downlink")
+        return self
 
 
 # ── calibration ──────────────────────────────────────────────────────

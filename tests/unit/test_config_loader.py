@@ -38,7 +38,8 @@ def test_load_default_mvp_config():
     cfg = load_config("config/defaults/measurement_mvp.yaml")
     assert isinstance(cfg, MeasurementConfig)
     assert cfg.runtime.seed == 42
-    assert cfg.input.max_tx == 6
+    assert cfg.input.max_bs == 6
+    assert cfg.input.max_ue == 100
     assert cfg.input.scene_id == "scene"
     assert cfg.input.map_id == ""
     assert cfg.visualization.enabled is True
@@ -47,6 +48,27 @@ def test_load_default_mvp_config():
     assert cfg.visualization.max_bs == 5
     assert cfg.visualization.sample_ue_count == 3
     assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
+
+
+def test_old_tx_rx_config_fields_are_rejected(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+input:
+  max_tx: 1
+  max_rx: 1
+antenna:
+  tx_array: {}
+  rx_array: {}
+motion:
+  tx_velocity_mps: [0.0, 0.0, 0.0]
+  rx_velocity_mps: [0.0, 0.0, 0.0]
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit)):
+        load_config(config_path)
 
 
 def test_input_scene_id_defaults_to_scene_file_stem(tmp_path: Path):

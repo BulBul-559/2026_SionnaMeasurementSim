@@ -31,8 +31,8 @@ input:
   scene_file: "data/bistro_0000/scene.xml"
   scene_id: "bistro_0000"
   map_id: ""
-  max_tx: 6                 # indoor gNB/TRP count
-  max_rx: 1000              # target UE/sample-position count; run small smoke first
+  max_bs: 6                 # indoor gNB/TRP count
+  max_ue: 1000              # target UE/sample-position count; run small smoke first
 
 output:
   root_dir: "outputs/indoor_fr1_100mhz_positioning"
@@ -41,7 +41,7 @@ output:
   save_full_paths: false    # set true only for small AoA/path debugging runs
   sharding:
     enabled: true
-    axis: "rx"
+    axis: "ue"
     shard_size: 5           # 100 MHz / 3276 SC needs small shards on 24 GB GPUs
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
@@ -56,7 +56,7 @@ carrier:
   num_subcarriers: 3276
 
 antenna:
-  tx_array:
+  bs_array:
     num_rows: 4             # BS/gNB: 4x4 = 16 receive antennas for UL PUSCH
     num_cols: 4
     vertical_spacing_lambda: 0.5
@@ -65,7 +65,7 @@ antenna:
     pattern: "iso"
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
-  rx_array:
+  ue_array:
     num_rows: 1             # UE: 1x2 = 2 uplink transmit antennas
     num_cols: 2
     vertical_spacing_lambda: 0.5
@@ -131,9 +131,6 @@ rt:
 link:
   duplex_mode: "tdd"
   phy_link_direction: "uplink"
-  rt_trace_direction: "bs_to_ue"
-  reciprocity_mode: "transpose_rt_channel"
-  reciprocity_applied: true
 
 phy:
   enabled: true
@@ -196,8 +193,8 @@ motion:
   mobility_mode: "static"
   num_time_steps: 1
   sampling_frequency_hz: 0.0
-  tx_velocity_mps: [0.0, 0.0, 0.0]
-  rx_velocity_mps: [0.0, 0.0, 0.0]
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:
   enabled: true

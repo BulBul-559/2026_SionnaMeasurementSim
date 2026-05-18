@@ -23,8 +23,8 @@ input:
   scene_file: "tests/fixtures/scenes/test/scene.xml"
   scene_id: "scene"
   map_id: ""
-  max_tx: 1               # 1 BS
-  max_rx: 1               # 1 UE (SU-MIMO)
+  max_bs: 1               # 1 BS
+  max_ue: 1               # 1 UE (SU-MIMO)
 
 output:
   root_dir: "outputs"
@@ -33,7 +33,7 @@ output:
   save_full_paths: false
   sharding:
     enabled: false
-    axis: "rx"
+    axis: "ue"
     shard_size: 1000
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
@@ -46,14 +46,14 @@ carrier:
   num_subcarriers: 48        # 4 PRB * 12 SC/PRB = 48
 
 antenna:
-  tx_array:
+  bs_array:
     num_rows: 2                # BS: 2x2 = 4 antennas
     num_cols: 2
     polarization: "V"
     pattern: "iso"
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
-  rx_array:
+  ue_array:
     num_rows: 2                # UE: 2x2 = 4 antennas
     num_cols: 2
     polarization: "V"
@@ -117,9 +117,6 @@ rt:
 link:
   duplex_mode: "tdd"
   phy_link_direction: "uplink"
-  rt_trace_direction: "bs_to_ue"
-  reciprocity_mode: "transpose_rt_channel"
-  reciprocity_applied: true
 
 phy:
   enabled: true
@@ -185,8 +182,8 @@ motion:
   mobility_mode: "static"
   num_time_steps: 1
   sampling_frequency_hz: 0.0
-  tx_velocity_mps: [0.0, 0.0, 0.0]
-  rx_velocity_mps: [0.0, 0.0, 0.0]
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:
   enabled: true
