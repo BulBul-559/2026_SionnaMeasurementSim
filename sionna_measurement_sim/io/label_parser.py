@@ -8,7 +8,12 @@ from typing import Any
 
 import numpy as np
 
-from sionna_measurement_sim.domain.topology import Topology
+from sionna_measurement_sim.domain.topology import (
+    RoleTopology,
+    Topology,
+    resolve_link_roles,
+    resolve_role_topology,
+)
 
 
 def load_topology_from_label(
@@ -23,33 +28,59 @@ def load_topology_from_label(
 ) -> Topology:
     """Load a small TX/RX topology from the prepared test label JSON."""
 
+    role_topology = load_role_topology_from_label(
+        label_file,
+        max_bs=max_tx,
+        max_ue=max_rx,
+        ue_start=rx_start,
+        ue_count=rx_count,
+        ue_indices=rx_indices,
+        bs_indices=tx_indices,
+    )
+    return resolve_role_topology(role_topology, resolve_link_roles("downlink"))
+
+
+def load_role_topology_from_label(
+    label_file: str | Path,
+    *,
+    max_bs: int = 1,
+    max_ue: int = 1,
+    ue_start: int = 0,
+    ue_count: int | None = None,
+    ue_indices: list[int] | tuple[int, ...] | None = None,
+    bs_indices: list[int] | tuple[int, ...] | None = None,
+) -> RoleTopology:
+    """Load a BS/UE role topology from a label JSON file."""
+
     label_path = Path(label_file)
     data = json.loads(label_path.read_text(encoding="utf-8"))
     group = _select_group(data)
-    tx_points = _select_points(
+    bs_points, selected_bs_indices = _select_points_with_indices(
         group.get("bs_points", []),
-        max_count=max_tx,
-        indices=tx_indices,
+        max_count=max_bs,
+        indices=bs_indices,
         label="BS",
     )
-    rx_points = _select_points(
+    ue_points, selected_ue_indices = _select_points_with_indices(
         group.get("ue_points", []),
-        max_count=max_rx,
-        start=rx_start,
-        count=rx_count,
-        indices=rx_indices,
+        max_count=max_ue,
+        start=ue_start,
+        count=ue_count,
+        indices=ue_indices,
         label="UE",
     )
 
-    if not tx_points or not rx_points:
+    if not bs_points or not ue_points:
         msg = f"Label file must contain at least one BS and UE point: {label_path}"
         raise ValueError(msg)
 
-    return Topology(
-        tx_positions_m=_points_to_positions(tx_points),
-        rx_positions_m=_points_to_positions(rx_points),
-        tx_labels=tuple(str(point.get("label", f"tx{i}")) for i, point in enumerate(tx_points)),
-        rx_labels=tuple(str(point.get("label", f"rx{i}")) for i, point in enumerate(rx_points)),
+    return RoleTopology(
+        bs_positions_m=_points_to_positions(bs_points),
+        ue_positions_m=_points_to_positions(ue_points),
+        bs_labels=tuple(str(point.get("label", f"BS{i}")) for i, point in enumerate(bs_points)),
+        ue_labels=tuple(str(point.get("label", f"UE{i}")) for i, point in enumerate(ue_points)),
+        bs_global_indices=np.asarray(selected_bs_indices, dtype=np.int64),
+        ue_global_indices=np.asarray(selected_ue_indices, dtype=np.int64),
     )
 
 
@@ -88,6 +119,26 @@ def _select_points(
     count: int | None = None,
     indices: list[int] | tuple[int, ...] | None = None,
 ) -> list[dict[str, Any]]:
+    selected, _ = _select_points_with_indices(
+        points,
+        max_count=max_count,
+        label=label,
+        start=start,
+        count=count,
+        indices=indices,
+    )
+    return selected
+
+
+def _select_points_with_indices(
+    points: Any,
+    *,
+    max_count: int,
+    label: str,
+    start: int = 0,
+    count: int | None = None,
+    indices: list[int] | tuple[int, ...] | None = None,
+) -> tuple[list[dict[str, Any]], tuple[int, ...]]:
     if not isinstance(points, list):
         msg = f"Label group {label} points must be a list"
         raise ValueError(msg)
@@ -101,7 +152,7 @@ def _select_points(
             msg = f"{label} indices must not be empty"
             raise ValueError(msg)
         _validate_indices(selected_indices, len(points), label)
-        return [points[index] for index in selected_indices]
+        return [points[index] for index in selected_indices], selected_indices
 
     if start < 0:
         msg = f"{label} start must be non-negative"
@@ -119,7 +170,8 @@ def _select_points(
     elif end > len(points):
         msg = f"{label} range [{start}, {end}) exceeds available point count {len(points)}"
         raise ValueError(msg)
-    return points[start:end]
+    selected_indices = tuple(range(start, end))
+    return points[start:end], selected_indices
 
 
 def _validate_indices(indices: tuple[int, ...], point_count: int, label: str) -> None:

@@ -7,7 +7,14 @@ from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.path import PathTable, build_nlos_path_truth
 from sionna_measurement_sim.domain.results import create_phase1_minimal_result
-from sionna_measurement_sim.domain.topology import Topology
+from sionna_measurement_sim.domain.topology import (
+    RoleTopology,
+    Topology,
+    resolved_global_indices,
+    resolve_link_roles,
+    resolve_role_pair,
+    resolve_role_topology,
+)
 
 
 def test_frequency_grid_is_strictly_increasing():
@@ -31,6 +38,44 @@ def test_phase1_minimal_result_shapes_match_contract():
     assert result.devices.tx_velocity_mps.shape == (1, 1, 3)
     assert result.path_samples.vertices_m.shape == (0, 0, 0, 3)
     assert result.derived.geometric_distance_m.shape == (1, 1)
+
+
+def test_role_topology_resolves_uplink_to_ue_tx_bs_rx():
+    roles = RoleTopology(
+        bs_positions_m=np.array([[0.0, 0.0, 2.0], [1.0, 0.0, 2.0]], dtype=np.float32),
+        ue_positions_m=np.array([[10.0, 0.0, 1.5]], dtype=np.float32),
+        bs_labels=("BS0", "BS1"),
+        ue_labels=("UE7",),
+        bs_global_indices=np.array([3, 5], dtype=np.int64),
+        ue_global_indices=np.array([7], dtype=np.int64),
+    )
+    mapping = resolve_link_roles("uplink")
+
+    topology = resolve_role_topology(roles, mapping)
+    tx_indices, rx_indices = resolved_global_indices(roles, mapping)
+    tx_value, rx_value = resolve_role_pair(bs_value="bs_array", ue_value="ue_array", mapping=mapping)
+
+    assert mapping.tx_role == "ue"
+    assert mapping.rx_role == "bs"
+    assert topology.tx_labels == ("UE7",)
+    assert topology.rx_labels == ("BS0", "BS1")
+    np.testing.assert_array_equal(tx_indices, np.array([7], dtype=np.int64))
+    np.testing.assert_array_equal(rx_indices, np.array([3, 5], dtype=np.int64))
+    assert (tx_value, rx_value) == ("ue_array", "bs_array")
+
+
+def test_role_topology_resolves_downlink_to_bs_tx_ue_rx():
+    roles = RoleTopology(
+        bs_positions_m=np.array([[0.0, 0.0, 2.0]], dtype=np.float32),
+        ue_positions_m=np.array([[10.0, 0.0, 1.5], [11.0, 0.0, 1.5]], dtype=np.float32),
+        bs_labels=("BS0",),
+        ue_labels=("UE0", "UE1"),
+    )
+
+    topology = resolve_role_topology(roles, resolve_link_roles("downlink"))
+
+    assert topology.tx_labels == ("BS0",)
+    assert topology.rx_labels == ("UE0", "UE1")
 
 
 def test_derived_labels_select_paths_globally_over_antennas():

@@ -4,7 +4,11 @@ from pathlib import Path
 import numpy as np
 
 from sionna_measurement_sim.config.schema import OutputShardingConfig
-from sionna_measurement_sim.io.label_parser import count_topology_points, load_topology_from_label
+from sionna_measurement_sim.io.label_parser import (
+    count_topology_points,
+    load_role_topology_from_label,
+    load_topology_from_label,
+)
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, _build_shard_specs
 
 
@@ -31,6 +35,23 @@ def test_load_topology_from_label_supports_rx_range(tmp_path: Path):
             dtype=np.float32,
         ),
     )
+
+
+def test_load_role_topology_from_label_supports_ue_range_and_global_indices(tmp_path: Path):
+    label_path = _write_label(tmp_path)
+
+    topology = load_role_topology_from_label(
+        label_path,
+        max_bs=2,
+        max_ue=1,
+        ue_start=2,
+        ue_count=2,
+    )
+
+    assert topology.bs_labels == ("BS0", "BS1")
+    assert topology.ue_labels == ("UE2", "UE3")
+    np.testing.assert_array_equal(topology.bs_global_indices, np.array([0, 1]))
+    np.testing.assert_array_equal(topology.ue_global_indices, np.array([2, 3]))
 
 
 def test_load_topology_from_label_keeps_max_count_as_cap(tmp_path: Path):
