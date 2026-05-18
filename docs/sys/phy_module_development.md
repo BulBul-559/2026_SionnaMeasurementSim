@@ -46,14 +46,16 @@ PHY_REGISTRY["my_phy"] = MyPHYModule()
 ## 输出约定
 
 通用 CSI 必须写入 `/observation/cfr_est`，shape 为
-`[snapshot, tx, rx, rx_ant, tx_ant, subcarrier]`。如果模块内部使用 uplink 视角，
-写盘前必须转回项目约定的 DL view；现有 PUSCH/SRS-like 都遵守这一点。
+`[snapshot, tx, rx, rx_ant, tx_ant, subcarrier]`。这里的 TX/RX 是
+`phy_link_direction` 解析后的 link-view：uplink 为 TX=UE、RX=BS，downlink
+为 TX=BS、RX=UE。模块内部可以使用自己的临时布局，但写盘前必须回到 resolved
+TX/RX 契约；现有 PUSCH/SRS-like 都遵守这一点。
 
 时域 waveform 默认不保存。需要保存频域观测时，优先写入 `/waveform/*_grid`，
 并为每个 dataset 设置 `unit` 和 `index_order`。
 
-reverse/uplink 场景下，`/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 PHY 接收侧
-到达方向，因此使用原 RT 的 AoD。`/paths/nlos_truth` 中的 AoA/AoD 原始字段不改语义。
+`/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 PHY 接收侧到达方向；
+`/paths/nlos_truth` 中的 AoA/AoD 原始字段不改语义。
 
 ## 测试清单
 

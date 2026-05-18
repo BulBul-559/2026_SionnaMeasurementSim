@@ -18,6 +18,51 @@ code 分离，然后用 LS 得到 CSI。它适合做室内定位和 PUSCH-DMRS C
 | power control | 简化 AWGN SNR | 补 NR uplink power control、pathloss compensation、power scaling |
 | receiver | 简单 LS | 增加标准 SRS resource extraction、interpolation、noise/quality 指标 |
 
+## 推荐实施顺序
+
+当前首要目标不是先补齐完整 3GPP SRS，而是先把 **真实 UE→BS uplink**
+作为稳定生产路径验证完。原因是 BS/UE 与 TX/RX 语义已经解耦：配置层写 BS/UE，
+`phy_link_direction="uplink"` 会解析为 TX=UE、RX=BS。现在剩余风险主要在 RT
+规模、非合成阵列和大规模 shard，而不是数据契约。
+
+建议顺序：
+
+| 阶段 | 目标 | 产物 |
+|---|---|---|
+| P0 | direct UE→BS uplink 验证 | `synthetic_array=true/false` 下的小规模 SRS/PUSCH probe、AoA/array role 检查、schema 与 manifest 检查 |
+| P1 | direct uplink 生产化 shard | UE shard + 必要时二维 BS/UE block shard；验证 `6 BS x N UE` 不再走旧 trace+transpose 口径 |
+| P2 | SRS v1 标准子集 | comb、resource mask、cyclic shift、多端口正交、sparse LS 和 full-band interpolation |
+| P3 | 3GPP NR SRS 完整化 | group/sequence hopping、bandwidth hopping、periodic/aperiodic/semipersistent 触发、标准 reference 对齐 |
+
+## SRS v1 标准子集计划
+
+第一版不要直接追求认证级 3GPP-compliant SRS，而是实现 “standards-shaped
+NR SRS subset”。推荐范围：
+
+1. 增加 `NRSRSConfig` 或等价配置段，包含 `comb_size`、`num_srs_ports`、
+   `start_symbol`、`num_symbols`、`freq_position`、`bandwidth_config`、
+   `cyclic_shift`、`sequence_id`、`group_hopping`、`sequence_hopping`。
+2. 新增 SRS resource grid builder，输出：
+   - `/waveform/srs_resource_mask`
+   - `/waveform/srs_pilot_symbols`
+   - `/waveform/srs_port_index`
+   - `/waveform/srs_tx_grid`
+3. 从全带宽 pilot 改为按 comb/resource mask 提取 SRS RE：
+   `H_hat[k] = Y[k] / X[k]`，并额外保存 sparse 与插值结果：
+   - `/observation/srs_cfr_est_sparse`
+   - `/observation/srs_cfr_est`
+4. 支持空间谱来源选择：只用 SRS RE、用插值后的 full-band CFR，或二者都写入
+   供对比。
+5. 增加验证：
+   - 无噪声下 LS 接近 truth CFR。
+   - comb mask 与端口映射正确。
+   - cyclic shift 多端口可分离。
+   - 与当前 full-band SRS-like 的 NMSE、有效链路率和空间谱峰值做对比。
+
+复杂度评估：**中高**。Pipeline、HDF5、schema 和 PHY registry 已经具备扩展点；
+主要复杂度集中在 3GPP SRS resource/sequence 规则和 reference validation。
+因此建议先完成 P0/P1 的真实 uplink，再进入 P2。
+
 论文写法建议：
 
 - 当前结果称为 “SRS-like full-band uplink sounding”。

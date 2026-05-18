@@ -234,12 +234,12 @@ def run_nr_pusch_observation(
 
 `nr_srs` 当前是 full-band SRS-like uplink sounding，不是完整 3GPP NR SRS：
 
-1. 将 RT truth CFR 投影到 uplink 接收端视角 `[snap, ue, bs, bs_ant, ue_ant, subcarrier]`
+1. 读取 resolved link-view truth CFR；uplink 下 shape 为 `[tx=ue, rx=bs, bs_ant, ue_ant, subcarrier]`
 2. 所有 active subcarrier 发送已知 pilot
 3. UE 多天线通过 OFDM symbol 维度的正交 DFT code 分离
 4. 通过信道和 AWGN 得到 `srs_rx_grid`
 5. LS 估计 `H_hat = Y X^H / N_symbol`
-6. 转回项目 HDF5 的 DL 视角，写入 `/observation/cfr_est` 和 `/observation/srs_cfr_est`
+6. 按 resolved TX/RX link-view 写入 `/observation/cfr_est` 和 `/observation/srs_cfr_est`
 
 SRS-like 不输出 BER/BLER，`evaluation` 只包含 NMSE、幅度/相位误差、correlation
 和 estimation success。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
