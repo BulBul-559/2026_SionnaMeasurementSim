@@ -42,7 +42,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 > 7×500 shard 确认测试见 `config/perf/nr_srs_7x500_sharded.yaml` 和
 > `docs/performance/nr_srs_7x500_sharded_confirmation.md`。
 
-仓库里的 `data/` 只是占位目录。生产场景、floor-plan、label 和 HDF5 不进入 git；可以在本地把 `data/bistro_0000` 这类路径做成 symlink，或在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
+仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
 ## 有效配置项
 

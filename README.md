@@ -215,7 +215,7 @@ SionnaMeasurementSim/
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图
   config/defaults/    默认 YAML 配置
-  data/               本地数据占位目录（真实场景/输出不进 git）
+  data/               本地数据路径（gitignore，可为本地 symlink）
   tests/fixtures/scenes/test/   测试场景
   tests/
     unit/ domain / config / impairments / MIMO channel / MIMO config

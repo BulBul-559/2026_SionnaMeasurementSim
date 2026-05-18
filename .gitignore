@@ -9,12 +9,8 @@ artifacts/*
 !artifacts/phase_reports/
 !artifacts/phase_reports/*.md
 
-data/*
-!data/.gitkeep
-!data/README.md
-data/measurements/
-data/scenes/**/large/
-data/scenes/test/scene.obj
+/data
+data/
 
 *.h5
 *.hdf5
