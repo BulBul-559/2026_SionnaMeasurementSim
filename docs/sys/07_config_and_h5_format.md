@@ -334,9 +334,9 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 |------|------|----------|
 | `config/defaults/measurement_mvp.yaml` | custom OFDM + 全 impairment + motion | `standard: "custom_ofdm"`, fft_size=64, num_subcarriers=64 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink | `standard: "nr_pusch"`, 4×4 天线, num_prb=4, num_subcarriers=48 |
-| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`, UE shard `shard_size=20`；空间谱/可视化默认关闭，按需显式开启 |
-| `config/perf/nr_srs_7x500_sharded.yaml` | Bistro 室内 FR1 100 MHz SRS-like shard 确认测试 | `7 BS x 500 UE`, 20 个 UE shard, 多 GPU 并行，验证 `result_xxx.h5` 和 aggregate manifest |
+| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`, UE shard `shard_size=20`；空间谱/可视化默认关闭，按需显式开启 |
+| `config/perf/nr_srs_7x500_sharded.yaml` | 室内 FR1 100 MHz SRS-like shard 历史确认测试 | `7 BS x 500 UE`, `shard_size=25` 的历史实验配置，验证 `result_xxx.h5` 和 aggregate manifest；当前生产模板使用 `20` |
 
 ### 1.6 输入数据格式
 
@@ -344,7 +344,7 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 
 ```json
 {
-  "scene_file": "data/test/scene.xml",
+  "scene_file": "scene.obj",
   "groups": [
     {
       "name": "默认分组",
@@ -360,6 +360,10 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
   ]
 }
 ```
+
+当前真实数据通常位于 ignored `data/{dense,medium,sparse}/<scene_id>/`。每个场景目录
+保留三种 UE 采样粒度：`label0p1.json`、`label0p2.json`、`label0p4.json`。
+推荐 baseline 使用 `label0p2.json`。
 
 - 取第一个 `group` 的 `bs_points[:max_bs]` 和 `ue_points[:max_ue]`
 - 坐标单位为米（场景本地坐标系）
@@ -730,14 +734,14 @@ results.h5
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
-大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like 的 Bistro direct uplink 模板默认 `shard_size=20`，面向 `7 BS × 2500 UE` 量级生产。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
+大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `medium_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
 
 ### 2.17 `/array` — 阵列观测与标签
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
 | `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH `rx_grid` 或 SRS-like `srs_rx_grid` 聚合的接收阵列协方差/快照矩阵 |
-| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；reverse/uplink 时来自原 RT AoD，缺失时为 0 |
+| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |

@@ -23,7 +23,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 /meta /input /topology /devices /antenna /scene /frequency
 /channel/truth /paths/samples /paths/full /link
 /waveform /observation /impairments /receiver /evaluation
-/calibration /motion /runtime
+/derived /array /calibration /motion /runtime
 ```
 
 ### `schema_validator.py` — HDF5 契约校验
@@ -69,7 +69,9 @@ def validate_hdf5_contract(path: str | Path) -> None
 def write_manifest(path: str | Path, data: dict) -> Path
 ```
 
-输出 JSON manifest，记录运行参数、CFR shape、路径数、耗时、诊断摘要。
+输出 JSON manifest，记录运行参数、CFR shape、路径数、耗时、诊断摘要。启用
+`output.sharding.enabled=true` 时，根目录会生成 aggregate `manifest.json`，记录每个
+`result_xxx.h5` 的全局 BS/UE 索引、resolved TX/RX 索引、schema/debug 信息和性能摘要。
 
 ### `label_parser.py`
 
@@ -130,7 +132,7 @@ tests/
 
 ```bash
 uv run ruff check .      # lint
-uv run pytest            # 190 collected / 188 passed / 2 skipped
+uv run pytest            # 全量测试，以当前输出为准
 ```
 
 涉及 adapter 变更还需：

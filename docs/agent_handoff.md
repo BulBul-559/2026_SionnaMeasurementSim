@@ -3,12 +3,15 @@
 这份文档用于让新的 Codex/agent 快速理解当前项目状态。新对话开始时，建议先读：
 
 - `docs/agent_handoff.md`
+- `docs/sys/README.md`
 - `README.md`
 - `config/README.md`
 - `docs/sys/07_config_and_h5_format.md`
 - 当前任务相关的 `docs/performance/*.md`
 
 除非用户明确要求，不要递归扫描 `data/` 和 `outputs/`，它们是本地大数据路径，可能是 symlink。
+`docs/sys/` 是当前系统设计和接口说明的主参考；`docs/performance/` 是历史实验记录，
+其中的参数反映当时实验事实，不一定代表当前默认配置。
 
 ## 项目定位
 
@@ -18,6 +21,19 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 - 生成 PHY 观测数据，包括 NR PUSCH-DMRS CSI proxy 和 NR SRS-like full-band uplink sounding。
 - 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
+
+## 深读文档地图
+
+| 目标 | 建议阅读 |
+|---|---|
+| 快速了解系统分层 | `docs/sys/00_project_overview.md` |
+| 查 CLI/config/shard/debug 配置 | `docs/sys/01_app_and_config.md`, `config/README.md` |
+| 查 pipeline 编排和 BS/UE→TX/RX 映射 | `docs/sys/04_rt_pipeline.md` |
+| 查 PUSCH/SRS/custom OFDM 实现口径 | `docs/sys/05_phy_observation.md` |
+| 查 HDF5 字段、shape、manifest | `docs/sys/07_config_and_h5_format.md` |
+| 查 SRS baseline 和 shard size 依据 | `docs/sys/indoor_fr1_100mhz_validation.md` |
+| 新增 PHY module | `docs/sys/phy_module_development.md` |
+| 标准 NR SRS 后续工作 | `docs/sys/nr_srs_standard_todo.md` |
 
 ## 核心语义
 
@@ -123,6 +139,9 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 - `output.sharding.enabled: true`
 - `output.sharding.axis: "ue"`
 - `output.sharding.shard_size: 20`
+
+模板里的 `input.label_file`、`input.scene_file`、`scene_id` 和 `output.root_dir`
+需要按目标场景复制后修改。推荐把临时运行配置放在 ignored `outputs/local_configs/` 下。
 
 `shard_size=20` 是当前生产建议。历史报告里出现的 `25` 是旧实验记录，不再作为默认生产值。
 

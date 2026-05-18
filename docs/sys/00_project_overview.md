@@ -15,6 +15,8 @@
 - **nr_pusch**：5G NR PUSCH 上行链路，支持 4x4 SU-MIMO 和 MU-MIMO
 - **nr_srs**：SRS-like full-band uplink sounding，输出 LS CSI，不是完整 3GPP NR SRS
 
+新对话或新 agent 应先读 `docs/agent_handoff.md`，再按任务需要阅读本目录。
+
 ## 顶层架构
 
 ```
@@ -44,9 +46,10 @@
 Label JSON + Scene XML + Config YAML
         │
         ▼
-  ┌─────────────┐
-  │ Label Parser │ ──→ Topology (TX/RX positions)
-  └─────────────┘
+  ┌──────────────────────┐
+  │ Label Parser          │ ──→ RoleTopology (BS/UE positions)
+  │ + Link Role Resolver  │ ──→ Topology (resolved TX/RX positions)
+  └──────────────────────┘
         │
         ▼
   ┌──────────────────┐
@@ -64,10 +67,32 @@ Label JSON + Scene XML + Config YAML
         │
         ▼
   ┌──────────────┐
-  │ HDF5 Writer  │ ──→ results.h5
+  │ HDF5 Writer  │ ──→ results.h5 或 result_xxx.h5 shards
   │ + Validator  │
   └──────────────┘
 ```
+
+## 当前本地数据约定
+
+`data/` 和 `outputs/` 都是 `.gitignore` 的本地运行路径，可以是 symlink。当前真实
+场景数据按采样密度分为：
+
+```text
+data/dense/
+data/medium/
+data/sparse/
+```
+
+每个场景目录使用对应前缀，例如 `data/medium/medium_0000/`。每个场景有三种 label：
+
+| 文件 | UE 采样间隔 | 当前 UE 数 |
+|---|---:|---:|
+| `label0p1.json` | 0.1 m | 10360 |
+| `label0p2.json` | 0.2 m | 2583 |
+| `label0p4.json` | 0.4 m | 654 |
+
+当前推荐 baseline 使用 `label0p2.json`。`label0p1.json` 成本约为 `label0p2.json`
+的 4 倍，不应作为默认全量实验。
 
 ## 代码目录与文档映射
 
@@ -130,7 +155,8 @@ Derived:       [tx, rx]
 | NR SRS-like `srs_*` grid 与 `spatial_spectrum_srs` | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
-| 测试覆盖 (227 collected / 208 passed / 19 skipped) | ✅ |
+| 多文件 shard 输出与 aggregate manifest | ✅ |
+| 测试覆盖（以当前 `uv run pytest` 结果为准） | ✅ |
 
 ## 外部参考
 

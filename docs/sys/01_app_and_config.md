@@ -110,15 +110,25 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
-| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 |
+| `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like sounding 定位模板；生产建议使用 `label0p2.json`、UE shard `20` |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
+生产场景通常需要复制模板到 `outputs/local_configs/`，再把 `input.label_file`、
+`input.scene_file`、`scene_id`、`output.root_dir` 和 GPU/shard 参数改成目标场景。
+
+## 本地数据路径
+
+`data/` 与 `outputs/` 均为 ignored 本地运行路径，可以是 symlink。当前场景数据按
+`dense/medium/sparse` 组织，场景目录中提供 `label0p1.json`、`label0p2.json`、
+`label0p4.json` 三种采样粒度。默认不要递归扫描这两个目录。
 
 ## 可视化入口
 
-`run-full --config` 会读取 `visualization` 配置；默认模板中开启采样可视化，
-输出到 `<run_output_dir>/figures/`，并在 `manifest.json` 写入选中的 BS/UE 和图像列表。
+`run-full --config` 会读取 `visualization` 配置。若 `visualization.enabled=true`，
+pipeline 会输出采样诊断图到 `<run_output_dir>/figures/`，并在 `manifest.json`
+写入选中的 BS/UE 和图像列表。大规模生产 SRS 模板默认关闭可视化，避免 path
+render 和 Matplotlib 开销拖慢全量仿真。
 
 独立 CLI 入口：
 

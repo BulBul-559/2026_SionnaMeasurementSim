@@ -137,6 +137,8 @@ def pusch_h_to_cfr_est(h: torch.Tensor) -> np.ndarray
 def reverse_reciprocity_cfr(cfr: np.ndarray) -> np.ndarray
 ```
 - 将 UL 视角 CFR 反转为 DL 视角（TX/RX 角色互换 + 天线维度互换）
+- 当前用户配置口径已经使用 direct link mapping；这个函数只应视为 legacy/fallback
+  工具，不是 SRS/PUSCH direct uplink 的默认流程。
 
 ## 四、Channel Backend (`nr_channel_backend.py`)
 
@@ -225,9 +227,8 @@ def run_nr_pusch_observation(
 10. 计算 noise (ebnodb2no 或 SNR)
 11. if su_mimo: _process_su_mimo_per_link(...)
     if mu_mimo: _process_mu_mimo(...)
-12. reverse_reciprocity_cfr() → 恢复 DL 视角
-13. 组装 ObservationResult + EvaluationResult
-14. 返回 dict
+12. 组装 resolved TX/RX link-view 的 ObservationResult + EvaluationResult
+13. 返回 dict
 ```
 
 ## 六、NR SRS-like Sounding (`nr_srs_observation.py`)
