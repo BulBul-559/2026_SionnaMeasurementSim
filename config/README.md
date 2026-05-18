@@ -37,7 +37,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | SRS-like 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
 > Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。SRS-like 模板当前默认
-> direct uplink、`rt.synthetic_array=false`、UE shard `shard_size: 25`，适合少量
+> direct uplink、`rt.synthetic_array=false`、UE shard `shard_size: 20`，适合少量
 > BS、大量 UE 的生产数据生成。`max_ue: 2500` 是目标数据规模，不是提交前必跑验收；
 > 7×500 shard 确认测试见 `config/perf/nr_srs_7x500_sharded.yaml` 和
 > `docs/performance/nr_srs_7x500_sharded_confirmation.md`。
@@ -62,9 +62,12 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
 当前 pipeline 使用 `link.phy_link_direction` 直接解析 BS/UE 到 TX/RX：uplink 为
 `UE -> BS`，downlink 为 `BS -> UE`。在 `bistro_0000` 当前 RT 配置下，已验证
-`7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 `PathSolver` 阶段 OOM；
-因此默认 SRS-like 模板使用 `shard_size: 25` 作为保守生产值。多个 shard 会分别写
-`result_xxx.h5`，根目录 `manifest.json` 汇总全局 UE/BS 索引。
+`7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 `PathSolver` 阶段 OOM。
+在 `medium_0000` 的 `label0p2` 全量 baseline 中，`shard_size: 25` 会在
+`paths.cfr()` 阶段触发 Dr.Jit 单数组 entry 数超过 `2^32` 的限制；`shard_size: 20`
+已完成 `7 BS x 2583 UE` 全量 SRS-like direct uplink。因此默认 SRS-like 模板使用
+`shard_size: 20` 作为当前生产值。多个 shard 会分别写 `result_xxx.h5`，根目录
+`manifest.json` 汇总全局 UE/BS 索引。
 
 ## Role View vs Link View
 

@@ -30,7 +30,7 @@ output:
   sharding:
     enabled: true
     axis: "ue"
-    shard_size: 25          # validated production-safe SRS UE block for 7 BS / 24 GB GPUs
+    shard_size: 20          # production-safe SRS UE block for 7 BS / 24 GB GPUs
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
     gpu_ids: []
