@@ -291,7 +291,13 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     if config.observation_snr_db is not None:
         phy_module = get_phy_module(config.phy_standard)
         with tracer.span(f"{phy_module.standard}_observation"):
-            phy_result = phy_module.run(PHYContext(config=config, adapter_result=adapter_result))
+            phy_result = phy_module.run(
+                PHYContext(
+                    config=config,
+                    adapter_result=adapter_result,
+                    tracer=tracer,
+                )
+            )
         observation_bundle = phy_result.to_bundle()
         phy_extra = {
             "waveform_extras": phy_result.waveform_extras,
@@ -402,6 +408,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             output_dir / config.hdf5_filename,
             result,
             compression=config.hdf5_compression,
+            tracer=tracer,
         )
     with tracer.span("schema_validate"):
         validate_hdf5_contract(results_path)

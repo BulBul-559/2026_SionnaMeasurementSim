@@ -6,6 +6,7 @@ native objects.
 
 from __future__ import annotations
 
+import time
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ _ACTIVE_COMPRESSION: ContextVar[str] = ContextVar(
     "_ACTIVE_COMPRESSION",
     default="gzip",
 )
+_ACTIVE_TRACER: ContextVar[Any | None] = ContextVar("_ACTIVE_TRACER", default=None)
 
 
 def write_measurement_result(
@@ -27,6 +29,7 @@ def write_measurement_result(
     result: MeasurementSimulationResult,
     *,
     compression: str = "gzip",
+    tracer: Any | None = None,
 ) -> Path:
     """Write a truth-only result to an HDF5 file."""
 
@@ -38,6 +41,7 @@ def write_measurement_result(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     compression_token = _ACTIVE_COMPRESSION.set(compression)
+    tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
             _write_meta(h5, result)
@@ -65,6 +69,7 @@ def write_measurement_result(
             _write_link(h5, result)
             _write_runtime(h5, result)
     finally:
+        _ACTIVE_TRACER.reset(tracer_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
@@ -693,9 +698,37 @@ def _write_dataset(
         kwargs["compression"] = compression
         kwargs["shuffle"] = True
 
+    start = time.perf_counter()
     dataset = group.create_dataset(name, data=array, **kwargs)
+    duration_s = time.perf_counter() - start
     if unit is not None:
         dataset.attrs["unit"] = unit
     if index_order is not None:
         dataset.attrs["index_order"] = index_order
+    _record_dataset_write(dataset, array, duration_s, compression)
     return dataset
+
+
+def _record_dataset_write(
+    dataset: h5py.Dataset,
+    array: np.ndarray,
+    duration_s: float,
+    compression: str,
+) -> None:
+    tracer = _ACTIVE_TRACER.get()
+    if tracer is None:
+        return
+    try:
+        storage_bytes = int(dataset.id.get_storage_size())
+    except Exception:
+        storage_bytes = -1
+    tracer.record_event(
+        "hdf5.dataset_write",
+        path=str(dataset.name),
+        shape=tuple(int(dim) for dim in array.shape),
+        dtype=str(array.dtype),
+        raw_bytes=int(array.nbytes),
+        storage_bytes=storage_bytes,
+        compression=compression,
+        duration_s=float(duration_s),
+    )

@@ -1,0 +1,184 @@
+# SRS-like 100 MHz debug profiling: 6 BS x 20 UE as four 5-UE shards.
+
+runtime:
+  seed: 42
+  device: "cuda"
+
+debug:
+  enabled: true
+  hardware_interval_s: 1.0
+  link_log_interval: 250
+  torch_synchronize: true
+  write_hardware_samples: true
+
+input:
+  label_file: "data/bistro_0000/label.json"
+  scene_file: "data/bistro_0000/scene.xml"
+  scene_id: "bistro_0000"
+  map_id: ""
+  max_tx: 6
+  max_rx: 20
+
+output:
+  root_dir: "outputs/perf_nrsrs_6x20_debug_sharded"
+  hdf5_filename: "results.h5"
+  compression: "gzip"
+  save_full_paths: false
+  sharding:
+    enabled: true
+    axis: "rx"
+    shard_size: 5
+    filename_pattern: "result_{shard_index:03d}.h5"
+    parallel_workers: 4
+    gpu_ids: [3, 4, 5, 6]
+    visualization_mode: "none"
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 98280000.0
+  num_subcarriers: 3276
+
+antenna:
+  tx_array:
+    num_rows: 4
+    num_cols: 4
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+  rx_array:
+    num_rows: 1
+    num_cols: 2
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+
+array:
+  spectrum:
+    enabled: true
+    sources: ["truth_cfr", "srs_cfr_est"]
+    method: "bartlett"
+    zenith_bins: 91
+    azimuth_bins: 181
+    zenith_min_rad: 0.0
+    zenith_max_rad: 3.141592653589793
+    azimuth_min_rad: -3.141592653589793
+    azimuth_max_rad: 3.141592653589793
+    normalize: "per_link_max"
+    aggregate_subcarriers: "mean"
+    aggregate_symbols: "mean"
+    link_chunk_size: 128
+
+visualization:
+  enabled: false
+  output_dir: "figures"
+  sample_policy: "spatially_spread_valid_links"
+  random_seed: 42
+  max_bs: 5
+  sample_ue_count: 5
+  max_ue: 5
+  dpi: 140
+  format: "png"
+  plots:
+    - "topology"
+    - "link_overview"
+    - "cfr_lines"
+    - "cfr_heatmap"
+    - "cfr_error"
+    - "waveform_grid"
+    - "aoa"
+    - "nlos_paths"
+    - "spatial_spectrum"
+    - "nmse_snr"
+    - "path_samples"
+
+rt:
+  max_depth: 4
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: true
+  diffraction: true
+  synthetic_array: true
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+  rt_trace_direction: "bs_to_ue"
+  reciprocity_mode: "transpose_rt_channel"
+  reciprocity_applied: true
+
+phy:
+  enabled: true
+  standard: "nr_srs"
+  mimo_mode: "su_mimo"
+  channel_backend: "apply_ofdm"
+  perfect_csi: false
+  snr_db: 30.0
+  ebno_db: null
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 2
+  num_prb: 273
+  num_layers: 1
+  num_antenna_ports: 2
+  mcs_index: 0
+  mcs_table: 1
+  pusch_dmrs_config_type: 1
+  pusch_dmrs_length: 1
+  pusch_dmrs_additional_position: 2
+  pusch_num_cdm_groups_without_data: 2
+  mimo_detector: "none"
+  channel_estimator: "srs_ls"
+  receiver_failure_policy: "mark_invalid"
+  su_mimo_link_batch_size: 1
+  tx_power_dbm: 0.0
+
+impairments:
+  awgn:
+    enabled: true
+  cfo:
+    enabled: false
+    cfo_hz: null
+  sfo:
+    enabled: false
+    sfo_ppm: null
+  phase_noise:
+    enabled: false
+    phase_offset_rad: null
+  timing_offset:
+    enabled: false
+    timing_offset_samples: null
+  agc_adc:
+    enabled: false
+    agc_gain_db: 0.0
+    clipping_threshold: null
+  impairment_seed: 142
+
+receiver:
+  estimator_type: "srs_ls"
+  channel_estimator: "srs_ls"
+  mimo_detector: "none"
+  sync_method: "ideal"
+  interpolation_method: "none"
+  failure_policy: "mark_invalid"
+  calibration_profile_id: "synthetic_default"
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  tx_velocity_mps: [0.0, 0.0, 0.0]
+  rx_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: true
+  profile_id: "synthetic_default"

@@ -25,6 +25,7 @@ class PHYContext:
 
     config: Any
     adapter_result: Any
+    tracer: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,7 @@ class NRSRSModule:
             link_config=config.link_config,
             phy_config=config,
             carrier_config=config,
+            tracer=context.tracer,
         )
         waveform_extras = {
             "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
