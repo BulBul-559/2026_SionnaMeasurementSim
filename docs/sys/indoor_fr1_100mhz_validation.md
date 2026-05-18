@@ -3,9 +3,11 @@
 本页记录 `bistro_0000` 室内 FR1 100 MHz 模板的真实场景验证结果和全量成本估算。
 这些结论来自 2026-05-17 在 RTX 4090 上的 probe run。
 
-2026-05-18 之后，SRS-like 模板默认 `rt.synthetic_array=false`。这会显著增加
-Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
-`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
+2026-05-18 之后，SRS-like 模板默认 direct uplink、`rt.synthetic_array=false`。
+这会显著增加 Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
+`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。后续 uplink scale sweep 已验证
+`7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 PathSolver 阶段 OOM，
+因此默认 SRS-like 生产模板使用 `output.sharding.shard_size=25`。
 
 ## 场景规模
 
@@ -16,8 +18,9 @@ Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
 | BS / TRP points | 7 |
 | UE sample positions | 2583 |
 
-当前 indoor 模板默认使用 `max_bs: 6`，因此完整 `bistro_0000` 运行口径是
-`6 BS x 2583 UE`。模板中的 `max_ue: 1000` 是阶段性目标规模，不是本轮已完成验收规模。
+当前 SRS-like indoor 模板默认使用 `max_bs: 7`、`max_ue: 2500`，因此完整
+`bistro_0000` 生产口径约为 `7 BS x 2500 UE`。模板中的 `max_ue: 2500` 是目标数据规模，
+不是提交前必跑验收规模。
 
 ## 历史已跑通的真实场景 probe
 
@@ -81,32 +84,30 @@ CIR/CFR 时，中间频域张量很大。
 | 原始一次性 CIR to CFR，`6x5` | OOM，单次分配约 13.2 GiB |
 | chunked CIR to CFR，`6x5` | 通过，运行中采样 GPU memory 约 11.5 GiB |
 
-因此当前模板将 `output.sharding.shard_size` 设为 5，并且
+direct uplink 语义完成后，`UE` 是 source，`BS` 是 target。当前 Bistro RT 配置下，
+实测 `7x30` 可运行、`7x35` 和 `7x40` 在 PathSolver/Dr.Jit 阶段 OOM。因此当前
+SRS-like 生产模板将 `output.sharding.shard_size` 设为 25，并且默认关闭空间谱与
+可视化，避免生产模板直接触发重型派生输出。
+
 `nr_mimo_channel.py` 默认按 independent link chunk 调用 `cir_to_ofdm_channel`。
-可用环境变量 `SIONNA_CIR_TO_CFR_LINK_CHUNK_SIZE` 调整 link chunk 大小。更大的 shard
-是否可行需要单独做 batch/shard sweep，不能直接假设 25 或 1000 UE shard 能放进单张 4090。
+可用环境变量 `SIONNA_CIR_TO_CFR_LINK_CHUNK_SIZE` 调整 link chunk 大小。若后续场景
+路径更复杂、BS 数更多、或打开空间谱/可视化，应重新做 shard sweep，不要直接假设
+`shard_size=25` 一定仍然安全。
 
 ## 全量成本估算
 
-按历史 `6x5` probe 线性外推，`max_ue=1000` 需要 200 个 shard，完整 `bistro_0000`
-的 2583 UE 需要 517 个 shard。实际耗时会受 schema validation、HDF5 压缩、可视化、
-RT 追踪方向、`synthetic_array`、GPU/CPU/IO 负载影响，以下只作为历史规划估算。
-当前 `synthetic_array=false` 的 SRS-like micro-sweep 估算见
-`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
-
-| 规模 | 链路 | 单 GPU 顺序估算 | 4 GPU 理想估算 | HDF5 估算 | 目录总量估算 |
-|---|---|---:|---:|---:|---:|
-| `6x1000` | PUSCH | 29.3 h | 7.3 h | 49.7 GB | 约 51 GB |
-| `6x1000` | SRS-like | 28.0 h | 7.0 h | 26.4 GB | 约 28.6 GB |
-| `6x2583` | PUSCH | 75.7 h | 18.9 h | 128.6 GB | 约 132 GB |
-| `6x2583` | SRS-like | 72.3 h | 18.1 h | 68.2 GB | 约 72 GB |
+按当前 scale sweep 估算，在关闭空间谱/可视化、保存完整 truth CFR 与 SRS 输出时，
+`7x2500` 的总 HDF5 约 46 GiB。`shard_size=25` 时约 100 个 shard；单 GPU 串行约
+59 分钟，4/5 GPU 理想调度约 15/12 分钟。实际耗时会受 schema validation、HDF5
+压缩、磁盘并发写入、GPU 负载和最后一个 shard 不满块影响。确认测试见
+`config/perf/nr_srs_7x500_sharded.yaml`。
 
 ## 当前建议
 
-- 本轮不要把 `1000 UE` 作为提交前必跑验收；成本已经接近单 GPU 一整天。
-- 若 `rt.synthetic_array=false`，不要直接假设 `6 BS x 5 UE` 或 `6 BS x 1 UE`
-  UE shard 能通过；当前 bistro 场景会在 RT 阶段触发 Dr.Jit OOM。短期可用
-  `1 BS x 1 UE` micro-sweep 做参数对比，长期应实现二维 TX/RX shard。
+- 本轮不要把 `2500 UE` 作为提交前必跑验收；使用 `7x500` shard confirmation
+  确认多 GPU shard 语义和估算。
+- 若 `rt.synthetic_array=false`，不要只按 link 数估算 RT 风险；direct uplink 下
+  source 数量即 `UE_block` 更关键。当前保守生产值为 `UE_block=25`。
 - 当前主线已经使用 BS/UE role-view 到 TX/RX link-view 的 direct mapping。
   若 `phy_link_direction="uplink"`，RT source 是 UE，receiver 是 BS；如果后续仍要
   高保真非合成阵列生产数据，优先做二维 BS/UE shard 和 RT 参数 sweep。

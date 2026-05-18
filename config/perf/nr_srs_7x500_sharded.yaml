@@ -1,14 +1,21 @@
-# SionnaMeasurementSim - indoor FR1 NR SRS-like positioning template
-# This is a full-band SRS-like uplink sounding configuration, not a full 3GPP
-# NR SRS implementation. See docs/sys/nr_srs_standard_todo.md for the standard
-# details that still need to be added before calling it standards-complete SRS.
+# SRS-like direct uplink shard confirmation: 7 BS x 500 UE.
+#
+# Purpose:
+# - Verify that UE-axis sharding slices physical UE indices under the BS/UE
+#   role-view and resolved TX/RX link-view.
+# - Verify that each shard writes an independent result_xxx.h5 and aggregate
+#   manifest.json records global UE/BS indices.
+# - Verify that multi-process GPU shard execution works for nr_srs.
+#
+# This config intentionally disables visualization and spatial spectrum so the
+# timing measures SRS direct uplink shard execution and HDF5 core outputs.
 
 runtime:
   seed: 42
   device: "cuda"
 
 debug:
-  enabled: false
+  enabled: true
   hardware_interval_s: 1.0
   link_log_interval: 250
   torch_synchronize: true
@@ -20,21 +27,22 @@ input:
   scene_id: "bistro_0000"
   map_id: ""
   max_bs: 7
-  max_ue: 2500
+  max_ue: 500
 
 output:
-  root_dir: "outputs/bistro_0000_nr_srs_fr1_100mhz"
+  root_dir: "outputs/nr_srs_7x500_sharded_confirmation"
   hdf5_filename: "results.h5"
   compression: "gzip"
   save_full_paths: false
   sharding:
     enabled: true
     axis: "ue"
-    shard_size: 25          # validated production-safe SRS UE block for 7 BS / 24 GB GPUs
+    shard_size: 25
     filename_pattern: "result_{shard_index:03d}.h5"
-    parallel_workers: 1
-    gpu_ids: []
-    visualization_mode: "first_shard"
+    parallel_workers: 5
+    gpu_ids: [3, 4, 5, 6, 7]
+    visualization_mode: "none"
+  save_sampled_paths: true
 
 carrier:
   center_frequency_hz: 3500000000.0
@@ -63,7 +71,7 @@ antenna:
 
 array:
   spectrum:
-    enabled: false          # enable explicitly for spatial-spectrum datasets; expensive at scale
+    enabled: false
     sources: []
     method: "bartlett"
     zenith_bins: 91
@@ -78,7 +86,7 @@ array:
     link_chunk_size: 128
 
 visualization:
-  enabled: false            # enable explicitly for sampled diagnostics; expensive at scale
+  enabled: false
   output_dir: "figures"
   sample_policy: "spatially_spread_valid_links"
   random_seed: 42

@@ -335,7 +335,8 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 | `config/defaults/measurement_mvp.yaml` | custom OFDM + 全 impairment + motion | `standard: "custom_ofdm"`, fft_size=64, num_subcarriers=64 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink | `standard: "nr_pusch"`, 4×4 天线, num_prb=4, num_subcarriers=48 |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, sources 包含 `srs_cfr_est`；当前默认 `synthetic_array=false`，普通 6x5 UE shard 可能在 RT 阶段 OOM，RT 参数对比使用 micro-sweep |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`, UE shard `shard_size=25`；空间谱/可视化默认关闭，按需显式开启 |
+| `config/perf/nr_srs_7x500_sharded.yaml` | Bistro 室内 FR1 100 MHz SRS-like shard 确认测试 | `7 BS x 500 UE`, 20 个 UE shard, 多 GPU 并行，验证 `result_xxx.h5` 和 aggregate manifest |
 
 ### 1.6 输入数据格式
 
@@ -729,7 +730,7 @@ results.h5
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
-大规模 NR PUSCH 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。`6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
+大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like 的 Bistro direct uplink 模板默认 `shard_size=25`，面向 `7 BS × 2500 UE` 量级生产。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
 
 ### 2.17 `/array` — 阵列观测与标签
 

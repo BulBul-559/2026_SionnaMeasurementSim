@@ -33,14 +33,14 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like full-band uplink sounding 模板 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
+| `config/perf/nr_srs_7x500_sharded.yaml` | 7×500 NR SRS-like direct uplink shard 确认测试 |
 | `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | SRS-like 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
-> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。PUSCH 模板已有
-> `6 BS x 5 UE` probe；SRS-like 模板当前默认 `rt.synthetic_array=false`，
-> 普通 UE shard 的 `6x5`/`6x1` 会在 RT PathSolver 阶段 OOM，因此 SRS RT
-> 参数对比使用 `1 BS x 1 UE` micro-sweep。`max_ue: 1000` 是目标数据规模，
-> 不是提交前必跑验收；估算见 `docs/sys/indoor_fr1_100mhz_validation.md`
-> 和 `docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
+> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。SRS-like 模板当前默认
+> direct uplink、`rt.synthetic_array=false`、UE shard `shard_size: 25`，适合少量
+> BS、大量 UE 的生产数据生成。`max_ue: 2500` 是目标数据规模，不是提交前必跑验收；
+> 7×500 shard 确认测试见 `config/perf/nr_srs_7x500_sharded.yaml` 和
+> `docs/performance/nr_srs_7x500_sharded_confirmation.md`。
 
 仓库里的 `data/` 只是占位目录。生产场景、floor-plan、label 和 HDF5 不进入 git；可以在本地把 `data/bistro_0000` 这类路径做成 symlink，或在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
@@ -61,10 +61,10 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
 当前 pipeline 使用 `link.phy_link_direction` 直接解析 BS/UE 到 TX/RX：uplink 为
-`UE -> BS`，downlink 为 `BS -> UE`。在非合成阵列下，UE/BS 的阵列元素会作为真实
-endpoint 参与 RT，普通 `6 BS x N UE` UE shard 仍可能在 `PathSolver` 阶段 OOM。
-可用 `scripts/run_srs_rt_variant_micro_sweep.py` 做 `1 BS x 1 UE` micro-sweep
-验证 RT 参数影响；更高效的生产方案应进一步实现二维 BS/UE 或 TX/RX block shard。
+`UE -> BS`，downlink 为 `BS -> UE`。在 `bistro_0000` 当前 RT 配置下，已验证
+`7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 `PathSolver` 阶段 OOM；
+因此默认 SRS-like 模板使用 `shard_size: 25` 作为保守生产值。多个 shard 会分别写
+`result_xxx.h5`，根目录 `manifest.json` 汇总全局 UE/BS 索引。
 
 ## Role View vs Link View
 
