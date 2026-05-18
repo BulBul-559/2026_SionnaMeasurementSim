@@ -17,8 +17,8 @@ def test_load_topology_from_label_supports_rx_range(tmp_path: Path):
 
     topology = load_topology_from_label(
         label_path,
-        max_tx=2,
-        max_rx=1,
+        max_bs=2,
+        max_ue=1,
         rx_start=2,
         rx_count=2,
     )
@@ -57,7 +57,7 @@ def test_load_role_topology_from_label_supports_ue_range_and_global_indices(tmp_
 def test_load_topology_from_label_keeps_max_count_as_cap(tmp_path: Path):
     label_path = _write_label(tmp_path)
 
-    topology = load_topology_from_label(label_path, max_tx=10, max_rx=10)
+    topology = load_topology_from_label(label_path, max_bs=10, max_ue=10)
 
     assert topology.tx_labels == ("BS0", "BS1", "BS2")
     assert topology.rx_labels == ("UE0", "UE1", "UE2", "UE3")
@@ -68,8 +68,8 @@ def test_load_topology_from_label_supports_explicit_rx_and_tx_indices(tmp_path: 
 
     topology = load_topology_from_label(
         label_path,
-        max_tx=1,
-        max_rx=1,
+        max_bs=1,
+        max_ue=1,
         rx_indices=(3, 1),
         tx_indices=(2, 0),
     )
@@ -100,8 +100,8 @@ def test_build_shard_specs_splits_8884_ues_into_nine_shards(tmp_path: Path):
         label_file=label_path,
         scene_file=tmp_path / "scene.xml",
         output_dir=tmp_path / "out",
-        max_tx=6,
-        max_rx=8884,
+        max_bs=6,
+        max_ue=8884,
         output_sharding_config=OutputShardingConfig(
             enabled=True,
             shard_size=1000,
@@ -111,7 +111,7 @@ def test_build_shard_specs_splits_8884_ues_into_nine_shards(tmp_path: Path):
     specs = _build_shard_specs(config)
 
     assert len(specs) == 9
-    assert [spec.rx_start for spec in specs] == [
+    assert [spec.ue_start for spec in specs] == [
         0,
         1000,
         2000,
@@ -122,7 +122,7 @@ def test_build_shard_specs_splits_8884_ues_into_nine_shards(tmp_path: Path):
         7000,
         8000,
     ]
-    assert [spec.rx_count for spec in specs] == [
+    assert [spec.ue_count for spec in specs] == [
         1000,
         1000,
         1000,
@@ -141,8 +141,8 @@ def test_build_shard_specs_caps_to_available_ues_and_normalizes_ue_axis(tmp_path
         label_file=label_path,
         scene_file=tmp_path / "scene.xml",
         output_dir=tmp_path / "out",
-        max_tx=10,
-        max_rx=10,
+        max_bs=10,
+        max_ue=10,
         output_sharding_config=OutputShardingConfig(
             enabled=True,
             axis="ue",
@@ -153,9 +153,9 @@ def test_build_shard_specs_caps_to_available_ues_and_normalizes_ue_axis(tmp_path
     specs = _build_shard_specs(config)
 
     assert len(specs) == 2
-    assert [spec.axis for spec in specs] == ["rx", "rx"]
-    assert [spec.rx_start for spec in specs] == [0, 3]
-    assert [spec.rx_count for spec in specs] == [3, 1]
+    assert [spec.axis for spec in specs] == ["ue", "ue"]
+    assert [spec.ue_start for spec in specs] == [0, 3]
+    assert [spec.ue_count for spec in specs] == [3, 1]
 
 
 def _write_label(tmp_path: Path) -> Path:

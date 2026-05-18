@@ -37,8 +37,8 @@ def test_nr_srs_full_band_ls_recovers_truth_without_noise():
 
     np.testing.assert_allclose(result["observation"].cfr_est, truth[np.newaxis, ...], atol=1e-5)
     assert result["nr_waveform_spec"].standard == "nr_srs"
-    assert result["waveform_grids"]["srs_tx_grid"].shape == (1, 1, 1, 2, 2, 8)
-    assert result["waveform_grids"]["srs_rx_grid"].shape == (1, 1, 1, 4, 2, 8)
+    assert result["waveform_grids"]["srs_tx_grid"].shape == (1, 1, 1, 4, 4, 8)
+    assert result["waveform_grids"]["srs_rx_grid"].shape == (1, 1, 1, 2, 4, 8)
     assert result["evaluation"].ber == 0.0
     assert result["evaluation"].bler == 0.0
 
@@ -53,5 +53,5 @@ def test_nr_srs_uses_enough_symbols_for_tx_antenna_orthogonality():
         SimpleNamespace(num_subcarriers=8),
     )
 
-    assert result["nr_waveform_spec"].num_ofdm_symbols == 4
-    assert result["waveform_grids"]["srs_pilot_code"].shape == (4, 4)
+    assert result["nr_waveform_spec"].num_ofdm_symbols == 2
+    assert result["waveform_grids"]["srs_pilot_code"].shape == (2, 2)

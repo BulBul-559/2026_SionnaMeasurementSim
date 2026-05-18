@@ -20,14 +20,13 @@ from sionna_measurement_sim.domain.link import LinkConfig
 class PUSCHMIMOChannel:
     """MIMO channel bundle for PUSCH processing.
 
-    Holds the frequency-domain channel response in project CFR format,
-    plus metadata about the UL/DL orientation and reciprocity.
+    Holds the frequency-domain channel response in link-view CFR format.
     """
 
     cfr: np.ndarray
-    """6-D CFR in project orientation
-    ``[snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, subcarrier]``
-    where ul_tx = UE (was project rx), ul_rx = BS (was project tx)."""
+    """6-D CFR in link-view orientation
+    ``[snap, tx, rx, rx_ant, tx_ant, subcarrier]``.
+    For an uplink PUSCH/SRS run, ``tx`` is UE and ``rx`` is BS."""
 
     num_snap: int
     num_ul_tx: int
@@ -47,8 +46,9 @@ def build_mimo_cfr_from_cir(
 ) -> PUSCHMIMOChannel:
     """Convert project CIR to CFR for use with PUSCH MIMO processing.
 
-    Applies TDD reciprocity if configured, then converts the CIR to
-    frequency domain via ``sionna.phy.channel.cir_to_ofdm_channel``.
+    Uses the resolved link-view CIR directly. Legacy reciprocity is still
+    supported for old internal call sites, but public configs now resolve
+    BS/UE into TX/RX before this function is called.
 
     Parameters
     ----------
@@ -82,16 +82,8 @@ def build_mimo_cfr_from_cir(
         except ImportError:
             pass
 
-    # 2. Convert to UL convention if reciprocity not applied.
-    #    DL CIR:  [snap, tx, rx, rx_ant, tx_ant, path]
-    #    UL CIR:  [snap, ul_tx(=rx), ul_rx(=tx), ul_rx_ant(=tx_ant), ul_tx_ant(=rx_ant), path]
-    #    Without reciprocity, swap (dim1↔dim2) and (dim3↔dim4) to get UL.
-    if not reciprocity_applied:
-        cir_a_ul = np.transpose(cir_coefficients, (0, 2, 1, 4, 3, 5))
-        cir_tau_ul = np.transpose(cir_delays_s, (0, 2, 1, 4, 3, 5))
-    else:
-        cir_a_ul = cir_coefficients
-        cir_tau_ul = cir_delays_s
+    cir_a_ul = cir_coefficients
+    cir_tau_ul = cir_delays_s
 
     # 3. Extract shapes
     # UL CIR: [snap, ul_tx, ul_rx, ul_rx_ant, ul_tx_ant, path]

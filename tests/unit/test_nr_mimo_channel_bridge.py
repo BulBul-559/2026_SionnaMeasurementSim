@@ -42,18 +42,17 @@ class TestBuildMIMOCFRFromCIR:
         assert ch.cfr.dtype == np.complex64
         assert ch.cfr.ndim == 6
 
-    def test_no_reciprocity_converts_to_ul(self):
-        """Without reciprocity, DL CIR is converted to UL convention."""
+    def test_no_reciprocity_keeps_resolved_link_view(self):
+        """Without legacy reciprocity, CIR is already in resolved TX/RX view."""
         snap, tx, rx, rx_ant, tx_ant, path = 2, 3, 1, 4, 2, 5
         coeff, delays = _make_cir(snap, tx, rx, rx_ant, tx_ant, path)
         link = LinkConfig(reciprocity_applied=False)
         ch = build_mimo_cfr_from_cir(coeff, delays, link, 15000.0, 48)
         assert ch.num_snap == snap
-        # DL: tx→UL rx, DL: rx→UL tx
-        assert ch.num_ul_tx == rx  # UL tx = UE = project rx
-        assert ch.num_ul_rx == tx  # UL rx = BS = project tx
-        assert ch.num_ul_tx_ant == rx_ant  # UE antennas
-        assert ch.num_ul_rx_ant == tx_ant  # BS antennas
+        assert ch.num_ul_tx == tx
+        assert ch.num_ul_rx == rx
+        assert ch.num_ul_tx_ant == tx_ant
+        assert ch.num_ul_rx_ant == rx_ant
         assert not ch.reciprocity_applied
 
     def test_with_reciprocity_swaps_dimensions(self):
@@ -130,17 +129,16 @@ class TestCFRToPUSCHPerfectH:
         assert h.shape[4] == 2
 
     def test_different_antenna_counts(self):
-        """Asymmetric: 8 UE ant (project rx_ant), 2 BS ant (project tx_ant).
+        """Asymmetric direct link-view antenna counts.
 
-        Without reciprocity, these map to ul_tx_ant=8 and ul_rx_ant=2.
+        Without legacy reciprocity, RX/TX antenna dimensions stay in link view.
         """
         coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=8, tx_ant=2, path=3)
         link = LinkConfig(reciprocity_applied=False)
         ch = build_mimo_cfr_from_cir(coeff, delays, link, 30000.0, 48)
-        # UL: num_ul_tx_ant=8 (UE), num_ul_rx_ant=2 (BS)
         h = cfr_to_pusch_perfect_h(ch, 0, 0, 0, 14)
-        assert h.shape[2] == 2  # num_rx_ant = ul_rx_ant = BS antennas
-        assert h.shape[4] == 8  # num_tx_ant = ul_tx_ant = UE antennas
+        assert h.shape[2] == 8  # num_rx_ant
+        assert h.shape[4] == 2  # num_tx_ant
 
     def test_h_is_finite(self):
         coeff, delays = _make_cir(snap=1, tx=1, rx=1, rx_ant=4, tx_ant=4, path=3)

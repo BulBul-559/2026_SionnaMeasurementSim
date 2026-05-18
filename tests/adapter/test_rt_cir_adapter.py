@@ -16,7 +16,7 @@ from sionna_measurement_sim.io.label_parser import load_topology_from_label
 class TestCIRAdapter:
     def test_cir_shape_6d_4x4_mimo(self):
         topology = load_topology_from_label(
-            Path("tests/fixtures/scenes/test/test5.json"), max_tx=2, max_rx=2,
+            Path("tests/fixtures/scenes/test/test5.json"), max_bs=2, max_ue=2,
         )
         antenna = AntennaSpec(
             tx_num_rows=2, tx_num_cols=2,
@@ -48,7 +48,7 @@ class TestCIRAdapter:
 
     def test_cir_dtype(self):
         topology = load_topology_from_label(
-            Path("tests/fixtures/scenes/test/test5.json"), max_tx=1, max_rx=1,
+            Path("tests/fixtures/scenes/test/test5.json"), max_bs=1, max_ue=1,
         )
         antenna = AntennaSpec(
             tx_polarization="V", rx_polarization="V",

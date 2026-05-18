@@ -19,23 +19,42 @@ from sionna_measurement_sim.domain.topology import (
 def load_topology_from_label(
     label_file: str | Path,
     *,
-    max_tx: int = 1,
-    max_rx: int = 1,
-    rx_start: int = 0,
+    max_bs: int = 1,
+    max_ue: int = 1,
+    ue_start: int = 0,
+    ue_count: int | None = None,
+    ue_indices: list[int] | tuple[int, ...] | None = None,
+    bs_indices: list[int] | tuple[int, ...] | None = None,
+    max_tx: int | None = None,
+    max_rx: int | None = None,
+    rx_start: int | None = None,
     rx_count: int | None = None,
     rx_indices: list[int] | tuple[int, ...] | None = None,
     tx_indices: list[int] | tuple[int, ...] | None = None,
 ) -> Topology:
     """Load a small TX/RX topology from the prepared test label JSON."""
 
+    if max_tx is not None:
+        max_bs = max_tx
+    if max_rx is not None:
+        max_ue = max_rx
+    if rx_start is not None:
+        ue_start = rx_start
+    if rx_count is not None:
+        ue_count = rx_count
+    if rx_indices is not None:
+        ue_indices = rx_indices
+    if tx_indices is not None:
+        bs_indices = tx_indices
+
     role_topology = load_role_topology_from_label(
         label_file,
-        max_bs=max_tx,
-        max_ue=max_rx,
-        ue_start=rx_start,
-        ue_count=rx_count,
-        ue_indices=rx_indices,
-        bs_indices=tx_indices,
+        max_bs=max_bs,
+        max_ue=max_ue,
+        ue_start=ue_start,
+        ue_count=ue_count,
+        ue_indices=ue_indices,
+        bs_indices=bs_indices,
     )
     return resolve_role_topology(role_topology, resolve_link_roles("downlink"))
 

@@ -10,10 +10,10 @@ from sionna_measurement_sim.domain.results import create_phase1_minimal_result
 from sionna_measurement_sim.domain.topology import (
     RoleTopology,
     Topology,
-    resolved_global_indices,
     resolve_link_roles,
     resolve_role_pair,
     resolve_role_topology,
+    resolved_global_indices,
 )
 
 
@@ -53,7 +53,11 @@ def test_role_topology_resolves_uplink_to_ue_tx_bs_rx():
 
     topology = resolve_role_topology(roles, mapping)
     tx_indices, rx_indices = resolved_global_indices(roles, mapping)
-    tx_value, rx_value = resolve_role_pair(bs_value="bs_array", ue_value="ue_array", mapping=mapping)
+    tx_value, rx_value = resolve_role_pair(
+        bs_value="bs_array",
+        ue_value="ue_array",
+        mapping=mapping,
+    )
 
     assert mapping.tx_role == "ue"
     assert mapping.rx_role == "bs"
@@ -152,7 +156,7 @@ def test_derived_labels_select_paths_globally_over_antennas():
     assert derived.los_aoa_zenith_rad[0, 0] == pytest.approx(0.7)
 
 
-def test_derived_labels_use_aod_for_reverse_uplink_receiver_direction():
+def test_derived_labels_use_receiver_side_aoa_for_direct_link_view():
     topology = Topology(
         tx_positions_m=np.array([[0.0, 0.0, 0.0]], dtype=np.float32),
         rx_positions_m=np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
@@ -189,14 +193,14 @@ def test_derived_labels_use_aod_for_reverse_uplink_receiver_direction():
         topology,
         truth,
         table,
-        link_config=LinkConfig(reciprocity_applied=False),
+        link_config=LinkConfig(phy_link_direction="downlink"),
     )
     uplink = build_derived_labels(topology, truth, table, link_config=LinkConfig())
 
     assert downlink.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(1.22)
     assert downlink.first_path_aoa_zenith_rad[0, 0] == pytest.approx(1.11)
-    assert uplink.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(0.22)
-    assert uplink.first_path_aoa_zenith_rad[0, 0] == pytest.approx(0.11)
+    assert uplink.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(1.22)
+    assert uplink.first_path_aoa_zenith_rad[0, 0] == pytest.approx(1.11)
 
 
 def test_nlos_truth_masks_los_and_invalid_paths():

@@ -37,9 +37,20 @@ from sionna_measurement_sim.domain.results import (
     ShardMetadata,
     ShardSpec,
 )
-from sionna_measurement_sim.domain.topology import Topology
+from sionna_measurement_sim.domain.topology import (
+    LinkRoleMapping,
+    RoleTopology,
+    Topology,
+    resolve_link_roles,
+    resolve_role_pair,
+    resolve_role_topology,
+    resolved_global_indices,
+)
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
-from sionna_measurement_sim.io.label_parser import count_topology_points, load_topology_from_label
+from sionna_measurement_sim.io.label_parser import (
+    count_topology_points,
+    load_role_topology_from_label,
+)
 from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
@@ -64,8 +75,8 @@ class RTTruthRunConfig:
     num_subcarriers: int = 8
     seed: int = 1
     device: str = "cpu"
-    max_tx: int = 1
-    max_rx: int = 1
+    max_bs: int = 1
+    max_ue: int = 1
     max_depth: int = 1
     los: bool = True
     specular_reflection: bool = True
@@ -80,23 +91,23 @@ class RTTruthRunConfig:
     impairment_config: ImpairmentConfig | None = None
     num_time_steps: int = 1
     sampling_frequency_hz: float = 0.0
-    tx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    rx_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    # Antenna config
-    tx_num_rows: int = 1
-    tx_num_cols: int = 1
-    rx_num_rows: int = 1
-    rx_num_cols: int = 1
-    tx_polarization: str = "V"
-    rx_polarization: str = "V"
-    tx_orientation_mode: str = "fixed"
-    tx_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    rx_orientation_mode: str = "fixed"
-    rx_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    tx_spacing_lambda: tuple[float, float] = (0.5, 0.5)
-    rx_spacing_lambda: tuple[float, float] = (0.5, 0.5)
-    tx_pattern: str = "iso"
-    rx_pattern: str = "iso"
+    bs_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ue_velocity_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Role-view antenna config
+    bs_num_rows: int = 1
+    bs_num_cols: int = 1
+    ue_num_rows: int = 1
+    ue_num_cols: int = 1
+    bs_polarization: str = "V"
+    ue_polarization: str = "V"
+    bs_orientation_mode: str = "fixed"
+    bs_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ue_orientation_mode: str = "fixed"
+    ue_orientation_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    bs_spacing_lambda: tuple[float, float] = (0.5, 0.5)
+    ue_spacing_lambda: tuple[float, float] = (0.5, 0.5)
+    bs_pattern: str = "iso"
+    ue_pattern: str = "iso"
     merge_shapes: bool = False
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
@@ -135,7 +146,7 @@ class RTTruthRunConfig:
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
-    """Run RT truth pipeline, optionally as UE/RX HDF5 shards."""
+    """Run RT truth pipeline, optionally as UE HDF5 shards."""
 
     if _should_run_sharded(config):
         return run_sharded_rt_truth_pipeline(config)
@@ -143,7 +154,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
 
 
 def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
-    """Run a UE/RX-sharded `run-full` and write an aggregate manifest."""
+    """Run a UE-sharded `run-full` and write an aggregate manifest."""
 
     sharding = config.output_sharding_config
     if sharding is None or not getattr(sharding, "enabled", False):
@@ -196,9 +207,9 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         "elapsed_seconds": elapsed_seconds,
         "sharding": {
             "enabled": True,
-            "axis": _normalize_shard_axis(getattr(sharding, "axis", "rx")),
-            "requested_axis": str(getattr(sharding, "axis", "rx")),
-            "shard_size": int(getattr(sharding, "shard_size", config.max_rx)),
+            "axis": _normalize_shard_axis(getattr(sharding, "axis", "ue")),
+            "requested_axis": str(getattr(sharding, "axis", "ue")),
+            "shard_size": int(getattr(sharding, "shard_size", config.max_ue)),
             "shard_count": shard_count,
             "parallel_workers": parallel_workers,
             "gpu_ids": gpu_ids,
@@ -229,32 +240,24 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     tracer = PerfTracer(output_dir, config.debug_config, worker_id=worker_id)
     tracer.start()
 
-    with tracer.span("topology_load"):
-        topology = load_topology_from_label(
-            config.label_file,
-            max_tx=config.max_tx,
-            max_rx=config.max_rx,
-            rx_start=config.shard_spec.rx_start if config.shard_spec else 0,
-            rx_count=config.shard_spec.rx_count if config.shard_spec else None,
-            rx_indices=config.shard_spec.rx_indices if config.shard_spec else None,
-            tx_indices=config.shard_spec.tx_indices if config.shard_spec else None,
-        )
-    antenna = AntennaSpec(
-        tx_num_rows=config.tx_num_rows,
-        tx_num_cols=config.tx_num_cols,
-        rx_num_rows=config.rx_num_rows,
-        rx_num_cols=config.rx_num_cols,
-        tx_polarization=config.tx_polarization,
-        rx_polarization=config.rx_polarization,
-        tx_spacing_lambda=config.tx_spacing_lambda,
-        rx_spacing_lambda=config.rx_spacing_lambda,
-        tx_pattern=config.tx_pattern,
-        rx_pattern=config.rx_pattern,
-        tx_orientation_mode=config.tx_orientation_mode,
-        tx_orientation_rad=config.tx_orientation_rad,
-        rx_orientation_mode=config.rx_orientation_mode,
-        rx_orientation_rad=config.rx_orientation_rad,
+    mapping = resolve_link_roles(config.link_config.phy_link_direction)
+    link_config = replace(
+        config.link_config,
+        tx_role=mapping.tx_role,
+        rx_role=mapping.rx_role,
     )
+    with tracer.span("topology_load"):
+        role_topology = load_role_topology_from_label(
+            config.label_file,
+            max_bs=config.max_bs,
+            max_ue=config.max_ue,
+            ue_start=config.shard_spec.ue_start if config.shard_spec else 0,
+            ue_count=config.shard_spec.ue_count if config.shard_spec else None,
+            ue_indices=config.shard_spec.ue_indices if config.shard_spec else None,
+            bs_indices=config.shard_spec.bs_indices if config.shard_spec else None,
+        )
+        topology = resolve_role_topology(role_topology, mapping)
+    antenna = _build_resolved_antenna(config, mapping)
     frequency = FrequencyGrid.from_center_bandwidth(
         config.center_frequency_hz,
         config.bandwidth_hz,
@@ -279,8 +282,16 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
                 normalize_delays=config.normalize_delays,
                 num_time_steps=config.num_time_steps,
                 sampling_frequency_hz=config.sampling_frequency_hz,
-                tx_velocity=config.tx_velocity_mps,
-                rx_velocity=config.rx_velocity_mps,
+                tx_velocity=_resolve_tx_rx_values(
+                    config.bs_velocity_mps,
+                    config.ue_velocity_mps,
+                    mapping,
+                )[0],
+                rx_velocity=_resolve_tx_rx_values(
+                    config.bs_velocity_mps,
+                    config.ue_velocity_mps,
+                    mapping,
+                )[1],
                 merge_shapes=config.merge_shapes,
             ),
         )
@@ -314,7 +325,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             adapter_result.truth,
             adapter_result.path_table,
             adapter_result.cir_truth,
-            link_config=config.link_config,
+            link_config=link_config,
         )
         nlos_path_truth = build_nlos_path_truth(adapter_result.path_table)
     with tracer.span("array_outputs"):
@@ -331,7 +342,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             phy_extra["array_outputs"] = _build_truth_array_outputs(
                 config, derived, adapter_result.truth.cfr
             )
-    shard_metadata = _build_shard_metadata(config, topology)
+    shard_metadata = _build_shard_metadata(config, role_topology, mapping)
     result = MeasurementSimulationResult(
         metadata=Metadata(
             run_id=output_dir.name,
@@ -349,7 +360,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         ),
         topology=topology,
         devices=_build_device_state(
-            config, topology,
+            config, topology, mapping,
             tx_orientation_rad_scene=adapter_result.tx_orientation_rad,
             rx_orientation_rad_scene=adapter_result.rx_orientation_rad,
         ),
@@ -390,7 +401,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             if (observation_bundle and config.calibration_enabled)
             else None
         ),
-        link=config.link_config,
+        link=link_config,
         shard=shard_metadata,
         waveform_extras=phy_extra.get("waveform_extras"),
         array_outputs=phy_extra.get("array_outputs"),
@@ -499,24 +510,24 @@ def _build_shard_specs(config: RTTruthRunConfig) -> list[ShardSpec]:
     sharding = config.output_sharding_config
     if sharding is None:
         return []
-    axis = _normalize_shard_axis(getattr(sharding, "axis", "rx"))
-    shard_size = int(getattr(sharding, "shard_size", config.max_rx))
+    axis = _normalize_shard_axis(getattr(sharding, "axis", "ue"))
+    shard_size = int(getattr(sharding, "shard_size", config.max_ue))
     if shard_size < 1:
         msg = "output.sharding.shard_size must be positive"
         raise ValueError(msg)
-    available_tx, available_rx = count_topology_points(config.label_file)
-    effective_rx_count = min(config.max_rx, available_rx)
-    if min(config.max_tx, available_tx) < 1 or effective_rx_count < 1:
+    available_bs, available_ue = count_topology_points(config.label_file)
+    effective_ue_count = min(config.max_ue, available_ue)
+    if min(config.max_bs, available_bs) < 1 or effective_ue_count < 1:
         msg = "Label file must contain at least one selected BS and UE"
         raise ValueError(msg)
-    shard_count = (effective_rx_count + shard_size - 1) // shard_size
+    shard_count = (effective_ue_count + shard_size - 1) // shard_size
     return [
         ShardSpec(
             shard_index=shard_index,
             shard_count=shard_count,
             axis=axis,
-            rx_start=shard_index * shard_size,
-            rx_count=min(shard_size, effective_rx_count - shard_index * shard_size),
+            ue_start=shard_index * shard_size,
+            ue_count=min(shard_size, effective_ue_count - shard_index * shard_size),
         )
         for shard_index in range(shard_count)
     ]
@@ -525,7 +536,7 @@ def _build_shard_specs(config: RTTruthRunConfig) -> list[ShardSpec]:
 def _normalize_shard_axis(axis: object) -> str:
     axis_str = str(axis)
     if axis_str in ("rx", "ue"):
-        return "rx"
+        return "ue"
     msg = f"Only rx/ue sharding is supported, got {axis_str!r}"
     raise ValueError(msg)
 
@@ -588,12 +599,23 @@ def _shard_result_summary(config: RTTruthRunConfig, result_path: Path) -> dict[s
         int(index)
         for index in shard_summary.get(
             "global_rx_indices",
-            list(range(spec.rx_start, spec.rx_start + int(spec.rx_count or 0))),
+            list(range(int(config.max_bs))),
         )
     ]
     tx_indices = [
         int(index)
-        for index in shard_summary.get("global_tx_indices", list(range(config.max_tx)))
+        for index in shard_summary.get(
+            "global_tx_indices",
+            list(range(spec.ue_start, spec.ue_start + int(spec.ue_count or 0))),
+        )
+    ]
+    ue_indices = [
+        int(index)
+        for index in shard_summary.get("global_ue_indices", tx_indices)
+    ]
+    bs_indices = [
+        int(index)
+        for index in shard_summary.get("global_bs_indices", rx_indices)
     ]
     return {
         "shard_index": spec.shard_index,
@@ -601,10 +623,15 @@ def _shard_result_summary(config: RTTruthRunConfig, result_path: Path) -> dict[s
         "axis": str(shard_summary.get("axis", spec.axis)),
         "result_h5": Path(result_path).as_posix(),
         "manifest": manifest_path.as_posix(),
-        "global_rx_start": int(shard_summary.get("global_rx_start", spec.rx_start)),
+        "global_rx_start": int(
+            shard_summary.get("global_rx_start", rx_indices[0] if rx_indices else 0)
+        ),
         "global_rx_count": len(rx_indices),
         "global_rx_indices": rx_indices,
         "global_tx_indices": tx_indices,
+        "global_ue_count": len(ue_indices),
+        "global_ue_indices": ue_indices,
+        "global_bs_indices": bs_indices,
         "nr_pusch_batching": shard_manifest.get("nr_pusch_batching", {}),
     }
 
@@ -658,21 +685,13 @@ def _aggregate_shard_performance(
 
 def _build_shard_metadata(
     config: RTTruthRunConfig,
-    topology: Topology,
+    role_topology: RoleTopology,
+    mapping: LinkRoleMapping,
 ) -> ShardMetadata | None:
     spec = config.shard_spec
     if spec is None:
         return None
-    rx_indices = (
-        np.asarray(spec.rx_indices, dtype=np.int64)
-        if spec.rx_indices is not None
-        else np.arange(spec.rx_start, spec.rx_start + topology.num_rx, dtype=np.int64)
-    )
-    tx_indices = (
-        np.asarray(spec.tx_indices, dtype=np.int64)
-        if spec.tx_indices is not None
-        else np.arange(topology.num_tx, dtype=np.int64)
-    )
+    tx_indices, rx_indices = resolved_global_indices(role_topology, mapping)
     return ShardMetadata.from_spec(
         spec,
         global_rx_indices=rx_indices,
@@ -694,12 +713,18 @@ def _manifest_shard_summary(shard: ShardMetadata) -> dict[str, object]:
 def _build_device_state(
     config: RTTruthRunConfig,
     topology: Topology,
+    mapping: LinkRoleMapping,
     tx_orientation_rad_scene: np.ndarray | None = None,
     rx_orientation_rad_scene: np.ndarray | None = None,
 ) -> DeviceState:
     num_snap = max(config.num_time_steps, 1)
-    v_tx = np.array(config.tx_velocity_mps, dtype=np.float32)
-    v_rx = np.array(config.rx_velocity_mps, dtype=np.float32)
+    tx_velocity, rx_velocity = _resolve_tx_rx_values(
+        config.bs_velocity_mps,
+        config.ue_velocity_mps,
+        mapping,
+    )
+    v_tx = np.array(tx_velocity, dtype=np.float32)
+    v_rx = np.array(rx_velocity, dtype=np.float32)
     tx_v = np.tile(v_tx.reshape(1, 1, 3), (num_snap, topology.num_tx, 1))
     rx_v = np.tile(v_rx.reshape(1, 1, 3), (num_snap, topology.num_rx, 1))
 
@@ -707,14 +732,24 @@ def _build_device_state(
         tx_orient = tx_orientation_rad_scene.reshape(1, topology.num_tx, 3)
         tx_o = np.tile(tx_orient, (num_snap, 1, 1)).astype(np.float32, copy=False)
     else:
-        tx_orient = np.array(config.tx_orientation_rad, dtype=np.float32).reshape(1, 1, 3)
+        tx_orientation, _rx_orientation = _resolve_tx_rx_values(
+            config.bs_orientation_rad,
+            config.ue_orientation_rad,
+            mapping,
+        )
+        tx_orient = np.array(tx_orientation, dtype=np.float32).reshape(1, 1, 3)
         tx_o = np.tile(tx_orient, (num_snap, topology.num_tx, 1))
 
     if rx_orientation_rad_scene is not None:
         rx_orient = rx_orientation_rad_scene.reshape(1, topology.num_rx, 3)
         rx_o = np.tile(rx_orient, (num_snap, 1, 1)).astype(np.float32, copy=False)
     else:
-        rx_orient = np.array(config.rx_orientation_rad, dtype=np.float32).reshape(1, 1, 3)
+        _tx_orientation, rx_orientation = _resolve_tx_rx_values(
+            config.bs_orientation_rad,
+            config.ue_orientation_rad,
+            mapping,
+        )
+        rx_orient = np.array(rx_orientation, dtype=np.float32).reshape(1, 1, 3)
         rx_o = np.tile(rx_orient, (num_snap, topology.num_rx, 1))
 
     return DeviceState(
@@ -722,6 +757,72 @@ def _build_device_state(
         rx_velocity_mps=rx_v,
         tx_orientation_rad=tx_o,
         rx_orientation_rad=rx_o,
+    )
+
+
+def _resolve_tx_rx_values(
+    bs_value,
+    ue_value,
+    mapping: LinkRoleMapping,
+):
+    return resolve_role_pair(bs_value=bs_value, ue_value=ue_value, mapping=mapping)
+
+
+def _build_resolved_antenna(
+    config: RTTruthRunConfig,
+    mapping: LinkRoleMapping,
+) -> AntennaSpec:
+    (tx_rows, rx_rows) = _resolve_tx_rx_values(
+        config.bs_num_rows,
+        config.ue_num_rows,
+        mapping,
+    )
+    (tx_cols, rx_cols) = _resolve_tx_rx_values(
+        config.bs_num_cols,
+        config.ue_num_cols,
+        mapping,
+    )
+    (tx_pol, rx_pol) = _resolve_tx_rx_values(
+        config.bs_polarization,
+        config.ue_polarization,
+        mapping,
+    )
+    (tx_spacing, rx_spacing) = _resolve_tx_rx_values(
+        config.bs_spacing_lambda,
+        config.ue_spacing_lambda,
+        mapping,
+    )
+    (tx_pattern, rx_pattern) = _resolve_tx_rx_values(
+        config.bs_pattern,
+        config.ue_pattern,
+        mapping,
+    )
+    (tx_orientation_mode, rx_orientation_mode) = _resolve_tx_rx_values(
+        config.bs_orientation_mode,
+        config.ue_orientation_mode,
+        mapping,
+    )
+    (tx_orientation, rx_orientation) = _resolve_tx_rx_values(
+        config.bs_orientation_rad,
+        config.ue_orientation_rad,
+        mapping,
+    )
+    return AntennaSpec(
+        tx_num_rows=int(tx_rows),
+        tx_num_cols=int(tx_cols),
+        rx_num_rows=int(rx_rows),
+        rx_num_cols=int(rx_cols),
+        tx_polarization=str(tx_pol),
+        rx_polarization=str(rx_pol),
+        tx_spacing_lambda=tuple(float(v) for v in tx_spacing),
+        rx_spacing_lambda=tuple(float(v) for v in rx_spacing),
+        tx_pattern=str(tx_pattern),
+        rx_pattern=str(rx_pattern),
+        tx_orientation_mode=str(tx_orientation_mode),
+        tx_orientation_rad=tuple(float(v) for v in tx_orientation),
+        rx_orientation_mode=str(rx_orientation_mode),
+        rx_orientation_rad=tuple(float(v) for v in rx_orientation),
+        synthetic_array=bool(config.synthetic_array),
     )
 
 
@@ -757,23 +858,25 @@ def _attach_phy_array_outputs(
 
     rx_grid = np.asarray(rx_grid)
     num_snap = rx_grid.shape[0]
-    # NR PUSCH waveform grids use UL convention:
-    # ul_tx == DL rx (UE), ul_rx == DL tx (BS).
     aoa_2d = np.stack(
         (
-            derived.first_path_aoa_zenith_rad.T,
-            derived.first_path_aoa_azimuth_rad.T,
+            derived.first_path_aoa_zenith_rad,
+            derived.first_path_aoa_azimuth_rad,
         ),
         axis=-1,
     ).astype(np.float32, copy=False)
     aoa = np.broadcast_to(aoa_2d[np.newaxis, ...], (num_snap, *aoa_2d.shape))
+    resolved_antenna = _build_resolved_antenna(
+        config,
+        resolve_link_roles(config.link_config.phy_link_direction),
+    )
     phy_extra["array_outputs"] = build_array_outputs_from_waveform(
         rx_grid,
         aoa_label_rad=aoa,
         spectrum_config=config.spectrum_config,
-        rx_num_rows=config.tx_num_rows,
-        rx_num_cols=config.tx_num_cols,
-        rx_spacing_lambda=config.tx_spacing_lambda,
+        rx_num_rows=resolved_antenna.rx_num_rows,
+        rx_num_cols=resolved_antenna.rx_num_cols,
+        rx_spacing_lambda=tuple(float(v) for v in resolved_antenna.rx_spacing_lambda),
         truth_spectrum_samples=project_cfr_to_ul_receiver_samples(truth_cfr),
         cfr_est_spectrum_samples=(
             project_cfr_to_ul_receiver_samples(cfr_est) if cfr_est is not None else None
@@ -798,8 +901,8 @@ def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
     link_shape = samples.shape[:3]
     aoa_2d = np.stack(
         (
-            derived.first_path_aoa_zenith_rad.T,
-            derived.first_path_aoa_azimuth_rad.T,
+            derived.first_path_aoa_zenith_rad,
+            derived.first_path_aoa_azimuth_rad,
         ),
         axis=-1,
     ).astype(np.float32, copy=False)
@@ -813,11 +916,15 @@ def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
         "angle_grid_rad": angle_grid,
         "spectrum_policy": config.spectrum_config.policy,
     }
+    resolved_antenna = _build_resolved_antenna(
+        config,
+        resolve_link_roles(config.link_config.phy_link_direction),
+    )
     outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
         samples,
-        rx_num_rows=config.tx_num_rows,
-        rx_num_cols=config.tx_num_cols,
-        rx_spacing_lambda=config.tx_spacing_lambda,
+        rx_num_rows=resolved_antenna.rx_num_rows,
+        rx_num_cols=resolved_antenna.rx_num_cols,
+        rx_spacing_lambda=tuple(float(v) for v in resolved_antenna.rx_spacing_lambda),
         config=config.spectrum_config,
     )
     return outputs
@@ -842,12 +949,12 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "normalize_cfr": config.normalize_cfr,
         "normalize_delays": config.normalize_delays,
         "merge_shapes": config.merge_shapes,
-        "tx_num_rows": config.tx_num_rows,
-        "tx_num_cols": config.tx_num_cols,
-        "rx_num_rows": config.rx_num_rows,
-        "rx_num_cols": config.rx_num_cols,
-        "tx_spacing_lambda": list(config.tx_spacing_lambda),
-        "rx_spacing_lambda": list(config.rx_spacing_lambda),
+        "bs_num_rows": config.bs_num_rows,
+        "bs_num_cols": config.bs_num_cols,
+        "ue_num_rows": config.ue_num_rows,
+        "ue_num_cols": config.ue_num_cols,
+        "bs_spacing_lambda": list(config.bs_spacing_lambda),
+        "ue_spacing_lambda": list(config.ue_spacing_lambda),
         "visualization": {
             "enabled": config.visualization_config.enabled,
             "output_dir": config.visualization_config.output_dir,
@@ -875,21 +982,21 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             "aggregate_symbols": config.spectrum_config.aggregate_symbols,
             "link_chunk_size": config.spectrum_config.link_chunk_size,
         },
-        "tx_pattern": config.tx_pattern,
-        "rx_pattern": config.rx_pattern,
-        "tx_polarization": config.tx_polarization,
-        "rx_polarization": config.rx_polarization,
-        "tx_orientation_mode": config.tx_orientation_mode,
-        "tx_orientation_rad": list(config.tx_orientation_rad),
-        "rx_orientation_mode": config.rx_orientation_mode,
-        "rx_orientation_rad": list(config.rx_orientation_rad),
+        "bs_pattern": config.bs_pattern,
+        "ue_pattern": config.ue_pattern,
+        "bs_polarization": config.bs_polarization,
+        "ue_polarization": config.ue_polarization,
+        "bs_orientation_mode": config.bs_orientation_mode,
+        "bs_orientation_rad": list(config.bs_orientation_rad),
+        "ue_orientation_mode": config.ue_orientation_mode,
+        "ue_orientation_rad": list(config.ue_orientation_rad),
         "num_time_steps": config.num_time_steps,
         "sampling_frequency_hz": config.sampling_frequency_hz,
-        "tx_velocity_mps": list(config.tx_velocity_mps),
-        "rx_velocity_mps": list(config.rx_velocity_mps),
+        "bs_velocity_mps": list(config.bs_velocity_mps),
+        "ue_velocity_mps": list(config.ue_velocity_mps),
         "seed": config.seed,
-        "max_tx": config.max_tx,
-        "max_rx": config.max_rx,
+        "max_bs": config.max_bs,
+        "max_ue": config.max_ue,
         "ebno_db": config.ebno_db,
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
@@ -897,9 +1004,8 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "link_config": {
             "duplex_mode": config.link_config.duplex_mode,
             "phy_link_direction": config.link_config.phy_link_direction,
-            "rt_trace_direction": config.link_config.rt_trace_direction,
-            "reciprocity_mode": config.link_config.reciprocity_mode,
-            "reciprocity_applied": config.link_config.reciprocity_applied,
+            "tx_role": config.link_config.tx_role,
+            "rx_role": config.link_config.rx_role,
         },
         "mimo_mode": config.mimo_mode,
         "channel_backend": config.channel_backend,
@@ -925,9 +1031,9 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         },
         "sharding": {
             "enabled": bool(getattr(config.output_sharding_config, "enabled", False)),
-            "axis": str(getattr(config.output_sharding_config, "axis", "rx")),
+            "axis": str(getattr(config.output_sharding_config, "axis", "ue")),
             "shard_size": int(
-                getattr(config.output_sharding_config, "shard_size", config.max_rx)
+                getattr(config.output_sharding_config, "shard_size", config.max_ue)
             ),
             "filename_pattern": str(
                 getattr(

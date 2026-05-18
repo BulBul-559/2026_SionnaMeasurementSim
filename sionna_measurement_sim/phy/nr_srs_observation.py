@@ -88,11 +88,8 @@ def run_nr_srs_observation(
             np.einsum("...rsf,ts->...rtf", rx_grid, np.conjugate(pilot_code), optimize=True)
             / np.float32(num_symbols)
         ).astype(np.complex64, copy=False)
-    with _span(tracer, "nr_srs.to_project_dl_view"):
-        cfr_est = np.transpose(h_hat_ul, (0, 2, 1, 4, 3, 5)).astype(
-            np.complex64,
-            copy=False,
-        )
+    with _span(tracer, "nr_srs.to_link_view"):
+        cfr_est = h_hat_ul.astype(np.complex64, copy=False)
         truth_dl = (
             np.asarray(truth, dtype=np.complex64)[np.newaxis, ...]
             if np.asarray(truth).ndim == 5
@@ -111,7 +108,7 @@ def run_nr_srs_observation(
             np.maximum(np.mean(np.abs(truth_dl) ** 2, axis=(3, 4, 5)), 1e-30)
         ).astype(np.float32)
         noise_dbm = 10.0 * np.log10(
-            np.maximum(np.squeeze(noise_variance, axis=(3, 4, 5)).transpose(0, 2, 1), 1e-30)
+            np.maximum(np.squeeze(noise_variance, axis=(3, 4, 5)), 1e-30)
         ).astype(np.float32)
 
     with _span(tracer, "nr_srs.domain_models"):

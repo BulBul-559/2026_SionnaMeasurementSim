@@ -306,11 +306,11 @@ class CIRDatasetOFDMChannelBackend:
         subcarrier_spacing_hz: float,
         num_subcarriers: int,
     ) -> CIRDatasetOFDMChannelBackend:
-        """Build backend from project CIR arrays.
+        """Build backend from link-view CIR arrays.
 
-        Converts to UL convention (with or without TDD reciprocity),
-        then stores both the UL CIR and a pre-computed CFR for the
-        ``cfr`` property.
+        Public configs resolve BS/UE into TX/RX before this backend is called.
+        Legacy transpose-reciprocity call sites may still provide a downlink
+        CIR and opt into the old transpose path.
         """
         # Apply TDD reciprocity if configured
         reciprocity_applied = False
@@ -328,13 +328,8 @@ class CIRDatasetOFDMChannelBackend:
             except ImportError:
                 pass
 
-        # Convert to UL convention if reciprocity not applied
-        if not reciprocity_applied:
-            cir_ul = np.transpose(cir_coefficients, (0, 2, 1, 4, 3, 5))
-            tau_ul = np.transpose(cir_delays_s, (0, 2, 1, 4, 3, 5))
-        else:
-            cir_ul = cir_coefficients
-            tau_ul = cir_delays_s
+        cir_ul = cir_coefficients
+        tau_ul = cir_delays_s
 
         num_snap = cir_ul.shape[0]
         num_ul_tx = cir_ul.shape[1]

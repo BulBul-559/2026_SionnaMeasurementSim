@@ -27,12 +27,12 @@ def _run_mu_mimo_pipeline(tmp_path: Path, perfect_csi: bool = True) -> Path:
         output_dir=tmp_path / "output_mu_mimo",
         num_subcarriers=48,
         seed=42,
-        max_tx=1,  # 1 BS
-        max_rx=2,  # 2 UEs
-        tx_num_rows=1,
-        tx_num_cols=2,  # BS: 2 antennas
-        rx_num_rows=1,
-        rx_num_cols=2,  # each UE: 2 antennas
+        max_bs=1,  # 1 BS
+        max_ue=2,  # 2 UEs
+        bs_num_rows=1,
+        bs_num_cols=2,  # BS: 2 antennas
+        ue_num_rows=1,
+        ue_num_cols=2,  # each UE: 2 antennas
         max_depth=3,
         los=True,
         specular_reflection=True,
@@ -78,9 +78,9 @@ class TestNRPUSCHMUMIMO:
                 f"truth_cfr.shape={truth_cfr.shape}"
             )
 
-            # 2 UEs (project rx=2), 1 BS (project tx=1)
-            assert truth_cfr.shape[1] == 2, f"Expected 2 rx (UEs), got {truth_cfr.shape[1]}"
-            assert truth_cfr.shape[0] == 1, f"Expected 1 tx (BS), got {truth_cfr.shape[0]}"
+            # Direct uplink link-view: 2 UEs are TX, 1 BS is RX.
+            assert truth_cfr.shape[0] == 2, f"Expected 2 tx (UEs), got {truth_cfr.shape[0]}"
+            assert truth_cfr.shape[1] == 1, f"Expected 1 rx (BS), got {truth_cfr.shape[1]}"
 
             # Each UE has 2 antennas
             assert truth_cfr.shape[2] == 2, f"Expected 2 rx_ant, got {truth_cfr.shape[2]}"
@@ -111,14 +111,14 @@ class TestNRPUSCHMUMIMO:
 
         with h5py.File(path, "r") as h5:
             nmse = h5["evaluation/nmse_db"][()]
-            # Shape: [snap, tx, rx] = [1, 1, 2] for 1 BS, 2 UEs
-            assert nmse.shape == (1, 1, 2), (
-                f"Expected NMSE shape (1, 1, 2), got {nmse.shape}"
+            # Shape: [snap, tx, rx] = [1, 2, 1] for 2 UEs, 1 BS.
+            assert nmse.shape == (1, 2, 1), (
+                f"Expected NMSE shape (1, 2, 1), got {nmse.shape}"
             )
             # Each UE should have finite NMSE
             for ue in range(2):
-                assert np.isfinite(nmse[0, 0, ue]), (
-                    f"NMSE for UE {ue} is not finite: {nmse[0, 0, ue]}"
+                assert np.isfinite(nmse[0, ue, 0]), (
+                    f"NMSE for UE {ue} is not finite: {nmse[0, ue, 0]}"
                 )
 
     def test_mu_mimo_cfr_est_distinct_per_ue(self, tmp_path):
@@ -132,9 +132,9 @@ class TestNRPUSCHMUMIMO:
 
         with h5py.File(path, "r") as h5:
             cfr_est = h5["observation/cfr_est"][()]
-            # cfr_est: [snap=1, tx=1, rx=2, rx_ant=2, tx_ant=2, subcarrier=48]
+            # cfr_est: [snap=1, tx=2, rx=1, rx_ant=2, tx_ant=2, subcarrier=48]
             ue0 = cfr_est[0, 0, 0, ...]  # [rx_ant, tx_ant, subcarrier]
-            ue1 = cfr_est[0, 0, 1, ...]
+            ue1 = cfr_est[0, 1, 0, ...]
 
             # Different UEs should have different channel estimates
             ue0_flat = np.abs(ue0).ravel()

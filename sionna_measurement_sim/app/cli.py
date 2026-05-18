@@ -343,25 +343,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if args.sampling_frequency_hz is not None
                     else mot.sampling_frequency_hz if motion_enabled else 0.0
                 ),
-                max_tx=_max_bs,
-                max_rx=_max_ue,
-                tx_num_rows=cfg.antenna.bs_array.num_rows,
-                tx_num_cols=cfg.antenna.bs_array.num_cols,
-                rx_num_rows=cfg.antenna.ue_array.num_rows,
-                rx_num_cols=cfg.antenna.ue_array.num_cols,
-                tx_polarization=cfg.antenna.bs_array.polarization,
-                rx_polarization=cfg.antenna.ue_array.polarization,
-                tx_pattern=cfg.antenna.bs_array.pattern,
-                rx_pattern=cfg.antenna.ue_array.pattern,
-                tx_orientation_mode=cfg.antenna.bs_array.orientation_mode,
-                tx_orientation_rad=tuple(cfg.antenna.bs_array.orientation_rad),
-                rx_orientation_mode=cfg.antenna.ue_array.orientation_mode,
-                rx_orientation_rad=tuple(cfg.antenna.ue_array.orientation_rad),
-                tx_spacing_lambda=(
+                max_bs=_max_bs,
+                max_ue=_max_ue,
+                bs_num_rows=cfg.antenna.bs_array.num_rows,
+                bs_num_cols=cfg.antenna.bs_array.num_cols,
+                ue_num_rows=cfg.antenna.ue_array.num_rows,
+                ue_num_cols=cfg.antenna.ue_array.num_cols,
+                bs_polarization=cfg.antenna.bs_array.polarization,
+                ue_polarization=cfg.antenna.ue_array.polarization,
+                bs_pattern=cfg.antenna.bs_array.pattern,
+                ue_pattern=cfg.antenna.ue_array.pattern,
+                bs_orientation_mode=cfg.antenna.bs_array.orientation_mode,
+                bs_orientation_rad=tuple(cfg.antenna.bs_array.orientation_rad),
+                ue_orientation_mode=cfg.antenna.ue_array.orientation_mode,
+                ue_orientation_rad=tuple(cfg.antenna.ue_array.orientation_rad),
+                bs_spacing_lambda=(
                     cfg.antenna.bs_array.vertical_spacing_lambda,
                     cfg.antenna.bs_array.horizontal_spacing_lambda,
                 ),
-                rx_spacing_lambda=(
+                ue_spacing_lambda=(
                     cfg.antenna.ue_array.vertical_spacing_lambda,
                     cfg.antenna.ue_array.horizontal_spacing_lambda,
                 ),
@@ -402,12 +402,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     aggregate_symbols=cfg.array.spectrum.aggregate_symbols,
                     link_chunk_size=cfg.array.spectrum.link_chunk_size,
                 ),
-                tx_velocity_mps=(
+                bs_velocity_mps=(
                     cfg.motion.bs_velocity_mps[0],
                     cfg.motion.bs_velocity_mps[1],
                     cfg.motion.bs_velocity_mps[2],
                 ) if motion_enabled else (0.0, 0.0, 0.0),
-                rx_velocity_mps=(
+                ue_velocity_mps=(
                     cfg.motion.ue_velocity_mps[0],
                     cfg.motion.ue_velocity_mps[1],
                     cfg.motion.ue_velocity_mps[2],
@@ -458,8 +458,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if args.sampling_frequency_hz is not None
                     else 100.0
                 ),
-                max_tx=args.max_bs if args.max_bs is not None else 6,
-                max_rx=args.max_ue if args.max_ue is not None else 30,
+                max_bs=args.max_bs if args.max_bs is not None else 6,
+                max_ue=args.max_ue if args.max_ue is not None else 30,
             )
         output_path = run_rt_truth_pipeline(run_config)
         print(output_path)

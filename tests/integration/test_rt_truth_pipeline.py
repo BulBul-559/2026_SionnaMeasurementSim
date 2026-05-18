@@ -75,8 +75,8 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
-            max_tx=1,
-            max_rx=3,
+            max_bs=1,
+            max_ue=3,
             output_sharding_config=OutputShardingConfig(
                 enabled=True,
                 shard_size=2,
@@ -90,16 +90,18 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
     assert result_dir == output_dir
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert len(manifest["results"]) == 2
-    assert [item["global_rx_count"] for item in manifest["results"]] == [2, 1]
+    assert [item["global_ue_count"] for item in manifest["results"]] == [2, 1]
 
-    for index, expected_rx in enumerate(([0, 1], [2])):
+    for index, expected_ue in enumerate(([0, 1], [2])):
         path = output_dir / f"result_{index:03d}.h5"
         assert path.is_file()
         validate_hdf5_contract(path)
         with h5py.File(path, "r") as h5:
+            assert h5["link/tx_role"][()].decode("utf-8") == "ue"
+            assert h5["link/rx_role"][()].decode("utf-8") == "bs"
             np.testing.assert_array_equal(
-                h5["shard/global_rx_indices"][()],
-                np.asarray(expected_rx, dtype=np.int64),
+                h5["shard/global_tx_indices"][()],
+                np.asarray(expected_ue, dtype=np.int64),
             )
 
 
@@ -115,8 +117,8 @@ def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):
             seed=1,
             max_depth=1,
             specular_reflection=True,
-            tx_num_rows=2,
-            tx_num_cols=2,
+            bs_num_rows=2,
+            bs_num_cols=2,
             spectrum_config=ArraySpectrumConfig(
                 enabled=True,
                 sources=("truth_cfr",),

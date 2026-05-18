@@ -73,8 +73,8 @@ def test_run_full_cli_values_override_yaml(tmp_path, monkeypatch, capsys):
     ) == 0
 
     run_config = captured_config["value"]
-    assert run_config.max_tx == 6
-    assert run_config.max_rx == 8
+    assert run_config.max_bs == 6
+    assert run_config.max_ue == 8
     assert run_config.seed == 99
     assert run_config.output_dir == tmp_path / "from_cli"
     assert run_config.impairment_config.cfo_hz == 123.0

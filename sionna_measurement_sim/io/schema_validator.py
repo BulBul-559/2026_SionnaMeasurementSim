@@ -104,9 +104,8 @@ PATH_SAMPLE_DATASETS = (
     "paths/samples/tau_s",
     "link/duplex_mode",
     "link/phy_link_direction",
-    "link/rt_trace_direction",
-    "link/reciprocity_mode",
-    "link/reciprocity_applied",
+    "link/tx_role",
+    "link/rx_role",
 )
 
 OPTIONAL_SHARD_DATASETS = (

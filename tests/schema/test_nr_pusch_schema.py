@@ -27,12 +27,12 @@ def _generate_nr_pusch_hdf5(tmp_path: Path, **kw) -> Path:
         output_dir=tmp_path / "output_schema",
         num_subcarriers=48,
         seed=42,
-        max_tx=1,
-        max_rx=1,
-        tx_num_rows=2,
-        tx_num_cols=2,
-        rx_num_rows=2,
-        rx_num_cols=2,
+        max_bs=1,
+        max_ue=1,
+        bs_num_rows=2,
+        bs_num_cols=2,
+        ue_num_rows=2,
+        ue_num_cols=2,
         max_depth=3,
         los=True,
         specular_reflection=True,
@@ -270,7 +270,8 @@ class TestNRPUSCHSchema:
         with h5py.File(path, "r") as h5:
             link = h5["link"]
             for field in (
-                "duplex_mode", "phy_link_direction", "rt_trace_direction",
-                "reciprocity_mode", "reciprocity_applied",
+                "duplex_mode", "phy_link_direction", "tx_role", "rx_role",
             ):
                 assert field in link, f"Missing /link/{field}"
+            assert link["tx_role"][()].decode("utf-8") == "ue"
+            assert link["rx_role"][()].decode("utf-8") == "bs"

@@ -83,11 +83,11 @@ class ShardSpec:
 
     shard_index: int
     shard_count: int
-    axis: str = "rx"
-    rx_start: int = 0
-    rx_count: int | None = None
-    rx_indices: tuple[int, ...] | None = None
-    tx_indices: tuple[int, ...] | None = None
+    axis: str = "ue"
+    ue_start: int = 0
+    ue_count: int | None = None
+    ue_indices: tuple[int, ...] | None = None
+    bs_indices: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.shard_count < 1:
@@ -99,18 +99,21 @@ class ShardSpec:
         if not self.axis:
             msg = "axis must not be empty"
             raise ValueError(msg)
-        if self.rx_start < 0:
-            msg = "rx_start must be non-negative"
+        if self.axis != "ue":
+            msg = "only UE sharding is supported"
             raise ValueError(msg)
-        if self.rx_count is not None and self.rx_count < 1:
-            msg = "rx_count must be positive when provided"
+        if self.ue_start < 0:
+            msg = "ue_start must be non-negative"
             raise ValueError(msg)
-        if self.rx_indices is not None:
-            _validate_non_negative_indices("rx_indices", self.rx_indices)
-            object.__setattr__(self, "rx_indices", tuple(int(i) for i in self.rx_indices))
-        if self.tx_indices is not None:
-            _validate_non_negative_indices("tx_indices", self.tx_indices)
-            object.__setattr__(self, "tx_indices", tuple(int(i) for i in self.tx_indices))
+        if self.ue_count is not None and self.ue_count < 1:
+            msg = "ue_count must be positive when provided"
+            raise ValueError(msg)
+        if self.ue_indices is not None:
+            _validate_non_negative_indices("ue_indices", self.ue_indices)
+            object.__setattr__(self, "ue_indices", tuple(int(i) for i in self.ue_indices))
+        if self.bs_indices is not None:
+            _validate_non_negative_indices("bs_indices", self.bs_indices)
+            object.__setattr__(self, "bs_indices", tuple(int(i) for i in self.bs_indices))
 
 
 @dataclass(frozen=True)
@@ -167,7 +170,7 @@ class ShardMetadata:
         global_tx_indices: np.ndarray,
     ) -> ShardMetadata:
         rx_indices = np.asarray(global_rx_indices, dtype=np.int64)
-        rx_start = int(rx_indices[0]) if rx_indices.size else spec.rx_start
+        rx_start = int(rx_indices[0]) if rx_indices.size else 0
         return cls(
             shard_index=spec.shard_index,
             shard_count=spec.shard_count,

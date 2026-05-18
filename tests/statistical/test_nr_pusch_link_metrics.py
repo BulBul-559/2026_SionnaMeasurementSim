@@ -24,12 +24,12 @@ def _run_nr_pusch(snr_db: float, tmp_path: Path) -> Path:
         output_dir=tmp_path / f"output_{snr_db}",
         num_subcarriers=48,
         seed=42,
-        max_tx=2,
-        max_rx=2,
-        tx_num_rows=1,
-        tx_num_cols=1,
-        rx_num_rows=1,
-        rx_num_cols=1,
+        max_bs=2,
+        max_ue=2,
+        bs_num_rows=1,
+        bs_num_cols=1,
+        ue_num_rows=1,
+        ue_num_cols=1,
         max_depth=0,
         specular_reflection=False,
         observation_snr_db=snr_db,
@@ -102,20 +102,21 @@ class TestNRPUSCHLinkMetrics:
             assert np.isfinite(ber), f"BER ({ber}) is not finite"
             assert np.isfinite(bler), f"BLER ({bler}) is not finite"
 
-            # Link group exists with all 5 fields
+            # Link group stores resolved link-view roles.
             link_group = h5["link"]
             expected_fields = {
                 "duplex_mode",
                 "phy_link_direction",
-                "rt_trace_direction",
-                "reciprocity_mode",
-                "reciprocity_applied",
+                "tx_role",
+                "rx_role",
             }
             actual_fields = set(link_group.keys())
             assert actual_fields == expected_fields, (
                 f"Link group fields mismatch. "
                 f"Expected {expected_fields}, got {actual_fields}"
             )
+            assert link_group["tx_role"][()].decode("utf-8") == "ue"
+            assert link_group["rx_role"][()].decode("utf-8") == "bs"
 
     def test_cfr_shape_consistency(self, tmp_path):
         """Observation CFR shape matches truth CFR shape."""

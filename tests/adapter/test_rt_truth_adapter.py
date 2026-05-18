@@ -17,7 +17,7 @@ from sionna_measurement_sim.io.label_parser import load_topology_from_label
 
 def test_rt_truth_adapter_generates_tx_first_cfr():
     topology = load_topology_from_label(
-        Path("tests/fixtures/scenes/test/test5.json"), max_tx=1, max_rx=1,
+        Path("tests/fixtures/scenes/test/test5.json"), max_bs=1, max_ue=1,
     )
     antenna = AntennaSpec(tx_polarization="V", rx_polarization="V")
     frequency = FrequencyGrid.from_center_bandwidth(3.5e9, 20e6, 8)
@@ -41,7 +41,7 @@ def test_rt_truth_adapter_generates_tx_first_cfr():
 
 def test_path_adapter_extracts_path_samples_and_full_table():
     topology = load_topology_from_label(
-        Path("tests/fixtures/scenes/test/test5.json"), max_tx=1, max_rx=1,
+        Path("tests/fixtures/scenes/test/test5.json"), max_bs=1, max_ue=1,
     )
     antenna = AntennaSpec(tx_polarization="V", rx_polarization="V")
     frequency = FrequencyGrid.from_center_bandwidth(3.5e9, 20e6, 8)

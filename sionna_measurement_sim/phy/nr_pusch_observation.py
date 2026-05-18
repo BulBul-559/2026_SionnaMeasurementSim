@@ -405,21 +405,21 @@ def _run_nr_pusch_observation_impl(
     num_receiver_failures = proc_result["num_receiver_failures"]
     batching_stats = proc_result["batching_stats"]
 
-    # 7. Reverse UL→DL for HDF5 contract  ────────────────────────────
-    # Internal processing always uses UL convention.
-    # HDF5 output must be in DL (project) convention.
-    cfr_clean_ref = reverse_reciprocity_cfr(cfr_clean_ref)
-    cfr_est_full = reverse_reciprocity_cfr(cfr_est_full)
-    # Also transpose per-link arrays to DL convention
-    nmse_db_full = np.transpose(nmse_db_full, (0, 2, 1))
-    ber_per_link = np.transpose(ber_per_link, (0, 2, 1))
-    bler_per_link = np.transpose(bler_per_link, (0, 2, 1))
-    estimation_success = np.transpose(estimation_success, (0, 2, 1))
+    # 7. Keep HDF5 output in resolved link-view orientation.
+    # Legacy transpose-reciprocity call sites still opt into the old reverse
+    # step so their output remains aligned with their original RT view.
+    if backend.reciprocity_applied:
+        cfr_clean_ref = reverse_reciprocity_cfr(cfr_clean_ref)
+        cfr_est_full = reverse_reciprocity_cfr(cfr_est_full)
+        nmse_db_full = np.transpose(nmse_db_full, (0, 2, 1))
+        ber_per_link = np.transpose(ber_per_link, (0, 2, 1))
+        bler_per_link = np.transpose(bler_per_link, (0, 2, 1))
+        estimation_success = np.transpose(estimation_success, (0, 2, 1))
+        link_shape = (num_snap, num_ul_rx, num_ul_tx)
+    else:
+        link_shape = (num_snap, num_ul_tx, num_ul_rx)
 
     # 8. Aggregate metrics  ───────────────────────────────────────────
-    # DL shape = [snap, tx(=ul_rx), rx(=ul_tx), rx_ant, tx_ant, subcarrier]
-    dl_link_shape = (num_snap, num_ul_rx, num_ul_tx)
-    link_shape = dl_link_shape
     aggregate_ber = total_bit_errors / max(total_bits, 1)
     aggregate_bler = float(np.mean(bler_per_link)) if bler_per_link.size > 0 else 0.0
 
@@ -435,7 +435,7 @@ def _run_nr_pusch_observation_impl(
         sfo_ppm=np.zeros(link_shape, dtype=np.float32),
         timing_offset_samples=np.zeros(link_shape, dtype=np.float32),
         phase_offset_rad=np.zeros(link_shape, dtype=np.float32),
-        agc_gain_db=np.zeros((num_snap, num_ul_tx), dtype=np.float32),
+        agc_gain_db=np.zeros((link_shape[0], link_shape[2]), dtype=np.float32),
         clipping_flag=np.zeros(link_shape, dtype=np.bool_),
     )
 

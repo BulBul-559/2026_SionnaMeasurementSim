@@ -652,9 +652,8 @@ def _write_link(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     group = h5.require_group("link")
     _write_scalar(group, "duplex_mode", link.duplex_mode)
     _write_scalar(group, "phy_link_direction", link.phy_link_direction)
-    _write_scalar(group, "rt_trace_direction", link.rt_trace_direction)
-    _write_scalar(group, "reciprocity_mode", link.reciprocity_mode)
-    _write_scalar(group, "reciprocity_applied", bool(link.reciprocity_applied))
+    _write_scalar(group, "tx_role", link.tx_role)
+    _write_scalar(group, "rx_role", link.rx_role)
 
 
 def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:
