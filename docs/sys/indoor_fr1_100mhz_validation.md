@@ -19,7 +19,13 @@ Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
 当前 indoor 模板默认使用 `max_tx: 6`，因此完整 `bistro_0000` 运行口径是
 `6 BS x 2583 UE`。模板中的 `max_rx: 1000` 是阶段性目标规模，不是本轮已完成验收规模。
 
-## 已跑通的真实场景 probe
+## 历史已跑通的真实场景 probe
+
+下表记录的是 2026-05-17 的真实场景 probe。SRS-like 这一行发生在模板默认
+`synthetic_array=false` 之前，因此只能作为 SRS-like 链路功能和输出字段验证，
+不能证明当前 `synthetic_array=false` 口径可以直接跑普通 `6 BS x 5 UE` RX shard。
+当前 SRS RT 参数 sweep 和 OOM 结论见
+`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
 
 两条链路都使用：
 
@@ -34,7 +40,7 @@ Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
 | 链路 | 输出目录 | aggregate elapsed | shell real time | HDF5 | 目录总量 | schema | 备注 |
 |---|---|---:|---:|---:|---:|---|---|
 | NR PUSCH-DMRS CSI proxy | `outputs/bistro_0000_pusch_shard5_probe` | 526.9 s | 546.1 s | 248.7 MB | 255 MB | pass | batch size 16, 30 links |
-| NR SRS-like full-band sounding | `outputs/bistro_0000_srs_shard5_probe` | 503.6 s | 522.3 s | 132.0 MB | 143 MB | pass | 30 links |
+| NR SRS-like full-band sounding | `outputs/bistro_0000_srs_shard5_probe` | 503.6 s | 522.3 s | 132.0 MB | 143 MB | pass | 30 links，历史 synthetic-array 口径 |
 
 关键 shape：
 
@@ -82,9 +88,11 @@ CIR/CFR 时，中间频域张量很大。
 
 ## 全量成本估算
 
-按 `6x5` probe 线性外推，`max_rx=1000` 需要 200 个 shard，完整 `bistro_0000`
-的 2583 UE 需要 517 个 shard。实际耗时会受 schema validation、HDF5 压缩、可视化和
-GPU/CPU/IO 负载影响，以下只作为规划估算。
+按历史 `6x5` probe 线性外推，`max_rx=1000` 需要 200 个 shard，完整 `bistro_0000`
+的 2583 UE 需要 517 个 shard。实际耗时会受 schema validation、HDF5 压缩、可视化、
+RT 追踪方向、`synthetic_array`、GPU/CPU/IO 负载影响，以下只作为历史规划估算。
+当前 `synthetic_array=false` 的 SRS-like micro-sweep 估算见
+`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
 
 | 规模 | 链路 | 单 GPU 顺序估算 | 4 GPU 理想估算 | HDF5 估算 | 目录总量估算 |
 |---|---|---:|---:|---:|---:|
@@ -99,6 +107,9 @@ GPU/CPU/IO 负载影响，以下只作为规划估算。
 - 若 `rt.synthetic_array=false`，不要直接假设 `6 BS x 5 UE` 或 `6 BS x 1 UE`
   RX shard 能通过；当前 bistro 场景会在 RT 阶段触发 Dr.Jit OOM。短期可用
   `1 BS x 1 UE` micro-sweep 做参数对比，长期应实现二维 TX/RX shard。
+- 当前 RT 追踪方向是 `bs_to_ue + reciprocity`。如果后续需要高保真非合成阵列的
+  SRS/uplink 生产数据，应优先评估 direct uplink (`ue_to_bs`) RT，减少 BS 阵列作为
+  source endpoint 带来的 PathSolver 压力。
 - 后续如果要跑 `1000 UE` 或完整 `2583 UE`，建议先开启 `debug.enabled=true`，
   记录阶段耗时和硬件峰值。
 - 若要把 100 MHz 模板作为论文生产数据生成路径，优先优化：

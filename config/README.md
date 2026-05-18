@@ -35,9 +35,12 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 | `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | SRS-like 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
-> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier，当前已验证 `6 BS x 5 UE`
-> probe。`max_rx: 1000` 是目标数据规模，单 GPU 顺序运行预计接近 28-29 小时；
-> 详细估算见 `docs/sys/indoor_fr1_100mhz_validation.md`。
+> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。PUSCH 模板已有
+> `6 BS x 5 UE` probe；SRS-like 模板当前默认 `rt.synthetic_array=false`，
+> 普通 RX shard 的 `6x5`/`6x1` 会在 RT PathSolver 阶段 OOM，因此 SRS RT
+> 参数对比使用 `1 BS x 1 UE` micro-sweep。`max_rx: 1000` 是目标数据规模，
+> 不是提交前必跑验收；估算见 `docs/sys/indoor_fr1_100mhz_validation.md`
+> 和 `docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
 
 仓库里的 `data/` 只是占位目录。生产场景、floor-plan、label 和 HDF5 不进入 git；可以在本地把 `data/bistro_0000` 这类路径做成 symlink，或在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
@@ -57,9 +60,11 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE/RX shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `result_xxx.h5`，再由根目录 `manifest.json` 汇总。
 
 SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
-如果普通 `6 BS x N UE` RX shard 在 `PathSolver` 阶段 OOM，可用
-`scripts/run_srs_rt_variant_micro_sweep.py` 做 `1 BS x 1 UE` micro-sweep 验证 RT 参数影响；
-更高效的生产方案应进一步实现二维 TX/RX shard。
+当前 pipeline 的 RT 追踪方向是 `bs_to_ue`，再通过 TDD 互易性得到 uplink 视角；
+在非合成阵列下，6 个 BS 的阵列元素会成为大量 source endpoint，普通 `6 BS x N UE`
+RX shard 可能在 `PathSolver` 阶段 OOM。可用 `scripts/run_srs_rt_variant_micro_sweep.py`
+做 `1 BS x 1 UE` micro-sweep 验证 RT 参数影响；更高效的生产方案应进一步实现
+二维 TX/RX shard，或原生 direct uplink (`ue_to_bs`) RT。
 
 ### `debug` — 性能日志
 
@@ -243,6 +248,10 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 | `rt_trace_direction` | str | "bs_to_ue" | RT 追踪方向 |
 | `reciprocity_mode` | str | "transpose_rt_channel" | 互易性模式 |
 | `reciprocity_applied` | bool | true | 是否应用 TDD 互易性 |
+
+当前已充分验证的是 `bs_to_ue + transpose_rt_channel`：RT 先从 BS 指向 UE 求路径，
+PHY 输出再按 uplink view 写盘。`ue_to_bs` 是后续 direct uplink RT 方向，适合用于降低
+`synthetic_array=false` 时的 source endpoint 压力，但尚未作为生产默认路径验证。
 
 ### `phy` — 物理层观测
 

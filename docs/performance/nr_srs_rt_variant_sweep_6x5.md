@@ -94,6 +94,33 @@ uv run python scripts/run_srs_rt_variant_micro_sweep.py \
 生产化更理想的方向是实现原生二维 shard：按较小的 TX/RX block 跑 RT，同时仍把多个 link
 合并写入较少的 `result_xxx.h5`。
 
+## Synthetic Array True/False 对照
+
+不能直接拿历史一次性 `6x5` synthetic-array probe 证明 `synthetic_array=true` 与
+`false` 对数据影响很小，因为历史 probe 和本次 micro-sweep 的执行粒度不同。补跑同一
+micro-sweep 口径后，观察到：
+
+| 对比 | truth CFR 复相关 | truth CFR NMSE | 幅度 MAE | 相位圆周 MAE |
+|---|---:|---:|---:|---:|
+| 历史 true shard vs micro true | 0.8836 | -1.29 dB | 3.74 dB | 0.481 rad |
+| micro true vs micro false | 0.3341 | 6.35 dB | 5.27 dB | 0.723 rad |
+
+同一 micro 口径下，`/observation/cfr_est` 的 true/false 差异与 truth CFR 基本一致：
+复相关 0.3344、NMSE 6.35 dB、幅度 MAE 5.28 dB、相位圆周 MAE 0.726 rad。
+这说明当前 bistro 场景和 100 MHz 宽带配置下，`synthetic_array=true` 与 `false`
+不能视为“数据影响微乎其微”。`true` 更像可扩展的阵列响应近似，`false` 更像
+element-level 几何 probe，但当前普通 RX shard 会在 6 个 BS 同时参与 RT 时 OOM。
+
+补跑的 synthetic-array micro true 性能：
+
+| 口径 | 作业数 | 单链路均值 | 单链路 p95 | 单链路耗时总和 | HDF5 总量 | 2583 UE 4 GPU 估算 | 2583 UE HDF5 估算 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| micro true | 30 | 6.48 s | 9.26 s | 194.3 s | 160.6 MB | 7.0 h | 83.0 GB |
+| micro false refraction_on | 30 | 6.38 s | 7.00 s | 191.4 s | 192.8 MB | 6.9 h | 99.6 GB |
+
+这两组 micro 结果的耗时接近；主要差异体现在 HDF5 体积和 CFR 数值。由于 micro-sweep
+每个作业都重复加载场景并启动 pipeline，这个耗时不能直接等价为未来原生二维 shard 的最佳性能。
+
 ## CFR 相似性
 
 使用 `scripts/compare_srs_rt_variants.py` 比较四组 `/observation/cfr_est`。指标覆盖
@@ -141,5 +168,8 @@ uv run python scripts/compare_srs_rt_variants.py \
    当前场景会在 RT 阶段 OOM。
 2. 下一步生产化应支持二维 shard，例如 `tx_block_size=1`、`rx_block_size=N`，
    并让 manifest 汇总全局 BS/UE 覆盖。
-3. 论文生产数据如果只需要 path 与 `cfr_est`，应继续评估关闭 `truth_cfr` 和部分空间谱 source
+3. 值得优先评估 direct uplink (`ue_to_bs`) RT：当前 `bs_to_ue + reciprocity`
+   在 `synthetic_array=false` 下会把 `6 BS x 16` 个 BS 阵列元素放在 source 侧；
+   direct uplink 可以把 UE 元素放在 source 侧，可能显著降低 PathSolver 的 source endpoint 压力。
+4. 论文生产数据如果只需要 path 与 `cfr_est`，应继续评估关闭 `truth_cfr` 和部分空间谱 source
    后的体积下降；本次估算包含当前模板默认的 truth CFR、SRS CFR、空间谱和相关派生字段。

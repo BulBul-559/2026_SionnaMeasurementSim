@@ -120,6 +120,15 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 
 `run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE/RX 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，根目录 `manifest.json` 记录所有 shard 的全局 UE/RX 索引覆盖范围和每个 shard 的性能日志。
 
+**链路方向口径：**
+
+当前已验证的 uplink 路径是 `rt_trace_direction="bs_to_ue"` 加
+`reciprocity_mode="transpose_rt_channel"`。也就是说，RT 阶段仍从 BS 指向 UE 求路径，
+随后在 PHY/HDF5 输出中转成 uplink view。这个口径和 TDD 互易性一致，但在
+`synthetic_array=false` 时会让 BS 阵列元素成为大量 RT source endpoint，可能触发
+Sionna RT/Dr.Jit 底层 OOM。后续如果要高保真模拟 UE→BS uplink，应新增 direct uplink
+RT 分支，而不是只改 HDF5 维度命名。
+
 **PHY module 分支** (`phy/modules.py`):
 - `custom_ofdm` 适配现有 `run_awgn_ls_observation()`
 - `nr_pusch` 适配现有 `run_nr_pusch_observation()`，并保留 waveform grid、array 输出和 batching 统计

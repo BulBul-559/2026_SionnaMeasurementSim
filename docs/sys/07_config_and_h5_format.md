@@ -219,6 +219,11 @@ pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full
 | `reciprocity_mode` | str | `"transpose_rt_channel"` | 互易性模式 |
 | `reciprocity_applied` | bool | true | 是否应用 TDD 互易性 |
 
+当前生产口径是 `rt_trace_direction: "bs_to_ue"` 加 TDD 互易性：RT 用 BS→UE
+求路径，PHY/HDF5 输出按 uplink view 组织。`synthetic_array=false` 时，BS 阵列元素会作为
+大量 RT source endpoint，`6 BS x N UE` RX shard 可能在 PathSolver 阶段 OOM；
+direct uplink (`ue_to_bs`) 后续需要单独实现和验证。
+
 #### `phy` — 物理层
 
 **通用字段**（custom OFDM 和 NR PUSCH 共享）：
@@ -333,7 +338,7 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 | `config/defaults/measurement_mvp.yaml` | custom OFDM + 全 impairment + motion | `standard: "custom_ofdm"`, fft_size=64, num_subcarriers=64 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink | `standard: "nr_pusch"`, 4×4 天线, num_prb=4, num_subcarriers=48 |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, sources 包含 `srs_cfr_est`；已验证 6x5 probe |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, sources 包含 `srs_cfr_est`；当前默认 `synthetic_array=false`，普通 6x5 RX shard 会 RT OOM，RT 参数对比使用 micro-sweep |
 
 ### 1.6 输入数据格式
 

@@ -112,6 +112,11 @@ path = run_rt_truth_pipeline(config)
 uplink sounding”，标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等细节
 见 [SRS TODO](docs/sys/nr_srs_standard_todo.md)。
 
+Bistro 100 MHz SRS-like 模板当前默认 `rt.synthetic_array=false`。这个口径更接近
+element-level 几何 probe，但普通 `6 BS x N UE` RX shard 可能在 Sionna RT
+PathSolver 阶段 OOM；当前参数对比使用 `1 BS x 1 UE` micro-sweep，详见
+[SRS RT variant sweep](docs/performance/nr_srs_rt_variant_sweep_6x5.md)。
+
 同一场景的 PUSCH 与 SRS-like 输出可用轻量脚本对比：
 
 ```bash
@@ -237,6 +242,7 @@ SionnaMeasurementSim/
 | [phy_module_development](docs/sys/phy_module_development.md) | 新 PHY module 接入指南 |
 | [nr_srs_standard_todo](docs/sys/nr_srs_standard_todo.md) | SRS-like 到标准 NR SRS 的 TODO |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
+| [nr_srs_rt_variant_sweep_6x5](docs/performance/nr_srs_rt_variant_sweep_6x5.md) | SRS-like `synthetic_array=false` RT sweep、OOM 口径和 true/false 对照 |
 
 ## 约束
 
