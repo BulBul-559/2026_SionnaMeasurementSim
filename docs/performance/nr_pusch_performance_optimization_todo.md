@@ -38,6 +38,7 @@
 | P1 | 🟡 `PARTIAL` | 大规模空间谱继续优化 | 已支持 link chunk；`6x8884` 中 `array_outputs` 约 `75.1 s`，仍有优化空间 | 复用 steering matrix、减少重复归一化和中间数组分配；评估不同 `link_chunk_size` 对 RSS/耗时的影响 |
 | P1 | 🟠 `TODO` | RT 参数调优实验 | RT 是独立 GPU compute-bound 阶段；`6x8884` 中 `rt_solve` 约 `287.2 s` | 建立 RT-only 实验矩阵，同时记录 path_count、LoS/NLoS、CFR 差异和耗时 |
 | P1 | 🟡 `PARTIAL` | visualization 开销优化 | shard 模式默认只画 first shard；`6x8884` 中 visualization 仍约 `43.7 s` | 减少重复 HDF5 打开、重复 Matplotlib 初始化和重复坐标计算；必要时提供 `minimal` plot bundle |
+| P1 | 🔴 `NEW-TODO` | path 可视化限制为单条 BS-UE link | `bistro_0000` SRS probe 中 HDF5 在 `23:37:55` 已落盘，但 `path_samples.png` 到 `23:46:06` 才完成，path 图形成约 8 分钟长尾 | 修改 path plot 逻辑，pipeline 采样报告中只渲染 1 个 BS 与 1 个 UE 之间的路径；独立 CLI 如需多链路可用显式参数开启 |
 
 ## 仍需推进的设计项
 
@@ -56,9 +57,10 @@
 2. 增加 shard-aware reader / dataset loader，保证多文件输出能被训练和分析稳定消费。
 3. 建立 RT-only、PHY-only、write-only benchmark，避免后续优化只能看端到端总耗时。
 4. 做空间谱 chunk 参数 sweep，找出 `link_chunk_size` 与内存峰值、耗时之间的平衡点。
-5. 做 spectrum / visualization 开关矩阵，明确重型输出对生产运行的增量成本。
-6. 做 batch size 自适应和多 GPU 扩展性测试，覆盖不同卡数和不同场景规模。
-7. 单独处理输出字段冗余，包括 `aoa_heatmap_label` 和 `spatial_spectrum_label`。
+5. 先修 path 可视化长尾：pipeline 默认只画 1 条 BS-UE link 的路径图。
+6. 做 spectrum / visualization 开关矩阵，明确重型输出对生产运行的增量成本。
+7. 做 batch size 自适应和多 GPU 扩展性测试，覆盖不同卡数和不同场景规模。
+8. 单独处理输出字段冗余，包括 `aoa_heatmap_label` 和 `spatial_spectrum_label`。
 
 ## 回 main 前建议门槛
 
