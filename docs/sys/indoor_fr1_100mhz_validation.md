@@ -3,6 +3,10 @@
 本页记录 `bistro_0000` 室内 FR1 100 MHz 模板的真实场景验证结果和全量成本估算。
 这些结论来自 2026-05-17 在 RTX 4090 上的 probe run。
 
+2026-05-18 之后，SRS-like 模板默认 `rt.synthetic_array=false`。这会显著增加
+Sionna RT `PathSolver` 的底层显存需求；新的 RT 参数 sweep 见
+`docs/performance/nr_srs_rt_variant_sweep_6x5.md`。
+
 ## 场景规模
 
 `data/bistro_0000/label.json` 当前包含：
@@ -92,6 +96,9 @@ GPU/CPU/IO 负载影响，以下只作为规划估算。
 ## 当前建议
 
 - 本轮不要把 `1000 UE` 作为提交前必跑验收；成本已经接近单 GPU 一整天。
+- 若 `rt.synthetic_array=false`，不要直接假设 `6 BS x 5 UE` 或 `6 BS x 1 UE`
+  RX shard 能通过；当前 bistro 场景会在 RT 阶段触发 Dr.Jit OOM。短期可用
+  `1 BS x 1 UE` micro-sweep 做参数对比，长期应实现二维 TX/RX shard。
 - 后续如果要跑 `1000 UE` 或完整 `2583 UE`，建议先开启 `debug.enabled=true`，
   记录阶段耗时和硬件峰值。
 - 若要把 100 MHz 模板作为论文生产数据生成路径，优先优化：

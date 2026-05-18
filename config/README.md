@@ -33,6 +33,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like full-band uplink sounding 模板 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
+| `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | SRS-like 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
 > Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier，当前已验证 `6 BS x 5 UE`
 > probe。`max_rx: 1000` 是目标数据规模，单 GPU 顺序运行预计接近 28-29 小时；
@@ -54,6 +55,11 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
 大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE/RX shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `result_xxx.h5`，再由根目录 `manifest.json` 汇总。
+
+SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
+如果普通 `6 BS x N UE` RX shard 在 `PathSolver` 阶段 OOM，可用
+`scripts/run_srs_rt_variant_micro_sweep.py` 做 `1 BS x 1 UE` micro-sweep 验证 RT 参数影响；
+更高效的生产方案应进一步实现二维 TX/RX shard。
 
 ### `debug` — 性能日志
 

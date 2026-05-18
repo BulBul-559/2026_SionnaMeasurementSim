@@ -1,14 +1,13 @@
-# SionnaMeasurementSim - indoor FR1 NR SRS-like positioning template
-# This is a full-band SRS-like uplink sounding configuration, not a full 3GPP
-# NR SRS implementation. See docs/sys/nr_srs_standard_todo.md for the standard
-# details that still need to be added before calling it standards-complete SRS.
+# SRS-like 100 MHz RT variant sweep: refraction disabled, diffuse reflection enabled.
+# Use scripts/run_srs_rt_variant_micro_sweep.py for synthetic_array=false runs;
+# direct run-full can still OOM because it shards only RX, not TX x RX.
 
 runtime:
   seed: 42
   device: "cuda"
 
 debug:
-  enabled: false
+  enabled: true
   hardware_interval_s: 1.0
   link_log_interval: 250
   torch_synchronize: true
@@ -20,21 +19,21 @@ input:
   scene_id: "bistro_0000"
   map_id: ""
   max_tx: 6
-  max_rx: 1000
+  max_rx: 5
 
 output:
-  root_dir: "outputs/bistro_0000_nr_srs_fr1_100mhz"
+  root_dir: "outputs/rt_sweep_srs_6x5/refraction_off_diffuse_on"
   hdf5_filename: "results.h5"
   compression: "gzip"
   save_full_paths: false
   sharding:
     enabled: true
     axis: "rx"
-    shard_size: 5           # 100 MHz / 3276 SC needs small shards on 24 GB GPUs
+    shard_size: 1
     filename_pattern: "result_{shard_index:03d}.h5"
     parallel_workers: 1
     gpu_ids: []
-    visualization_mode: "first_shard"
+    visualization_mode: "none"
 
 carrier:
   center_frequency_hz: 3500000000.0
@@ -78,7 +77,7 @@ array:
     link_chunk_size: 128
 
 visualization:
-  enabled: true
+  enabled: false
   output_dir: "figures"
   sample_policy: "spatially_spread_valid_links"
   random_seed: 42
@@ -104,8 +103,8 @@ rt:
   max_depth: 4
   los: true
   specular_reflection: true
-  diffuse_reflection: false
-  refraction: true
+  diffuse_reflection: true
+  refraction: false
   diffraction: true
   synthetic_array: false
   normalize_cfr: false
