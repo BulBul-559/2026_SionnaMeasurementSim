@@ -33,6 +33,10 @@
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
+- 当前 schema 版本是 `1.1.0`；NR PUSCH/SRS-like 统一写 `/waveform/tx_grid`、
+  `/waveform/rx_grid`、`/waveform/noise_variance`。
+- NR PUSCH 与 NR SRS-like 已共享 `common_link.py` 的 clean channel →
+  impairment/AWGN 链路；`custom_ofdm` 仍是 legacy 路径。
 
 ## 注意
 

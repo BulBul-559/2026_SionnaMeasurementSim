@@ -705,11 +705,10 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
 
 
 NR_SRS_REQUIRED_FIELDS = (
-    "waveform/srs_tx_grid",
-    "waveform/srs_rx_grid",
-    "waveform/srs_noise_variance",
-    "waveform/srs_pilot_code",
-    "observation/srs_cfr_est",
+    "waveform/tx_grid",
+    "waveform/rx_grid",
+    "waveform/noise_variance",
+    "waveform/pilot_code",
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
     "array/aoa_heatmap_label",
@@ -731,25 +730,22 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         return
 
     _require_present(h5, NR_SRS_REQUIRED_FIELDS, kind=h5py.Dataset)
-    tx_grid = h5["waveform/srs_tx_grid"]
-    rx_grid = h5["waveform/srs_rx_grid"]
-    noise_variance = h5["waveform/srs_noise_variance"]
-    pilot_code = h5["waveform/srs_pilot_code"]
+    tx_grid = h5["waveform/tx_grid"]
+    rx_grid = h5["waveform/rx_grid"]
+    noise_variance = h5["waveform/noise_variance"]
+    pilot_code = h5["waveform/pilot_code"]
     if tx_grid.ndim != 6:
-        raise SchemaValidationError(f"/waveform/srs_tx_grid must be rank 6, got {tx_grid.shape}")
+        raise SchemaValidationError(f"/waveform/tx_grid must be rank 6, got {tx_grid.shape}")
     if rx_grid.ndim != 6:
-        raise SchemaValidationError(f"/waveform/srs_rx_grid must be rank 6, got {rx_grid.shape}")
+        raise SchemaValidationError(f"/waveform/rx_grid must be rank 6, got {rx_grid.shape}")
     if noise_variance.shape != tx_grid.shape[:3]:
-        msg = "/waveform/srs_noise_variance must match [snapshot,ul_tx,ul_rx]"
+        msg = "/waveform/noise_variance must match [snapshot,ul_tx,ul_rx]"
         raise SchemaValidationError(msg)
     if pilot_code.shape != tx_grid.shape[3:5]:
-        msg = "/waveform/srs_pilot_code must match [ul_tx_ant,ofdm_symbol]"
+        msg = "/waveform/pilot_code must match [ul_tx_ant,ofdm_symbol]"
         raise SchemaValidationError(msg)
     if rx_grid.shape[:3] != tx_grid.shape[:3]:
-        msg = "/waveform/srs_tx_grid and /waveform/srs_rx_grid link dimensions must match"
-        raise SchemaValidationError(msg)
-    if h5["observation/srs_cfr_est"].shape != h5["observation/cfr_est"].shape:
-        msg = "/observation/srs_cfr_est must match /observation/cfr_est"
+        msg = "/waveform/tx_grid and /waveform/rx_grid link dimensions must match"
         raise SchemaValidationError(msg)
 
     link_shape = rx_grid.shape[:3]
@@ -771,11 +767,10 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         msg = "/array/spatial_spectrum_srs must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
         raise SchemaValidationError(msg)
     for dataset_path in (
-        "waveform/srs_tx_grid",
-        "waveform/srs_rx_grid",
-        "waveform/srs_noise_variance",
-        "waveform/srs_pilot_code",
-        "observation/srs_cfr_est",
+        "waveform/tx_grid",
+        "waveform/rx_grid",
+        "waveform/noise_variance",
+        "waveform/pilot_code",
         "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:

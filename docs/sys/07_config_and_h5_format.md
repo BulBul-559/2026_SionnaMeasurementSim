@@ -140,7 +140,7 @@ visualization: # 采样可视化
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以避免大规模输出膨胀 |
-| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid` |
+| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid`；`srs_cfr_est` 是历史兼容别名，仍指向 SRS-like `/observation/cfr_est` |
 | `method` | str | `"bartlett"` | 第一版仅支持 Bartlett 扫描 |
 | `zenith_bins` | int | 91 | zenith 方向网格数 |
 | `azimuth_bins` | int | 181 | azimuth 方向网格数 |
@@ -247,7 +247,7 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 | `num_antenna_ports` | int | 4 | 每 UE 天线端口数 |
 | `mcs_index` | int | 14 | MCS 索引 (0-28) |
 | `mcs_table` | int | 1 | MCS 表 (0=256QAM, 1=64QAM) |
-| `perfect_csi` | bool | false | 完美 CSI |
+| `perfect_csi` | bool | false | true 时 PUSCH receiver 使用 clean backend 返回的 oracle CSI；false 时使用 PUSCHReceiver 内部 DMRS LS |
 | `ebno_db` | float\|null | null | Eb/N0 dB；非 null 优先于 snr_db |
 | `pusch_dmrs_config_type` | int | 1 | DMRS 配置类型 |
 | `pusch_dmrs_length` | int | 1 | DMRS 长度 |
@@ -267,6 +267,10 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 `num_ofdm_symbols` 会自动取不小于 UE 发射天线数的值，以便用正交 pilot code
 分离多天线。当前实现不是完整 3GPP NR SRS；标准 comb、sequence、cyclic shift、
 hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
+
+NR PUSCH 和 NR SRS-like 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
+AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 link 的平均功率
+计算；仅当 PUSCH `ebno_db` 非空时使用 Sionna `ebnodb2no` 作为 override。
 
 #### `impairments` — 损伤模型
 
@@ -323,7 +327,7 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 
 ### 1.4 Pydantic 校验规则
 
-以下校验在 `model_validator` 中自动执行：
+主要校验在 `model_validator` 中自动执行：
 
 - `carrier.subcarrier_spacing_hz` 与 `bandwidth_hz / num_subcarriers` 一致性（1% 容差）
 - `phy.fft_size >= 2`
@@ -395,7 +399,7 @@ def load_config(path) -> MeasurementConfig       # YAML/JSON → Pydantic
 def load_config_or_exit(path) -> MeasurementConfig  # 失败时打印错误并 sys.exit(1)
 ```
 
-CLI 中 `run-full --config <path>` 加载 YAML 后，可用 CLI 参数覆盖部分字段（如 `--snr-db`、`--phy-standard`、`--output-dir`）。
+CLI 中 `--config <path> run-full` 加载 YAML 后，可用 CLI 参数覆盖部分字段（如 `--snr-db`、`--phy-standard`、`--output-dir`）。
 
 ### 1.8 MIMO 配置速查
 
@@ -469,7 +473,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号 |
+| `schema_version` | string | Schema 版本号，当前为 `1.1.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -559,7 +563,7 @@ results.h5
 | `map_id` | string | 可选地图版本 ID |
 | `material_policy` | string | 材质策略 |
 
-### 2.9 `/frequency` — 频率网格
+### 2.10 `/frequency` — 频率网格
 
 | Dataset | 类型 | Unit | 说明 |
 |---------|------|------|------|
@@ -569,7 +573,7 @@ results.h5
 | `subcarrier_spacing_hz` | float64 | — | 子载波间隔 |
 | `frequencies_hz` | [num_subcarriers] float64 | Hz | 子载波频率数组（严格递增） |
 
-### 2.10 `/channel/truth` — 信道真值
+### 2.11 `/channel/truth` — 信道真值
 
 #### 核心 datasets
 
@@ -593,7 +597,7 @@ results.h5
 | `nlos_exists` | [tx, rx] | bool | — | 是否存在 NLoS |
 | `geometric_path_count` | [tx, rx] | int32 | — | 几何路径数 |
 
-### 2.11 `/derived` — 派生物理标签
+### 2.12 `/derived` — 派生物理标签
 
 这些字段始终写入，供定位 baseline 和数据转换器复用统一口径。`/paths/full` 是否落盘仍由 `output.save_full_paths` 控制，但派生标签在 pipeline 内部使用完整路径表计算。
 
@@ -617,7 +621,7 @@ results.h5
 | `tx_rx_distance_m` | [tx, rx] | m | TX/RX 的 XY 平面距离 |
 | `path_selection_policy` | scalar string | — | first/strongest/LoS 路径选择口径 |
 
-### 2.12 `/paths/samples` — 采样路径
+### 2.13 `/paths/samples` — 采样路径
 
 轻量级路径采样，用于可视化和快速分析。
 
@@ -640,7 +644,7 @@ results.h5
 
 约束：`vertex_count >= interaction_type_nonzero_count + 2`（包含 TX/RX 端点）。
 
-### 2.13 `/paths/full` — 全量路径表
+### 2.14 `/paths/full` — 全量路径表
 
 仅当 `output.save_full_paths = true` 时写入。与 `PathTable` domain 模型一一对应：
 
@@ -661,7 +665,7 @@ results.h5
 | `path_type` | [tx, rx, rx_ant, tx_ant, path] | string | — | 路径类型 |
 | `path_depth` | [tx, rx, rx_ant, tx_ant, path] | int32 | — | 有效交互数 |
 
-### 2.14 `/paths/nlos_truth` — NLoS 路径 AoA/AoD 真值
+### 2.15 `/paths/nlos_truth` — NLoS 路径 AoA/AoD 真值
 
 始终写入，独立于 `output.save_full_paths`。它是面向空间谱/多径监督的轻量路径真值，
 只保留 NLoS path；LoS 或 invalid 位置的角度、功率、延迟写 `NaN`，`path_type` 写
@@ -679,7 +683,7 @@ results.h5
 | `path_depth` | [tx, rx, rx_ant, tx_ant, path] | int32 | — | 有效交互数 |
 | `path_type` | [tx, rx, rx_ant, tx_ant, path] | string | — | NLoS 类型或 `"invalid"` |
 
-### 2.15 `/link` — 链路配置
+### 2.16 `/link` — 链路配置
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -688,7 +692,7 @@ results.h5
 | `tx_role` | string | resolved TX 角色，`"ue"` 或 `"bs"` |
 | `rx_role` | string | resolved RX 角色，`"ue"` 或 `"bs"` |
 
-### 2.16 `/waveform` — 波形参数（PHY 启用时）
+### 2.17 `/waveform` — 波形参数（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -723,45 +727,45 @@ results.h5
 | `modulation` | string | 调制方式 |
 | `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域发送 grid |
 | `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域接收 grid |
-| `noise_variance` | float32 [snap, ul_tx, ul_rx] | 信道施加时使用的噪声方差 |
+| `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
 
-**NR SRS-like 专有**（仅 `standard == "nr_srs"`）：
+**NR SRS-like 使用的统一 waveform 字段**（仅 `standard == "nr_srs"`）：
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `srs_tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | SRS-like 全带宽已知 pilot 发送 grid |
-| `srs_rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 通过信道和 AWGN 后的接收 grid |
-| `srs_noise_variance` | float32 [snap, ul_tx, ul_rx] | SRS-like 接收 grid 使用的噪声方差 |
-| `srs_pilot_code` | complex64 [ul_tx_ant, ofdm_symbol] | UE 多天线正交 pilot code |
+| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | SRS-like 全带宽已知 pilot 发送 grid |
+| `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | clean channel + common impairment/AWGN 后的接收 grid |
+| `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
+| `pilot_code` | complex64 [ul_tx_ant, ofdm_symbol] | UE 多天线正交 pilot code |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
+schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 
 大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
-### 2.17 `/array` — 阵列观测与标签
+### 2.18 `/array` — 阵列观测与标签
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
-| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH `rx_grid` 或 SRS-like `srs_rx_grid` 聚合的接收阵列协方差/快照矩阵 |
+| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH/SRS-like `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
 | `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
 | `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
-| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS-like 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/srs_cfr_est` Bartlett 扫描得到 |
+| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS-like 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到；`srs_cfr_est` 仅是 spectrum source 名称兼容别名 |
 | `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
 默认即使 `array.spectrum.enabled=false`，NR PUSCH 仍写 `aoa_heatmap_label` /
 `spatial_spectrum_label` 作为轻量监督标签；真实 Bartlett 谱只在显式开启时写入。
 
-### 2.18 `/observation` — 观测结果（PHY 启用时）
+### 2.19 `/observation` — 观测结果（PHY 启用时）
 
 | Dataset | Shape | Dtype | Unit | Index Order |
 |---------|-------|-------|------|-------------|
 | `cfr_est` | [snap, tx, rx, rx_ant, tx_ant, subcarrier] | complex64 | `linear_complex` | `snapshot,tx,rx,rx_ant,tx_ant,subcarrier` |
-| `srs_cfr_est` | [snap, tx, rx, rx_ant, tx_ant, subcarrier] | complex64 | `linear_complex` | 仅 `standard=="nr_srs"`；内容等同 SRS-like LS 估计的 `cfr_est` |
 | `valid_mask` | [snap, tx, rx] | bool | — | 快照有效性 |
 | `detection_success` | [snap, tx, rx] | bool | — | 检测成功标志 |
 | `estimation_success` | [snap, tx, rx] | bool | — | 估计成功标志 |
@@ -772,12 +776,12 @@ results.h5
 | `sfo_ppm` | [snap, tx, rx] | float | ppm | 采样频偏 |
 | `timing_offset_samples` | [snap, tx, rx] | float | sample | 定时偏移 |
 | `phase_offset_rad` | [snap, tx, rx] | float | rad | 相位偏移 |
-| `agc_gain_db` | [snap, tx, rx] | float | dB | AGC 增益 |
+| `agc_gain_db` | [snap, rx] | float | dB | 接收侧 AGC 增益 |
 | `clipping_flag` | [snap, tx, rx] | bool | — | ADC 削波标志 |
 
-> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。
+> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.1.0` 后 NR SRS-like 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`。
 
-### 2.16 `/impairments` — 损伤配置（PHY 启用时）
+### 2.20 `/impairments` — 损伤配置（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -789,7 +793,7 @@ results.h5
 | `iq_imbalance_config` | string | IQ 不平衡配置摘要 |
 | `agc_adc_config` | string | AGC/ADC 配置摘要 |
 
-### 2.17 `/receiver` — 接收机配置（PHY 启用时）
+### 2.21 `/receiver` — 接收机配置（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -805,7 +809,7 @@ results.h5
 
 > NR PUSCH 场景下 `receiver_type` 必须是 `"pusch_receiver"`，`mimo_detector` 必须是 `"lmmse"` 或 `"kbest"`。
 
-### 2.18 `/evaluation` — 评估指标（PHY 启用时）
+### 2.22 `/evaluation` — 评估指标（PHY 启用时）
 
 | Dataset | Shape | Dtype | Unit | 说明 |
 |---------|-------|-------|------|------|
@@ -830,7 +834,7 @@ results.h5
 - `0 <= num_block_errors <= num_blocks`
 - `bler == num_block_errors / num_blocks`
 
-### 2.19 `/calibration` — 校准
+### 2.23 `/calibration` — 校准
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -838,7 +842,7 @@ results.h5
 | `fitted_parameters` | string | 拟合参数 |
 | `validation_metrics` | string | 校验指标 |
 
-### 2.20 `/motion` — 运动/多普勒
+### 2.24 `/motion` — 运动/多普勒
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
@@ -848,7 +852,7 @@ results.h5
 | `num_time_steps` | scalar int32 | — | 快照数 |
 | `mobility_mode` | scalar string | — | `"static"` / `"doppler_synthetic"` |
 
-### 2.21 `/runtime` — 运行环境
+### 2.25 `/runtime` — 运行环境
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -863,7 +867,7 @@ results.h5
 | `command_line` | string | 完整命令行 |
 | `elapsed_seconds` | float64 | 运行耗时（秒） |
 
-### 2.22 核心维度约定
+### 2.26 核心维度约定
 
 项目内部所有张量采用 **TX-first** 维度顺序（Sionna 原生为 rx-first，adapter 负责转换）：
 
@@ -878,7 +882,7 @@ results.h5
 | per-link scalars | `[snap, tx, rx]` | 3-D |
 | Snapshot scalars | `[snap]` | 1-D |
 
-### 2.23 Schema 校验规则
+### 2.27 Schema 校验规则
 
 `validate_hdf5_contract()` 在每次写入后自动执行，检查以下内容：
 
@@ -920,7 +924,7 @@ results.h5
 **Unit 属性检查：**
 所有主要 dataset 必须有 `unit` attribute（见上文各 dataset 表的 Unit 列）。
 
-### 2.24 禁止事项
+### 2.28 禁止事项
 
 - 禁止将 truth CFR 写为 `/channel/cfr`（必须在 `/channel/truth/cfr`）
 - 禁止在 writer 中 import Sionna

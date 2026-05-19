@@ -17,6 +17,15 @@
 
 核心流程：CLI 解析参数 → 构建 `RTTruthRunConfig` → 调用 `run_rt_truth_pipeline()` → 输出 HDF5 路径。
 
+`--config` 是全局参数，必须放在子命令前：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli \
+  --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
+  run-full \
+  --output-dir outputs/my_nr_srs_run
+```
+
 `run-full` 支持两种模式：
 - **有 `--config`**：加载 YAML 配置，CLI 参数可覆盖 YAML 中的对应值
 - **无 `--config`**：使用 CLI 参数 + 硬编码默认值（功能受限，不支持完整 NR PUSCH MIMO）
@@ -41,7 +50,7 @@
 
 文件：`sionna_measurement_sim/config/schema.py`
 
-使用 **Pydantic v2** 定义全量配置模型。顶层类 `MeasurementConfig` 包含 12 个分组：
+使用 **Pydantic v2** 定义全量配置模型。顶层类 `MeasurementConfig` 包含这些分组：
 
 ```python
 class MeasurementConfig(BaseModel):
@@ -53,6 +62,7 @@ class MeasurementConfig(BaseModel):
     rt: RTConfig                  # max_depth, los, specular_reflection, ...
     link: LinkConfig              # duplex_mode, phy_link_direction
     phy: PHYConfig                # standard, snr_db, NR-family fields
+    array: ArrayConfig            # AoA heatmap / Bartlett spectrum
     impairments: ImpairmentsConfig # awgn, cfo, sfo, phase_noise, timing, agc_adc
     receiver: ReceiverConfig      # estimator_type, mimo_detector, failure_policy
     motion: MotionConfig          # mobility_mode, num_time_steps, velocity
@@ -125,7 +135,7 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 
 ## 可视化入口
 
-`run-full --config` 会读取 `visualization` 配置。若 `visualization.enabled=true`，
+通过 `--config <path> run-full` 运行时会读取 `visualization` 配置。若 `visualization.enabled=true`，
 pipeline 会输出采样诊断图到 `<run_output_dir>/figures/`，并在 `manifest.json`
 写入选中的 BS/UE 和图像列表。大规模生产 SRS 模板默认关闭可视化，避免 path
 render 和 Matplotlib 开销拖慢全量仿真。

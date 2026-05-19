@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import nullcontext
 from typing import Any
 
@@ -11,10 +10,13 @@ import numpy as np
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
-    ImpairmentSpec,
     ObservationResult,
     ReceiverSpec,
     WaveformSpec,
+)
+from sionna_measurement_sim.phy.common_link import (
+    ObservationImpairmentChain,
+    ResultAssembler,
 )
 from sionna_measurement_sim.phy.spatial_spectrum import project_cfr_to_ul_receiver_samples
 
@@ -36,7 +38,6 @@ def run_nr_srs_observation(
     """
 
     _ = link_config
-    rng = np.random.default_rng(int(getattr(phy_config, "observation_seed", 42)))
     sc_spacing_hz = float(getattr(phy_config, "subcarrier_spacing_khz", 30)) * 1000.0
     num_subcarriers = int(getattr(carrier_config, "num_subcarriers", truth_cfr.shape[-1]))
     truth = cfr_snapshots if cfr_snapshots is not None else truth_cfr
@@ -74,14 +75,21 @@ def run_nr_srs_observation(
     with _span(tracer, "nr_srs.channel_apply_einsum"):
         y_clean = np.einsum("...rtf,...tsf->...rsf", h_ul, tx_grid, optimize=True)
     _record_array_event(tracer, "nr_srs.array_shape", "y_clean", y_clean)
-    with _span(tracer, "nr_srs.noise_and_rx_grid", snr_db=float(snr_db)):
-        signal_power = np.mean(np.abs(y_clean) ** 2, axis=(3, 4, 5), keepdims=True)
-        noise_variance = signal_power / np.float32(10.0 ** (snr_db / 10.0))
-        noise = np.sqrt(noise_variance / np.float32(2.0)) * (
-            rng.standard_normal(y_clean.shape, dtype=np.float32)
-            + 1j * rng.standard_normal(y_clean.shape, dtype=np.float32)
+    with _span(tracer, "nr_srs.common_impairments_and_awgn", snr_db=float(snr_db)):
+        impairment_chain = ObservationImpairmentChain(
+            fft_size=num_subcarriers,
+            sample_rate_hz=sc_spacing_hz * num_subcarriers,
+            random_seed=int(getattr(phy_config, "observation_seed", 42)),
+            impairment_config=getattr(phy_config, "impairment_config", None),
         )
-        rx_grid = (y_clean + noise).astype(np.complex64, copy=False)
+        impairment_result = impairment_chain.apply(y_clean, snr_db=snr_db)
+        rx_grid = (
+            impairment_result.rx_grid.detach().cpu().numpy().astype(np.complex64, copy=False)
+        )
+        chain_scalars = ResultAssembler.chain_scalars_to_numpy(impairment_result)
+        impairment_fields = ResultAssembler.sample_to_numpy(
+            impairment_result.impairment_sample
+        )
     _record_array_event(tracer, "nr_srs.array_shape", "rx_grid", rx_grid)
     with _span(tracer, "nr_srs.ls_estimate"):
         h_hat_ul = (
@@ -104,12 +112,8 @@ def run_nr_srs_observation(
             cfr_est,
             valid_mask,
         )
-        rssi_dbm = 10.0 * np.log10(
-            np.maximum(np.mean(np.abs(truth_dl) ** 2, axis=(3, 4, 5)), 1e-30)
-        ).astype(np.float32)
-        noise_dbm = 10.0 * np.log10(
-            np.maximum(np.squeeze(noise_variance, axis=(3, 4, 5)), 1e-30)
-        ).astype(np.float32)
+        rssi_dbm = chain_scalars["rssi_dbm"]
+        noise_dbm = chain_scalars["noise_power_dbm"]
 
     with _span(tracer, "nr_srs.domain_models"):
         waveform = WaveformSpec(
@@ -128,15 +132,15 @@ def run_nr_srs_observation(
             valid_mask=valid_mask,
             detection_success=valid_mask.copy(),
             estimation_success=valid_mask.copy(),
-            snr_db=np.full(link_shape, snr_db, dtype=np.float32),
+            snr_db=chain_scalars["snr_db"],
             rssi_dbm=rssi_dbm,
             noise_power_dbm=noise_dbm,
-            cfo_hz=np.zeros(link_shape, dtype=np.float32),
-            sfo_ppm=np.zeros(link_shape, dtype=np.float32),
-            timing_offset_samples=np.zeros(link_shape, dtype=np.float32),
-            phase_offset_rad=np.zeros(link_shape, dtype=np.float32),
-            agc_gain_db=np.zeros((link_shape[0], link_shape[2]), dtype=np.float32),
-            clipping_flag=np.zeros(link_shape, dtype=np.bool_),
+            cfo_hz=impairment_fields["cfo_hz"],
+            sfo_ppm=impairment_fields["sfo_ppm"],
+            timing_offset_samples=impairment_fields["timing_offset_samples"],
+            phase_offset_rad=impairment_fields["phase_offset_rad"],
+            agc_gain_db=impairment_fields["agc_gain_db"],
+            clipping_flag=impairment_fields["clipping_flag"],
         )
         evaluation = EvaluationResult(
             nmse_db=nmse_db,
@@ -148,13 +152,10 @@ def run_nr_srs_observation(
             estimation_failure_rate=float(np.mean(~valid_mask)) if valid_mask.size else 0.0,
         )
         waveform_grids = {
-            "srs_tx_grid": tx_grid.astype(np.complex64, copy=False),
-            "srs_rx_grid": rx_grid,
-            "srs_noise_variance": np.squeeze(noise_variance, axis=(3, 4, 5)).astype(
-                np.float32,
-                copy=False,
-            ),
-            "srs_pilot_code": pilot_code.astype(np.complex64, copy=False),
+            "tx_grid": tx_grid.astype(np.complex64, copy=False),
+            "rx_grid": rx_grid,
+            "noise_variance": chain_scalars["noise_variance"],
+            "pilot_code": pilot_code.astype(np.complex64, copy=False),
         }
     return {
         "nr_waveform_spec": waveform,
@@ -168,11 +169,7 @@ def run_nr_srs_observation(
         ),
         "evaluation": evaluation,
         "observation": observation,
-        "impairments": ImpairmentSpec(
-            model_version="nr_srs_fullband_sounding_v1",
-            random_seed=int(getattr(phy_config, "observation_seed", 42)),
-            awgn_config=json.dumps({"snr_db": snr_db}, sort_keys=True),
-        ),
+        "impairments": impairment_result.impairment_spec,
         "waveform_grids": waveform_grids,
         "metadata": {
             "srs_like_scope": "full_band_orthogonal_sounding",

@@ -196,6 +196,26 @@ class ApplyOFDMChannelBackend:
         y = self._apply(x, h, no)
         return ChannelApplyResult(y=y, h=h)
 
+    def apply_clean_with_h(
+        self,
+        x: torch.Tensor,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply the channel without receiver noise and return ``y_clean`` + ``h``."""
+        return self.apply_with_h(
+            x,
+            _zero_noise_for(x),
+            snap_idx=snap_idx,
+            ul_tx_idx=ul_tx_idx,
+            ul_rx_idx=ul_rx_idx,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
+        )
+
     def apply_batch_with_h(
         self,
         x: torch.Tensor,
@@ -215,6 +235,22 @@ class ApplyOFDMChannelBackend:
         h = self.perfect_h_batch(link_indices, num_ofdm_symbols)
         y = self._apply(x, h, no)
         return ChannelApplyResult(y=y, h=h)
+
+    def apply_clean_batch_with_h(
+        self,
+        x: torch.Tensor,
+        link_indices: list[tuple[int, int, int]],
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply a batch of independent SU-MIMO links without receiver noise."""
+        return self.apply_batch_with_h(
+            x,
+            _zero_noise_for(x),
+            link_indices=link_indices,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
+        )
 
     def apply_full_with_h(
         self,
@@ -250,6 +286,22 @@ class ApplyOFDMChannelBackend:
         h_full = cfr_to_full_mimo_h(channel, snap_idx, num_ofdm_symbols)
         y = self._apply(x, h_full, no)
         return ChannelApplyResult(y=y, h=h_full)
+
+    def apply_clean_full_with_h(
+        self,
+        x: torch.Tensor,
+        snap_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply full multi-TX/RX MIMO channel without receiver noise."""
+        return self.apply_full_with_h(
+            x,
+            _zero_noise_for(x),
+            snap_idx=snap_idx,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
+        )
 
 
 # ── CIRDataset + OFDMChannel backend ──────────────────────────────────
@@ -530,6 +582,26 @@ class CIRDatasetOFDMChannelBackend:
         y, h = ofdm_ch(x, no)
         return ChannelApplyResult(y=y, h=h)
 
+    def apply_clean_with_h(
+        self,
+        x: torch.Tensor,
+        snap_idx: int = 0,
+        ul_tx_idx: int = 0,
+        ul_rx_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply the CIRDataset channel without receiver noise."""
+        return self.apply_with_h(
+            x,
+            _zero_noise_for(x),
+            snap_idx=snap_idx,
+            ul_tx_idx=ul_tx_idx,
+            ul_rx_idx=ul_rx_idx,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
+        )
+
     def apply_batch_with_h(
         self,
         x: torch.Tensor,
@@ -562,6 +634,22 @@ class CIRDatasetOFDMChannelBackend:
             h=torch.cat(h_parts, dim=0),
         )
 
+    def apply_clean_batch_with_h(
+        self,
+        x: torch.Tensor,
+        link_indices: list[tuple[int, int, int]],
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Apply a batch of independent SU-MIMO links without receiver noise."""
+        return self.apply_batch_with_h(
+            x,
+            _zero_noise_for(x),
+            link_indices=link_indices,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
+        )
+
     def apply_full_with_h(
         self,
         x: torch.Tensor,
@@ -580,6 +668,22 @@ class CIRDatasetOFDMChannelBackend:
             "CIRDatasetOFDMChannelBackend does not yet support "
             "full multi-TX/RX MU-MIMO. Use channel_backend='apply_ofdm' "
             "for MU-MIMO."
+        )
+
+    def apply_clean_full_with_h(
+        self,
+        x: torch.Tensor,
+        snap_idx: int = 0,
+        num_ofdm_symbols: int = 14,
+        resource_grid: Any = None,
+    ) -> ChannelApplyResult:
+        """Full clean MU-MIMO is not supported for the CIRDataset backend."""
+        return self.apply_full_with_h(
+            x,
+            _zero_noise_for(x),
+            snap_idx=snap_idx,
+            num_ofdm_symbols=num_ofdm_symbols,
+            resource_grid=resource_grid,
         )
 
 
@@ -615,3 +719,7 @@ def create_channel_backend(
         f"Unknown channel_backend: {backend_name!r}. "
         f"Supported: 'apply_ofdm', 'cir_dataset_ofdm'"
     )
+
+
+def _zero_noise_for(x: torch.Tensor) -> torch.Tensor:
+    return torch.tensor(0.0, dtype=torch.float32, device=x.device)

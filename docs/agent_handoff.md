@@ -22,6 +22,11 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 - 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
+当前工作分支为 `codex/common-phy-link-impairments`。本分支已把 NR PUSCH 与
+NR SRS-like 的 clean channel、基带损伤、AWGN 和 observation metadata 统一到
+`sionna_measurement_sim/phy/common_link.py`；`custom_ofdm` 保留为 legacy 路径。
+当前 HDF5 schema 版本是 `1.1.0`。
+
 ## 深读文档地图
 
 | 目标 | 建议阅读 |
@@ -77,6 +82,19 @@ PHY 已经模块化，新增链路应走 registry/module 方式。
 - `custom_ofdm`
 - `nr_pusch`
 - `nr_srs`
+
+`nr_pusch` 和 `nr_srs` 共享通用链路：
+
+```text
+tx_grid -> clean channel apply -> rx_grid_clean
+         -> CFO/SFO/phase/timing/AGC/ADC + AWGN
+         -> rx_grid -> standard receiver/estimator
+```
+
+common chain 统一写 `/waveform/tx_grid`、`/waveform/rx_grid`、
+`/waveform/noise_variance` 以及 `/observation/cfo_hz` 等损伤观测字段。
+SRS-like 另写 `/waveform/pilot_code`。schema `1.1.0` 后不再写
+`/waveform/srs_*` 或 `/observation/srs_cfr_est`。
 
 `nr_srs` 当前是 SRS-like full-band sounding，不是完整 3GPP NR SRS。它使用全带宽已知 pilot，经过信道后做 LS：
 
@@ -182,7 +200,48 @@ outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 - `/link/tx_role = "ue"`。
 - `/link/rx_role = "bs"`。
 - 没有 `/waveform/tx_time` 或 `/waveform/rx_time`。
+- 使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
+  `/waveform/noise_variance` 和 `/waveform/pilot_code`。
 - `manifest/manifest.json` 已生成。
+
+### `dense_0001 label0p4` PUSCH common-AWGN rerun
+
+输出目录：
+
+```text
+outputs/dense_0001_label0p4_pusch_fixed_snr_shard10
+```
+
+用途：验证 common link 接入后 PUSCH estimated CSI 的噪声口径。早先同场景结果中
+PUSCH 把 `snr_db` 误当作绝对 noise variance，导致 effective SNR 约 `-19 dB`、
+BER 接近随机；修正后 normal `snr_db` 由 common chain 按 clean `rx_grid` 功率计算。
+
+结果：
+
+| 项 | 值 |
+|---|---:|
+| 场景 | `dense_0001` |
+| label | `label0p4.json` |
+| UE | 654 |
+| planned shard / result file | 66 / 101 |
+| fallback split | 35 |
+| GPU | `[0,1,2,3,5,6,7]` |
+| wall time | 642.35 s |
+| schema | 101 / 101 passed |
+| effective SNR | median/mean 30.0 dB |
+| NMSE | mean -30.283 dB, median -30.300 dB |
+| global BER / BLER | 0.00293 / 0.03298 |
+
+可视化在：
+
+```text
+outputs/dense_0001_label0p4_pusch_fixed_snr_shard10/figures/result_000
+```
+
+这批结果说明 PUSCH 链路当前是通的：`perfect_csi=false` 时 receiver 使用
+PUSCHReceiver 内部 DMRS LS；导出的 `/observation/cfr_est` 来自外部
+`PUSCHLSChannelEstimator` 对同一个 impaired `rx_grid` 的估计。`perfect_csi=true`
+才把 clean backend 返回的 oracle `h` 传给 receiver。
 
 ### `shard_size=25` 的问题
 

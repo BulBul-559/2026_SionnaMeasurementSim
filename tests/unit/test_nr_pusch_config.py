@@ -8,6 +8,7 @@ import pytest
 from sionna_measurement_sim.config.schema import CarrierConfig, PHYConfig
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.link import LinkConfig
+from sionna_measurement_sim.phy.impairments import ImpairmentConfig
 from sionna_measurement_sim.phy.nr_pusch_observation import (
     build_array_outputs_from_waveform,
     build_nr_pusch_config,
@@ -210,7 +211,49 @@ class TestRunNRPUSCHObservation:
         assert grids["rx_grid"].dtype == np.complex64
         assert np.any(np.abs(grids["tx_grid"]) > 0.0)
         assert np.any(np.abs(grids["rx_grid"]) > 0.0)
-        np.testing.assert_allclose(grids["noise_variance"], 1e-4, rtol=1e-5)
+        np.testing.assert_allclose(
+            result["observation"].rssi_dbm - result["observation"].noise_power_dbm,
+            40.0,
+            atol=1e-4,
+        )
+
+    def test_common_impairments_populate_observation_metadata(self):
+        cir_coeff = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex64)
+        cir_delays = np.ones((1, 1, 1, 1, 1, 2), dtype=np.float32) * 1e-9
+
+        phy = PHYConfig(
+            num_prb=4,
+            snr_db=40.0,
+            num_antenna_ports=1,
+            num_layers=1,
+            perfect_csi=True,
+        )
+        object.__setattr__(phy, "observation_seed", 19)
+        object.__setattr__(
+            phy,
+            "impairment_config",
+            ImpairmentConfig(
+                random_seed=5,
+                cfo_hz=123.0,
+                sfo_ppm=2.0,
+                timing_offset_samples=1.0,
+                phase_offset_rad=0.25,
+            ),
+        )
+        result = run_nr_pusch_observation(
+            cir_coeff,
+            cir_delays,
+            LinkConfig(),
+            phy,
+            CarrierConfig(),
+        )
+
+        obs = result["observation"]
+        assert np.all(obs.cfo_hz == 123.0)
+        assert np.all(obs.sfo_ppm == 2.0)
+        assert np.all(obs.timing_offset_samples == 1.0)
+        assert np.all(obs.phase_offset_rad == 0.25)
+        assert result["impairments"].model_version == "common_observation_impairments_v1"
 
     def test_su_mimo_batch_size_1_and_4_schema_shapes_match(self):
         cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)

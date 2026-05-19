@@ -5,7 +5,8 @@
 **当前能力：**
 - Sionna RT 射线追踪（LoS / 反射 / 折射 / 绕射 / 漫反射）
 - 多快照运动与多普勒
-- Custom OFDM + AWGN + LS 估计 + 全链路 impairment（CFO/SFO/相偏/定时偏/AGC/削波）
+- Custom OFDM + AWGN + LS 估计（legacy 路径，保留测试/兼容用途）
+- SRS/PUSCH 共享的通用 clean channel → impairment/AWGN → receiver 链路
 - NR PUSCH 4x4 SU-MIMO（perfect CSI + DMRS LS 估计，LMMSE/KBest 检测器）
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
 - NR SRS-like full-band uplink sounding（全带宽已知 pilot + LS CSI；暂非完整 3GPP SRS）
@@ -16,9 +17,9 @@
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
-- HDF5 schema 强校验（含 NR PUSCH MIMO 必填字段）
+- HDF5 schema `1.1.0` 强校验（NR PUSCH/SRS-like 统一 waveform 字段）
 - 批量实验（多 seed/SNR 自动分批）
-- 227 个测试收集项（单元 / schema / adapter / 集成 / 统计）
+- 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果为 `223 passed, 19 skipped`
 
 ## 快速开始
 
@@ -30,18 +31,21 @@ uv sync
 uv run python -m sionna_measurement_sim.app.cli preflight
 
 # 运行 custom OFDM 端到端仿真（6 BS × 100 UE 全场景）
-uv run python -m sionna_measurement_sim.app.cli run-full \
+uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/measurement_mvp.yaml \
+    run-full \
     --output-dir outputs/my_run
 
 # 运行 NR PUSCH 4x4 SU-MIMO（需使用专用配置模板）
-uv run python -m sionna_measurement_sim.app.cli run-full \
+uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_pusch_mvp.yaml \
+    run-full \
     --output-dir outputs/nr_pusch_4x4
 
 # 运行室内 FR1 100 MHz SRS-like uplink sounding
-uv run python -m sionna_measurement_sim.app.cli run-full \
+uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
+    run-full \
     --output-dir outputs/bistro_0000_nr_srs
 
 # 查看所有参数
@@ -69,8 +73,9 @@ NR PUSCH 的 MIMO 参数（天线数、层数、检测器、backend 等）通过
 
 ```bash
 # 4x4 SU-MIMO estimated CSI（使用 nr_pusch_mvp.yaml 默认配置）
-uv run python -m sionna_measurement_sim.app.cli run-full \
+uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_pusch_mvp.yaml \
+    run-full \
     --output-dir outputs/nr_pusch_su_mimo
 
 # 4x4 SU-MIMO perfect CSI：修改 YAML 中 phy.perfect_csi = true
@@ -105,17 +110,18 @@ path = run_rt_truth_pipeline(config)
 ## NR SRS-like Sounding
 
 `phy.standard: "nr_srs"` 使用全带宽已知 pilot 做上行 sounding，并通过 LS 得到
-`/observation/cfr_est`。它额外写出 `/observation/srs_cfr_est`、
-`/waveform/srs_tx_grid`、`/waveform/srs_rx_grid`、`/waveform/srs_noise_variance`，
-以及可选的 `/array/spatial_spectrum_srs`。这一路径适合先做室内定位 CSI
-基线和 PUSCH-DMRS proxy 对比，但文档和论文中应称为 “SRS-like full-band
-uplink sounding”，标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等细节
-见 [SRS TODO](docs/sys/nr_srs_standard_todo.md)。
+`/observation/cfr_est`。它和 PUSCH 一样走通用 clean channel → impairment/AWGN
+链路，写出统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
+`/waveform/noise_variance` 以及 SRS 专属 `/waveform/pilot_code`，并可选写
+`/array/spatial_spectrum_srs`。这一路径适合先做室内定位 CSI 基线和
+PUSCH-DMRS proxy 对比，但文档和论文中应称为 “SRS-like full-band uplink
+sounding”，标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等细节见
+[SRS TODO](docs/sys/nr_srs_standard_todo.md)。
 
-Bistro 100 MHz SRS-like 模板当前默认 `rt.synthetic_array=false`。这个口径更接近
-element-level 几何 probe，但普通 `6 BS x N UE` UE shard 可能在 Sionna RT
-PathSolver 阶段 OOM；当前参数对比使用 `1 BS x 1 UE` micro-sweep，详见
-[SRS RT variant sweep](docs/performance/nr_srs_rt_variant_sweep_6x5.md)。
+室内 100 MHz SRS-like 模板当前默认 `rt.synthetic_array=false`、direct uplink、
+UE shard `20`。已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` direct
+uplink baseline；历史 micro-sweep 和旧 shard 参数只作为实验记录，见
+[Indoor FR1 validation](docs/sys/indoor_fr1_100mhz_validation.md)。
 
 同一场景的 PUSCH 与 SRS-like 输出可用轻量脚本对比：
 
@@ -167,7 +173,7 @@ outputs/<run_dir>/
 | `/derived` | 距离、ToA/RTT-like、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
-| `/waveform` | OFDM/NR 波形；NR PUSCH 保存 `tx_grid/rx_grid/noise_variance`，NR SRS-like 保存 `srs_tx_grid/srs_rx_grid/srs_noise_variance` |
+| `/waveform` | OFDM/NR 波形；NR PUSCH/SRS-like 统一保存 `tx_grid/rx_grid/noise_variance`，SRS-like 另写 `pilot_code` |
 | `/array` | 阵列 snapshot、AoA 标签、空间谱标签；SRS-like 可写 `spatial_spectrum_srs` |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/receiver` | 估计器类型、MIMO 检测器 |
@@ -190,8 +196,9 @@ outputs/<run_dir>/
 生产级大规模 PUSCH 推荐开启 UE shard：
 
 ```bash
-uv run python -m sionna_measurement_sim.app.cli run-full \
+uv run python -m sionna_measurement_sim.app.cli \
     --config config/perf/nr_pusch_6x8884_sharded.yaml \
+    run-full \
     --output-dir outputs/nr_pusch_6x8884_sharded
 ```
 
@@ -220,7 +227,7 @@ SionnaMeasurementSim/
     domain/           领域模型（dataclass，纯 numpy）
     adapters/sionna_rt/  Sionna RT API 适配
     rt/               RT 真值 pipeline
-    phy/              PHY module registry + 损伤 + NR PUSCH/SRS-like + MIMO 信道 + backend
+    phy/              PHY module registry + common link + 损伤 + NR PUSCH/SRS-like + backend
     io/               HDF5 读写、schema validator、manifest、label 解析
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图

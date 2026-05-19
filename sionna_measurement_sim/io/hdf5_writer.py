@@ -388,7 +388,7 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
         for key in ("cyclic_prefix", "target_coderate", "modulation"):
             if key in extras:
                 _write_scalar(group, key, str(extras[key]))
-        if waveform.standard == "nr_pusch":
+        if waveform.standard in ("nr_pusch", "nr_srs"):
             if "tx_grid" in extras:
                 _write_dataset(
                     group,
@@ -413,36 +413,11 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                     unit="linear",
                     index_order="snapshot,ul_tx,ul_rx",
                 )
-        if waveform.standard == "nr_srs":
-            if "srs_tx_grid" in extras:
+            if "pilot_code" in extras:
                 _write_dataset(
                     group,
-                    "srs_tx_grid",
-                    extras["srs_tx_grid"],
-                    unit="linear_complex",
-                    index_order="snapshot,ul_tx,ul_rx,ul_tx_ant,ofdm_symbol,subcarrier",
-                )
-            if "srs_rx_grid" in extras:
-                _write_dataset(
-                    group,
-                    "srs_rx_grid",
-                    extras["srs_rx_grid"],
-                    unit="linear_complex",
-                    index_order="snapshot,ul_tx,ul_rx,ul_rx_ant,ofdm_symbol,subcarrier",
-                )
-            if "srs_noise_variance" in extras:
-                _write_dataset(
-                    group,
-                    "srs_noise_variance",
-                    extras["srs_noise_variance"],
-                    unit="linear",
-                    index_order="snapshot,ul_tx,ul_rx",
-                )
-            if "srs_pilot_code" in extras:
-                _write_dataset(
-                    group,
-                    "srs_pilot_code",
-                    extras["srs_pilot_code"],
+                    "pilot_code",
+                    extras["pilot_code"],
                     unit="linear_complex",
                     index_order="ul_tx_ant,ofdm_symbol",
                 )
@@ -543,14 +518,6 @@ def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> No
         unit="linear_complex",
         index_order="snapshot,tx,rx,rx_ant,tx_ant,subcarrier",
     )
-    if result.waveform is not None and result.waveform.standard == "nr_srs":
-        _write_dataset(
-            group,
-            "srs_cfr_est",
-            observation.cfr_est,
-            unit="linear_complex",
-            index_order="snapshot,tx,rx,rx_ant,tx_ant,subcarrier",
-        )
     _write_dataset(group, "valid_mask", observation.valid_mask)
     _write_dataset(group, "detection_success", observation.detection_success)
     _write_dataset(group, "estimation_success", observation.estimation_success)

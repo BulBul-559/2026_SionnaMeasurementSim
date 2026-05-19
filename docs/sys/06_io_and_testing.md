@@ -52,8 +52,9 @@ def validate_hdf5_contract(path: str | Path) -> None
    - `num_prb`、`num_layers`、`num_antenna_ports`、`mimo_detector` 等
    - `num_layers >= 1`、`num_antenna_ports >= num_layers`
 8. **NR SRS-like 专有字段**（当 `waveform/standard == "nr_srs"`）：
-   - `srs_tx_grid`、`srs_rx_grid`、`srs_noise_variance`、`srs_pilot_code`
-   - `/observation/srs_cfr_est` 与 `/observation/cfr_est` shape 一致
+   - 统一 waveform 字段 `tx_grid`、`rx_grid`、`noise_variance`
+   - SRS 专属 `pilot_code`
+   - schema `1.1.0` 后不再写 `/waveform/srs_*` 或 `/observation/srs_cfr_est`
 9. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
@@ -106,6 +107,7 @@ tests/
 │   ├── test_nr_mimo_channel_bridge.py    # CIR→CFR shape + backend comparison (21 tests)
 │   ├── test_nr_pusch_mimo_config.py      # multi-user configs + detector builder (13 tests)
 │   ├── test_nr_pusch_config.py           # PUSCHConfig + run_nr_pusch_observation (14 tests)
+│   ├── test_common_link.py               # 通用 impairment/AWGN 链路
 │   ├── test_observation_pipeline.py      # AWGN + LS 估计
 │   ├── test_impairments.py               # CFO/SFO/相偏/定时偏/削波
 │   ├── test_reciprocity.py               # TDD 互易性 transpose
@@ -134,7 +136,7 @@ tests/
 
 ```bash
 uv run ruff check .      # lint
-uv run pytest            # 全量测试，以当前输出为准
+uv run pytest            # 全量测试，以当前输出为准；最近结果 223 passed, 19 skipped
 ```
 
 涉及 adapter 变更还需：

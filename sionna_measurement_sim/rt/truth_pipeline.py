@@ -1157,9 +1157,6 @@ def _attach_phy_array_outputs(
 ) -> None:
     waveform_extras = phy_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
-    srs_rx_grid = waveform_extras.get("srs_rx_grid")
-    if rx_grid is None and srs_rx_grid is not None:
-        rx_grid = srs_rx_grid
     if rx_grid is None:
         return
     from sionna_measurement_sim.phy.nr_pusch_observation import (

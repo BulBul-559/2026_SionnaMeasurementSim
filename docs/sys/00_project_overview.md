@@ -60,9 +60,9 @@ Label JSON + Scene XML + Config YAML
         ▼
   ┌─────────────────────────┐
   │ PHY Observation Pipeline │
-  │  custom_ofdm: AWGN + LS  │
-  │  nr_pusch: PUSCH + MIMO  │──→ ObservationResult (H_obs CFR)
-  │  nr_srs: SRS-like LS     │
+  │  custom_ofdm: legacy AWGN + LS │
+  │  nr_pusch / nr_srs: common     │──→ ObservationResult (H_obs CFR)
+  │  clean channel + impairments   │
   └─────────────────────────┘      EvaluationResult (NMSE/BER/BLER)
         │
         ▼
@@ -137,8 +137,8 @@ Derived:       [tx, rx]
 |------|------|
 | RT 射线追踪 (LoS / 反射 / 折射 / 绕射) | ✅ |
 | 多快照运动与多普勒 | ✅ |
-| Custom OFDM + AWGN + LS 估计 | ✅ |
-| 全链路 impairment (CFO/SFO/相偏/定时偏/AGC/削波) | ✅ |
+| Custom OFDM + AWGN + LS 估计 (legacy) | ✅ |
+| PUSCH/SRS-like 通用 impairment/AWGN 链 | ✅ |
 | NR PUSCH 4x4 SU-MIMO perfect CSI | ✅ |
 | NR PUSCH 4x4 SU-MIMO estimated CSI (需 num_layers == num_antenna_ports) | ✅ |
 | NR PUSCH MU-MIMO (多 UE 联合 PUSCH) | ✅ |
@@ -152,7 +152,7 @@ Derived:       [tx, rx]
 | `scene_id` / `map_id` 对齐字段 | ✅ |
 | `/derived` 距离、ToA/RTT-like、AoA、LoS/NLoS 标签 | ✅ |
 | NR PUSCH 频域 tx/rx grid 与 `/array` 标签 | ✅ |
-| NR SRS-like `srs_*` grid 与 `spatial_spectrum_srs` | ✅ |
+| NR PUSCH/SRS-like 统一 `tx_grid/rx_grid/noise_variance` 与 `spatial_spectrum_srs` | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
 | 多文件 shard 输出与 aggregate manifest | ✅ |

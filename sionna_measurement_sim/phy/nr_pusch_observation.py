@@ -20,10 +20,13 @@ from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
-    ImpairmentSpec,
     ObservationResult,
     ReceiverSpec,
     WaveformSpec,
+)
+from sionna_measurement_sim.phy.common_link import (
+    ObservationImpairmentChain,
+    ResultAssembler,
 )
 from sionna_measurement_sim.phy.nr_channel_backend import (
     create_channel_backend,
@@ -358,11 +361,21 @@ def _run_nr_pusch_observation_impl(
     else:
         no_val = 10.0 ** (-snr_db / 10.0)
         no = torch.tensor(no_val, dtype=torch.float32)
+    noise_variance_override = no if ebno_db is not None else None
+    impairment_chain = ObservationImpairmentChain(
+        fft_size=num_subcarriers,
+        sample_rate_hz=sc_spacing_hz * num_subcarriers,
+        random_seed=int(getattr(phy_config, "observation_seed", getattr(phy_config, "seed", 42))),
+        impairment_config=getattr(phy_config, "impairment_config", None),
+    )
 
     # 6. Process links ───────────────────────────────────────────────
     if mimo_mode == "mu_mimo":
         proc_result = _process_mu_mimo(
-            backend=backend, tx=tx, rx=rx, no=no,
+            backend=backend, tx=tx, rx=rx,
+            noise_variance_override=noise_variance_override,
+            impairment_chain=impairment_chain,
+            snr_db=float(snr_db),
             ls_estimator=ls_estimator,
             perfect_csi=perfect_csi,
             num_ofdm_symbols=num_ofdm_symbols,
@@ -372,7 +385,10 @@ def _run_nr_pusch_observation_impl(
         )
     elif requested_batch_size > 1:
         proc_result = _process_su_mimo_batched(
-            backend=backend, tx=tx, rx=rx, no=no,
+            backend=backend, tx=tx, rx=rx,
+            noise_variance_override=noise_variance_override,
+            impairment_chain=impairment_chain,
+            snr_db=float(snr_db),
             ls_estimator=ls_estimator,
             perfect_csi=perfect_csi,
             num_ofdm_symbols=num_ofdm_symbols,
@@ -383,7 +399,10 @@ def _run_nr_pusch_observation_impl(
         )
     else:
         proc_result = _process_su_mimo_per_link(
-            backend=backend, tx=tx, rx=rx, no=no,
+            backend=backend, tx=tx, rx=rx,
+            noise_variance_override=noise_variance_override,
+            impairment_chain=impairment_chain,
+            snr_db=float(snr_db),
             ls_estimator=ls_estimator,
             perfect_csi=perfect_csi,
             num_ofdm_symbols=num_ofdm_symbols,
@@ -404,6 +423,7 @@ def _run_nr_pusch_observation_impl(
     total_blocks = proc_result.get("total_blocks", 0)
     num_receiver_failures = proc_result["num_receiver_failures"]
     batching_stats = proc_result["batching_stats"]
+    link_metadata = proc_result["link_metadata"]
 
     # 7. Keep HDF5 output in resolved link-view orientation.
     # Legacy transpose-reciprocity call sites still opt into the old reverse
@@ -415,6 +435,7 @@ def _run_nr_pusch_observation_impl(
         ber_per_link = np.transpose(ber_per_link, (0, 2, 1))
         bler_per_link = np.transpose(bler_per_link, (0, 2, 1))
         estimation_success = np.transpose(estimation_success, (0, 2, 1))
+        link_metadata = _transpose_link_metadata_for_reciprocity(link_metadata)
         link_shape = (num_snap, num_ul_rx, num_ul_tx)
     else:
         link_shape = (num_snap, num_ul_tx, num_ul_rx)
@@ -422,21 +443,22 @@ def _run_nr_pusch_observation_impl(
     # 8. Aggregate metrics  ───────────────────────────────────────────
     aggregate_ber = total_bit_errors / max(total_bits, 1)
     aggregate_bler = float(np.mean(bler_per_link)) if bler_per_link.size > 0 else 0.0
+    impairment_spec = impairment_chain.build_spec(float(snr_db))
 
     observation = ObservationResult(
         cfr_est=cfr_est_full,
         valid_mask=np.ones(link_shape, dtype=np.bool_),
         detection_success=np.ones(link_shape, dtype=np.bool_),
         estimation_success=estimation_success,
-        snr_db=np.full(link_shape, float(snr_db), dtype=np.float32),
-        rssi_dbm=np.zeros(link_shape, dtype=np.float32),
-        noise_power_dbm=np.zeros(link_shape, dtype=np.float32),
-        cfo_hz=np.zeros(link_shape, dtype=np.float32),
-        sfo_ppm=np.zeros(link_shape, dtype=np.float32),
-        timing_offset_samples=np.zeros(link_shape, dtype=np.float32),
-        phase_offset_rad=np.zeros(link_shape, dtype=np.float32),
-        agc_gain_db=np.zeros((link_shape[0], link_shape[2]), dtype=np.float32),
-        clipping_flag=np.zeros(link_shape, dtype=np.bool_),
+        snr_db=link_metadata["snr_db"],
+        rssi_dbm=link_metadata["rssi_dbm"],
+        noise_power_dbm=link_metadata["noise_power_dbm"],
+        cfo_hz=link_metadata["cfo_hz"],
+        sfo_ppm=link_metadata["sfo_ppm"],
+        timing_offset_samples=link_metadata["timing_offset_samples"],
+        phase_offset_rad=link_metadata["phase_offset_rad"],
+        agc_gain_db=_fit_agc_to_link_shape(link_metadata["agc_gain_db"], link_shape),
+        clipping_flag=link_metadata["clipping_flag"],
     )
 
     evaluation = EvaluationResult(
@@ -489,11 +511,7 @@ def _run_nr_pusch_observation_impl(
         ),
         "evaluation": evaluation,
         "observation": observation,
-        "impairments": ImpairmentSpec(
-            model_version="nr_pusch_mimo_v1",
-            random_seed=42,
-            awgn_config=f'{{"snr_db": {float(snr_db)}}}',
-        ),
+        "impairments": impairment_spec,
         "reciprocity_applied": backend.reciprocity_applied,
         "num_tx_bits": total_bits,
         "tx_signal_shape": waveform_grids["tx_grid"].shape,
@@ -552,7 +570,9 @@ def _process_su_mimo_per_link(
     backend: Any,
     tx: Any,
     rx: Any,
-    no: torch.Tensor,
+    noise_variance_override: torch.Tensor | None,
+    impairment_chain: ObservationImpairmentChain,
+    snr_db: float,
     ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -582,6 +602,7 @@ def _process_su_mimo_per_link(
     total_block_errors = 0
     total_blocks = 0
     num_receiver_failures = 0
+    link_metadata = _empty_link_metadata(num_snap, num_ul_tx, num_ul_rx)
 
     for snap_idx in range(num_snap):
         for ul_tx_idx in range(num_ul_tx):
@@ -593,7 +614,9 @@ def _process_su_mimo_per_link(
                     backend=backend,
                     tx=tx,
                     rx=rx,
-                    no=no,
+                    noise_variance_override=noise_variance_override,
+                    impairment_chain=impairment_chain,
+                    snr_db=snr_db,
                     ls_estimator=ls_estimator,
                     perfect_csi=perfect_csi,
                     num_ofdm_symbols=num_ofdm_symbols,
@@ -611,6 +634,13 @@ def _process_su_mimo_per_link(
                 waveform_grids["noise_variance"][
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = link_result["noise_variance"]
+                _store_link_metadata(
+                    link_metadata,
+                    snap_idx,
+                    ul_tx_idx,
+                    ul_rx_idx,
+                    link_result["link_metadata"],
+                )
                 nmse_db_full[
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = link_result["nmse_db"]
@@ -642,6 +672,7 @@ def _process_su_mimo_per_link(
         "total_block_errors": total_block_errors,
         "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
+        "link_metadata": link_metadata,
         "batching_stats": _default_batching_stats(
             requested_batch_size=1,
             num_links=num_snap * num_ul_tx * num_ul_rx,
@@ -653,7 +684,9 @@ def _process_su_mimo_batched(
     backend: Any,
     tx: Any,
     rx: Any,
-    no: torch.Tensor,
+    noise_variance_override: torch.Tensor | None,
+    impairment_chain: ObservationImpairmentChain,
+    snr_db: float,
     ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -684,6 +717,7 @@ def _process_su_mimo_batched(
     total_block_errors = 0
     total_blocks = 0
     num_receiver_failures = 0
+    link_metadata = _empty_link_metadata(num_snap, num_ul_tx, num_ul_rx)
 
     link_indices = [
         (snap_idx, ul_tx_idx, ul_rx_idx)
@@ -717,7 +751,9 @@ def _process_su_mimo_batched(
                 backend=backend,
                 tx=tx,
                 rx=rx,
-                no=no,
+                noise_variance_override=noise_variance_override,
+                impairment_chain=impairment_chain,
+                snr_db=snr_db,
                 ls_estimator=ls_estimator,
                 perfect_csi=perfect_csi,
                 num_ofdm_symbols=num_ofdm_symbols,
@@ -732,7 +768,9 @@ def _process_su_mimo_batched(
                 backend=backend,
                 tx=tx,
                 rx=rx,
-                no=no,
+                noise_variance_override=noise_variance_override,
+                impairment_chain=impairment_chain,
+                snr_db=snr_db,
                 ls_estimator=ls_estimator,
                 perfect_csi=perfect_csi,
                 num_ofdm_symbols=num_ofdm_symbols,
@@ -771,6 +809,13 @@ def _process_su_mimo_batched(
             waveform_grids["noise_variance"][snap_idx, ul_tx_idx, ul_rx_idx] = (
                 link_result["noise_variance"]
             )
+            _store_link_metadata(
+                link_metadata,
+                snap_idx,
+                ul_tx_idx,
+                ul_rx_idx,
+                link_result["link_metadata"],
+            )
             nmse_db_full[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["nmse_db"]
             ber_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["ber"]
             bler_per_link[snap_idx, ul_tx_idx, ul_rx_idx] = link_result["bler"]
@@ -796,6 +841,7 @@ def _process_su_mimo_batched(
         "total_block_errors": total_block_errors,
         "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
+        "link_metadata": link_metadata,
         "batching_stats": stats,
     }
 
@@ -806,7 +852,9 @@ def _process_pusch_link_batch(
     backend: Any,
     tx: Any,
     rx: Any,
-    no: torch.Tensor,
+    noise_variance_override: torch.Tensor | None,
+    impairment_chain: ObservationImpairmentChain,
+    snr_db: float,
     ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -815,21 +863,26 @@ def _process_pusch_link_batch(
     """Run one batched SU-MIMO PUSCH forward pass."""
     batch_size = len(link_indices)
     tx_signal, tx_bits = tx(batch_size)
-    channel_result = backend.apply_batch_with_h(
+    channel_result = backend.apply_clean_batch_with_h(
         tx_signal,
-        no,
         link_indices=link_indices,
         num_ofdm_symbols=num_ofdm_symbols,
         resource_grid=tx.resource_grid,
     )
-    y = channel_result.y
+    impairment_result, y = _apply_common_chain_to_sionna_y(
+        impairment_chain,
+        channel_result.y,
+        snr_db=snr_db,
+        noise_variance_override=noise_variance_override,
+    )
+    receiver_no = _receiver_no_from_chain(impairment_result, y)
     h_perfect = channel_result.h
 
     receiver_failed = np.zeros(batch_size, dtype=np.bool_)
     tb_crc_ok = None
     if perfect_csi:
         try:
-            rx_bits, tb_crc_status = rx(y, no, h_perfect)
+            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect)
         except Exception:
             if receiver_failure_policy == "fail_fast":
                 raise
@@ -844,7 +897,7 @@ def _process_pusch_link_batch(
         if ls_estimator is None:
             raise RuntimeError("LS estimator is required when perfect_csi=False")
         try:
-            h_hat, _err_var = ls_estimator(y, no)
+            h_hat, _err_var = ls_estimator(y, receiver_no)
         except Exception:
             if receiver_failure_policy == "fail_fast":
                 raise
@@ -852,7 +905,7 @@ def _process_pusch_link_batch(
             receiver_failed[:] = True
 
         try:
-            rx_bits, tb_crc_status = rx(y, no)
+            rx_bits, tb_crc_status = rx(y, receiver_no)
         except Exception:
             if receiver_failure_policy == "fail_fast":
                 raise
@@ -882,11 +935,12 @@ def _process_pusch_link_batch(
         tx_grid_slice, rx_grid_slice, noise_variance = _extract_waveform_link_slices(
             tx_signal=tx_signal,
             y=y,
-            no=no,
+            no=impairment_result.noise_variance[:, 0, 0],
             pusch_tx_idx=0,
             pusch_rx_idx=0,
             batch_idx=batch_idx,
         )
+        link_metadata = _extract_batch_item_metadata(impairment_result, batch_idx)
         cfr_est_slice = cfr_est_batch[batch_idx]
 
         bit_errors = int(np.sum(rx_bits_np[batch_idx] != tx_bits_np[batch_idx]))
@@ -907,6 +961,7 @@ def _process_pusch_link_batch(
             "tx_grid_slice": tx_grid_slice,
             "rx_grid_slice": rx_grid_slice,
             "noise_variance": noise_variance,
+            "link_metadata": link_metadata,
             "nmse_db": float(10.0 * np.log10(max(nmse_val, 1e-30))),
             "ber": ber,
             "bler": bler,
@@ -945,7 +1000,9 @@ def _process_mu_mimo(
     backend: Any,
     tx: Any,
     rx: Any,
-    no: torch.Tensor,
+    noise_variance_override: torch.Tensor | None,
+    impairment_chain: ObservationImpairmentChain,
+    snr_db: float,
     ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -984,6 +1041,7 @@ def _process_mu_mimo(
     total_block_errors = 0
     total_blocks = 0
     num_receiver_failures = 0
+    link_metadata = _empty_link_metadata(num_snap, num_ul_tx, num_ul_rx)
 
     # Wrap CFR in PUSCHMIMOChannel for cfr_to_full_mimo_h
     channel = PUSCHMIMOChannel(
@@ -1008,20 +1066,26 @@ def _process_mu_mimo(
         tx_signal, tx_bits = tx(1)
 
         # 3. Apply MIMO OFDM channel via backend's full-MIMO path
-        channel_result = backend.apply_full_with_h(
-            tx_signal, no,
+        channel_result = backend.apply_clean_full_with_h(
+            tx_signal,
             snap_idx=snap_idx,
             num_ofdm_symbols=num_ofdm_symbols,
             resource_grid=tx.resource_grid,
         )
-        y = channel_result.y
+        impairment_result, y = _apply_common_chain_to_sionna_y(
+            impairment_chain,
+            channel_result.y,
+            snr_db=snr_db,
+            noise_variance_override=noise_variance_override,
+        )
+        receiver_no = _receiver_no_from_chain(impairment_result, y)
         h_full = channel_result.h
         for ul_tx_idx in range(num_ul_tx):
             for ul_rx_idx in range(num_ul_rx):
                 tx_slice, rx_slice, no_value = _extract_waveform_link_slices(
                     tx_signal=tx_signal,
                     y=y,
-                    no=no,
+                    no=impairment_result.noise_variance[0, 0, :],
                     pusch_tx_idx=ul_tx_idx,
                     pusch_rx_idx=ul_rx_idx,
                 )
@@ -1034,15 +1098,22 @@ def _process_mu_mimo(
                 waveform_grids["noise_variance"][
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = no_value
+                _store_link_metadata(
+                    link_metadata,
+                    snap_idx,
+                    ul_tx_idx,
+                    ul_rx_idx,
+                    _extract_mu_link_metadata(impairment_result, ul_rx_idx),
+                )
 
         # 4. Run PUSCHReceiver
         receiver_failed = False
         tb_crc_ok = None
         try:
             if perfect_csi:
-                rx_bits, tb_crc_status = rx(y, no, h_full)
+                rx_bits, tb_crc_status = rx(y, receiver_no, h_full)
             else:
-                rx_bits, tb_crc_status = rx(y, no)
+                rx_bits, tb_crc_status = rx(y, receiver_no)
             tb_crc_ok = tb_crc_status
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
@@ -1064,7 +1135,7 @@ def _process_mu_mimo(
             if ls_estimator is None:
                 raise RuntimeError("LS estimator is required when perfect_csi=False")
             try:
-                h_hat, _err_var = ls_estimator(y, no)
+                h_hat, _err_var = ls_estimator(y, receiver_no)
             except Exception:
                 receiver_failed = True
                 h_hat = h_full
@@ -1152,6 +1223,7 @@ def _process_mu_mimo(
         "total_block_errors": total_block_errors,
         "total_blocks": total_blocks,
         "num_receiver_failures": num_receiver_failures,
+        "link_metadata": link_metadata,
         "batching_stats": _default_batching_stats(
             requested_batch_size=1,
             num_links=num_snap,
@@ -1169,7 +1241,9 @@ def _process_one_pusch_link(
     backend: Any,
     tx: Any,
     rx: Any,
-    no: torch.Tensor,
+    noise_variance_override: torch.Tensor | None,
+    impairment_chain: ObservationImpairmentChain,
+    snr_db: float,
     ls_estimator: Any | None,
     perfect_csi: bool,
     num_ofdm_symbols: int,
@@ -1182,24 +1256,31 @@ def _process_one_pusch_link(
     # 1. Generate TX signal
     tx_signal, tx_bits = tx(1)
 
-    # 2. Apply MIMO OFDM channel via backend — get both y and h
-    channel_result = backend.apply_with_h(
-        tx_signal, no,
+    # 2. Apply clean MIMO OFDM channel, then common impairments/AWGN
+    channel_result = backend.apply_clean_with_h(
+        tx_signal,
         snap_idx=snap_idx,
         ul_tx_idx=ul_tx_idx,
         ul_rx_idx=ul_rx_idx,
         num_ofdm_symbols=num_ofdm_symbols,
         resource_grid=tx.resource_grid,
     )
-    y = channel_result.y
+    impairment_result, y = _apply_common_chain_to_sionna_y(
+        impairment_chain,
+        channel_result.y,
+        snr_db=snr_db,
+        noise_variance_override=noise_variance_override,
+    )
+    receiver_no = _receiver_no_from_chain(impairment_result, y)
     h_perfect = channel_result.h
     tx_grid_slice, rx_grid_slice, noise_variance = _extract_waveform_link_slices(
         tx_signal=tx_signal,
         y=y,
-        no=no,
+        no=impairment_result.noise_variance[:, 0, 0],
         pusch_tx_idx=0,
         pusch_rx_idx=0,
     )
+    link_metadata = _extract_batch_item_metadata(impairment_result, 0)
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
     # h_perfect: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, ...]
 
@@ -1211,7 +1292,7 @@ def _process_one_pusch_link(
 
     if perfect_csi:
         try:
-            rx_bits, tb_crc_status = rx(y, no, h_perfect)
+            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect)
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
             tb_crc_status = torch.zeros(tx_bits.shape[0], dtype=torch.bool)
@@ -1227,7 +1308,7 @@ def _process_one_pusch_link(
         if ls_estimator is None:
             raise RuntimeError("LS estimator is required when perfect_csi=False")
         try:
-            h_hat, _err_var = ls_estimator(y, no)
+            h_hat, _err_var = ls_estimator(y, receiver_no)
             # h_hat: [batch, num_rx, num_rx_ant, num_tx, num_streams_per_tx, ...]
         except Exception:
             receiver_failed = True
@@ -1236,7 +1317,7 @@ def _process_one_pusch_link(
                 raise
 
         try:
-            rx_bits, tb_crc_status = rx(y, no)
+            rx_bits, tb_crc_status = rx(y, receiver_no)
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
             tb_crc_status = torch.zeros(tx_bits.shape[0], dtype=torch.bool)
@@ -1291,6 +1372,7 @@ def _process_one_pusch_link(
         "tx_grid_slice": tx_grid_slice,
         "rx_grid_slice": rx_grid_slice,
         "noise_variance": noise_variance,
+        "link_metadata": link_metadata,
         "nmse_db": nmse_db,
         "ber": ber,
         "bler": bler,
@@ -1344,6 +1426,171 @@ def _empty_waveform_grids(
     }
 
 
+def _empty_link_metadata(
+    num_snap: int,
+    num_ul_tx: int,
+    num_ul_rx: int,
+) -> dict[str, np.ndarray]:
+    link_shape = (num_snap, num_ul_tx, num_ul_rx)
+    return {
+        "snr_db": np.zeros(link_shape, dtype=np.float32),
+        "rssi_dbm": np.zeros(link_shape, dtype=np.float32),
+        "noise_power_dbm": np.zeros(link_shape, dtype=np.float32),
+        "cfo_hz": np.zeros(link_shape, dtype=np.float32),
+        "sfo_ppm": np.zeros(link_shape, dtype=np.float32),
+        "timing_offset_samples": np.zeros(link_shape, dtype=np.float32),
+        "phase_offset_rad": np.zeros(link_shape, dtype=np.float32),
+        "agc_gain_db": np.zeros((num_snap, num_ul_rx), dtype=np.float32),
+        "clipping_flag": np.zeros(link_shape, dtype=np.bool_),
+    }
+
+
+def _store_link_metadata(
+    metadata: dict[str, np.ndarray],
+    snap_idx: int,
+    ul_tx_idx: int,
+    ul_rx_idx: int,
+    link_metadata: dict[str, np.float32 | np.bool_],
+) -> None:
+    for key in (
+        "snr_db",
+        "rssi_dbm",
+        "noise_power_dbm",
+        "cfo_hz",
+        "sfo_ppm",
+        "timing_offset_samples",
+        "phase_offset_rad",
+        "clipping_flag",
+    ):
+        metadata[key][snap_idx, ul_tx_idx, ul_rx_idx] = link_metadata[key]
+    metadata["agc_gain_db"][snap_idx, ul_rx_idx] = link_metadata["agc_gain_db"]
+
+
+def _apply_common_chain_to_sionna_y(
+    chain: ObservationImpairmentChain,
+    y_clean: torch.Tensor,
+    *,
+    snr_db: float,
+    noise_variance_override: torch.Tensor | None,
+) -> tuple[Any, torch.Tensor]:
+    """Apply common impairments to Sionna ``y`` while preserving receiver shape.
+
+    Sionna uses ``[batch,num_rx,rx_ant,ofdm_symbol,subcarrier]``.  The common
+    chain uses leading ``[snapshot,tx,rx]`` axes, so batch becomes snapshot and
+    a singleton logical TX axis is inserted.
+    """
+    if y_clean.ndim != 5:
+        raise ValueError(f"Sionna y must be rank 5, got {tuple(y_clean.shape)}")
+    common_y = y_clean.unsqueeze(1)
+    result = chain.apply(
+        common_y,
+        snr_db=snr_db,
+        noise_variance_override=(
+            None
+            if noise_variance_override is None
+            else _noise_override_for_common(
+                noise_variance_override,
+                common_y.shape[:3],
+                common_y.device,
+            )
+        ),
+    )
+    return result, result.rx_grid[:, 0, ...]
+
+
+def _noise_override_for_common(
+    value: torch.Tensor,
+    link_shape: tuple[int, int, int],
+    device: torch.device,
+) -> torch.Tensor:
+    override = torch.as_tensor(value, dtype=torch.float32, device=device)
+    snapshot, tx, rx = link_shape
+    if override.ndim == 0:
+        return override
+    if override.shape == link_shape:
+        return override
+    if override.numel() == snapshot:
+        return override.reshape(snapshot, 1, 1)
+    if override.numel() == snapshot * rx:
+        return override.reshape(snapshot, 1, rx)
+    if override.numel() == snapshot * tx * rx:
+        return override.reshape(link_shape)
+    return override
+
+
+def _receiver_no_from_chain(result: Any, y: torch.Tensor) -> torch.Tensor:
+    noise = result.noise_variance.to(device=y.device, dtype=torch.float32)
+    if noise.numel() == 1:
+        return noise.reshape(())
+    return noise[:, 0, :]
+
+
+def _extract_batch_item_metadata(result: Any, batch_idx: int) -> dict[str, np.float32 | np.bool_]:
+    scalars = ResultAssembler.chain_scalars_to_numpy(result)
+    sample = ResultAssembler.sample_to_numpy(result.impairment_sample)
+    return {
+        "snr_db": np.float32(scalars["snr_db"][batch_idx, 0, 0]),
+        "rssi_dbm": np.float32(scalars["rssi_dbm"][batch_idx, 0, 0]),
+        "noise_power_dbm": np.float32(scalars["noise_power_dbm"][batch_idx, 0, 0]),
+        "cfo_hz": np.float32(sample["cfo_hz"][batch_idx, 0, 0]),
+        "sfo_ppm": np.float32(sample["sfo_ppm"][batch_idx, 0, 0]),
+        "timing_offset_samples": np.float32(
+            sample["timing_offset_samples"][batch_idx, 0, 0]
+        ),
+        "phase_offset_rad": np.float32(sample["phase_offset_rad"][batch_idx, 0, 0]),
+        "agc_gain_db": np.float32(sample["agc_gain_db"][batch_idx, 0]),
+        "clipping_flag": np.bool_(sample["clipping_flag"][batch_idx, 0, 0]),
+    }
+
+
+def _extract_mu_link_metadata(result: Any, rx_idx: int) -> dict[str, np.float32 | np.bool_]:
+    scalars = ResultAssembler.chain_scalars_to_numpy(result)
+    sample = ResultAssembler.sample_to_numpy(result.impairment_sample)
+    return {
+        "snr_db": np.float32(scalars["snr_db"][0, 0, rx_idx]),
+        "rssi_dbm": np.float32(scalars["rssi_dbm"][0, 0, rx_idx]),
+        "noise_power_dbm": np.float32(scalars["noise_power_dbm"][0, 0, rx_idx]),
+        "cfo_hz": np.float32(sample["cfo_hz"][0, 0, rx_idx]),
+        "sfo_ppm": np.float32(sample["sfo_ppm"][0, 0, rx_idx]),
+        "timing_offset_samples": np.float32(sample["timing_offset_samples"][0, 0, rx_idx]),
+        "phase_offset_rad": np.float32(sample["phase_offset_rad"][0, 0, rx_idx]),
+        "agc_gain_db": np.float32(sample["agc_gain_db"][0, rx_idx]),
+        "clipping_flag": np.bool_(sample["clipping_flag"][0, 0, rx_idx]),
+    }
+
+
+def _transpose_link_metadata_for_reciprocity(
+    metadata: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    transposed = dict(metadata)
+    for key in (
+        "snr_db",
+        "rssi_dbm",
+        "noise_power_dbm",
+        "cfo_hz",
+        "sfo_ppm",
+        "timing_offset_samples",
+        "phase_offset_rad",
+        "clipping_flag",
+    ):
+        transposed[key] = np.transpose(metadata[key], (0, 2, 1))
+    snapshot = metadata["snr_db"].shape[0]
+    old_tx = metadata["snr_db"].shape[1]
+    mean_agc = np.mean(metadata["agc_gain_db"], axis=1, keepdims=True)
+    transposed["agc_gain_db"] = np.broadcast_to(mean_agc, (snapshot, old_tx)).copy()
+    return transposed
+
+
+def _fit_agc_to_link_shape(agc_gain_db: np.ndarray, link_shape: tuple[int, int, int]) -> np.ndarray:
+    expected = (link_shape[0], link_shape[2])
+    if agc_gain_db.shape == expected:
+        return agc_gain_db.astype(np.float32, copy=False)
+    if agc_gain_db.size == 0:
+        return np.zeros(expected, dtype=np.float32)
+    mean_agc = np.mean(agc_gain_db, axis=1, keepdims=True)
+    return np.broadcast_to(mean_agc, expected).astype(np.float32, copy=True)
+
+
 def _extract_waveform_link_slices(
     *,
     tx_signal: Any,
@@ -1365,7 +1612,9 @@ def _extract_waveform_link_slices(
     rx_index = pusch_rx_idx if y_np.shape[1] > 1 else 0
     tx_slice = tx_np[batch_idx, tx_index, ...].astype(np.complex64, copy=False)
     rx_slice = y_np[batch_idx, rx_index, ...].astype(np.complex64, copy=False)
-    return tx_slice, rx_slice, np.float32(_noise_variance_scalar(no))
+    return tx_slice, rx_slice, np.float32(
+        _noise_variance_scalar(no, batch_idx=batch_idx, rx_idx=rx_index)
+    )
 
 
 def build_array_outputs_from_waveform(
@@ -1459,8 +1708,15 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def _noise_variance_scalar(no: Any) -> float:
+def _noise_variance_scalar(no: Any, *, batch_idx: int = 0, rx_idx: int = 0) -> float:
     arr = _to_numpy(no).astype(np.float32, copy=False)
     if arr.size == 0:
         return 0.0
+    if arr.ndim == 1:
+        index = batch_idx if batch_idx > 0 else rx_idx
+        return float(arr[min(index, arr.shape[0] - 1)])
+    if arr.ndim >= 2:
+        batch = min(batch_idx, arr.shape[0] - 1)
+        rx = min(rx_idx, arr.shape[-1] - 1)
+        return float(arr.reshape(arr.shape[0], -1)[batch, rx])
     return float(np.ravel(arr)[0])
