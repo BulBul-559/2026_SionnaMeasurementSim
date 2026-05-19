@@ -63,7 +63,7 @@ SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的
 当前 pipeline 使用 `link.phy_link_direction` 直接解析 BS/UE 到 TX/RX：uplink 为
 `UE -> BS`，downlink 为 `BS -> UE`。在 `bistro_0000` 当前 RT 配置下，已验证
 `7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 `PathSolver` 阶段 OOM。
-在 `medium_0000` 的 `label0p2` 全量 baseline 中，`shard_size: 25` 会在
+在 `median_0000` 的 `label0p2` 全量 baseline 中，`shard_size: 25` 会在
 `paths.cfr()` 阶段触发 Dr.Jit 单数组 entry 数超过 `2^32` 的限制；`shard_size: 20`
 已完成 `7 BS x 2583 UE` 全量 SRS-like direct uplink。因此默认 SRS-like 模板使用
 `shard_size: 20` 作为当前生产值。多个 shard 会分别写 `results/result_xxx.h5`，

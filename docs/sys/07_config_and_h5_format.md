@@ -363,7 +363,7 @@ hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
 }
 ```
 
-当前真实数据通常位于 ignored `data/{dense,medium,sparse}/<scene_id>/`。每个场景目录
+当前真实数据通常位于 ignored `data/{dense,median,sparse}/<scene_id>/`。每个场景目录
 保留三种 UE 采样粒度：`label0p1.json`、`label0p2.json`、`label0p4.json`。
 推荐 baseline 使用 `label0p2.json`。
 
@@ -736,7 +736,7 @@ results.h5
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
-大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `medium_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
+大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
 ### 2.17 `/array` — 阵列观测与标签
 

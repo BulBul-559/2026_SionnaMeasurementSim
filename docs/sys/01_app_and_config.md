@@ -120,7 +120,7 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 ## 本地数据路径
 
 `data/` 与 `outputs/` 均为 ignored 本地运行路径，可以是 symlink。当前场景数据按
-`dense/medium/sparse` 组织，场景目录中提供 `label0p1.json`、`label0p2.json`、
+`dense/median/sparse` 组织，场景目录中提供 `label0p1.json`、`label0p2.json`、
 `label0p4.json` 三种采样粒度。默认不要递归扫描这两个目录。
 
 ## 可视化入口

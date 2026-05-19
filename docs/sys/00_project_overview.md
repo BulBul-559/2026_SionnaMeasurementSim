@@ -79,11 +79,11 @@ Label JSON + Scene XML + Config YAML
 
 ```text
 data/dense/
-data/medium/
+data/median/
 data/sparse/
 ```
 
-每个场景目录使用对应前缀，例如 `data/medium/medium_0000/`。每个场景有三种 label：
+每个场景目录使用对应前缀，例如 `data/median/median_0000/`。每个场景有三种 label：
 
 | 文件 | UE 采样间隔 | 当前 UE 数 |
 |---|---:|---:|

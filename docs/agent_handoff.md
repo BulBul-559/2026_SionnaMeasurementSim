@@ -94,14 +94,14 @@ H_hat = Y / X
 
 ```text
 data/dense/
-data/medium/
+data/median/
 data/sparse/
 ```
 
 每个场景目录已统一命名，例如：
 
 ```text
-data/medium/medium_0000/
+data/median/median_0000/
 ```
 
 每个场景有三种 label：
@@ -147,25 +147,25 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 
 ## 最近重要验证
 
-### `medium_0000 label0p2` SRS baseline
+### `median_0000 label0p2` SRS baseline
 
 输出目录：
 
 ```text
-outputs/nr_srs_medium_0000_label0p2_full_baseline_shard20
+outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 ```
 
 实际路径通常是：
 
 ```text
-/data/sunmeiyuan/projects/sionna/outputs/nr_srs_medium_0000_label0p2_full_baseline_shard20
+/data/sunmeiyuan/projects/sionna/outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 ```
 
 结果：
 
 | 项 | 值 |
 |---|---:|
-| 场景 | `medium_0000` |
+| 场景 | `median_0000` |
 | label | `label0p2.json` |
 | BS / UE | 7 / 2583 |
 | shard size | 20 |
@@ -186,7 +186,7 @@ outputs/nr_srs_medium_0000_label0p2_full_baseline_shard20
 
 ### `shard_size=25` 的问题
 
-同一 `medium_0000 label0p2` 用 `shard_size=25` 在后段 shard 失败：
+同一 `median_0000 label0p2` 用 `shard_size=25` 在后段 shard 失败：
 
 ```text
 paths.cfr()
@@ -198,7 +198,7 @@ Dr.Jit single-array entry count > 2^32
 失败的 partial 输出曾位于：
 
 ```text
-outputs/nr_srs_medium_0000_label0p2_full_baseline
+outputs/nr_srs_median_0000_label0p2_full_baseline
 ```
 
 它没有完整 manifest，不能作为 baseline 使用。

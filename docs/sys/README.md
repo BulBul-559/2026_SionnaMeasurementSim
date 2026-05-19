@@ -28,7 +28,7 @@
 - 配置和 label 层使用 `BS/UE`；仿真和 HDF5 层使用 resolved `TX/RX`。
 - `link.phy_link_direction="uplink"` 时，`TX=UE`、`RX=BS`。
 - 当前 SRS 生产基线使用 direct uplink、`rt.synthetic_array=false`。
-- 本地数据在 ignored `data/` 下，当前主要是 `dense/`、`medium/`、`sparse/`。
+- 本地数据在 ignored `data/` 下，当前主要是 `dense/`、`median/`、`sparse/`。
 - 每个场景有 `label0p1.json`、`label0p2.json`、`label0p4.json` 三种 UE 采样粒度。
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
