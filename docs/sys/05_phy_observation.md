@@ -267,7 +267,7 @@ def _process_one_pusch_link(snap, ul_tx, ul_rx, backend, tx, rx, no,
 
 SU-MIMO 支持两条路径：`su_mimo_link_batch_size <= 1` 时使用逐 link 稳定路径；大于 1 时使用 batched path，把多个独立 `(snapshot, ul_tx, ul_rx)` link 合成一个 PUSCHTransmitter/ApplyOFDMChannel/PUSCHReceiver batch。batch 失败时会递归降级到更小 batch，最终可回退到单 link，并在 manifest 的 `nr_pusch_batching` 记录 fallback 统计。
 
-GPU 大规模生产运行建议同时开启 UE shard：多个进程分别绑定 GPU、分别写 `result_xxx.h5`，避免多个进程竞争同一个 HDF5 文件。
+GPU 大规模生产运行建议同时开启 UE shard：多个进程分别绑定 GPU、分别写 `results/result_xxx.h5`，避免多个进程竞争同一个 HDF5 文件。训练和分析侧应以 `manifest/manifest.json` 为入口，因为 fallback 可能把单个计划 shard 拆成多个子 result 文件。
 
 ### MU-MIMO per-snapshot 处理：`_process_mu_mimo()`
 

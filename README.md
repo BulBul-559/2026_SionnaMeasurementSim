@@ -142,7 +142,17 @@ uv run python scripts/compare_phy_csi_outputs.py \
 
 ## HDF5 输出结构
 
-普通运行生成 `outputs/<run_dir>/results.h5`。开启 `output.sharding.enabled=true` 时，输出目录下直接生成 `result_000.h5`、`result_001.h5` 等多个自包含 HDF5 文件，并由根目录 `manifest.json` 记录全局 UE 覆盖范围和 resolved TX/RX 索引。
+普通运行生成 `outputs/<run_dir>/results.h5`。开启 `output.sharding.enabled=true` 时，输出目录会按职责分层：
+
+```text
+outputs/<run_dir>/
+  results/              # result_xxx.h5，自包含 HDF5 shard
+  manifest/             # aggregate manifest、per-shard manifest、config snapshot
+  logs/                 # debug/perf 日志
+  figures/              # 可选采样可视化
+```
+
+`manifest/manifest.json` 是 shard 数据集入口，记录全局 UE 覆盖范围、resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json` 路径。
 
 | Group | 内容 |
 |-------|------|
@@ -185,7 +195,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
     --output-dir outputs/nr_pusch_6x8884_sharded
 ```
 
-shard 模式不会把多个进程写进同一个 HDF5；每个进程写自己的 `result_xxx.h5`，根目录 `manifest.json` 汇总所有 shard 的全局索引、可视化摘要和 debug 性能日志路径。
+shard 模式不会把多个进程写进同一个 HDF5；每个进程写自己的 `results/result_xxx.h5`，`manifest/manifest.json` 汇总所有 shard 的全局索引、可视化摘要和 debug 性能日志路径。若某个 shard 触发 CUDA OOM 或 Dr.Jit 单数组 2^32 上限，默认会按 UE 继续二分重试，直到 `min_shard_size` 或成功为止。
 
 ## 开发
 

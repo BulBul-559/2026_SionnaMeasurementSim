@@ -32,7 +32,7 @@
 - 每个场景有 `label0p1.json`、`label0p2.json`、`label0p4.json` 三种 UE 采样粒度。
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
-- 大规模输出采用 `result_xxx.h5` 多文件 shard + 根目录 `manifest.json`，不建议合成单个巨大 HDF5。
+- 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
 
 ## 注意
 

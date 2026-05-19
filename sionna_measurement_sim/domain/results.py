@@ -88,6 +88,10 @@ class ShardSpec:
     ue_count: int | None = None
     ue_indices: tuple[int, ...] | None = None
     bs_indices: tuple[int, ...] | None = None
+    shard_id: str | None = None
+    parent_shard_index: int | None = None
+    fallback_level: int = 0
+    fallback_reason: str = ""
 
     def __post_init__(self) -> None:
         if self.shard_count < 1:
@@ -108,12 +112,20 @@ class ShardSpec:
         if self.ue_count is not None and self.ue_count < 1:
             msg = "ue_count must be positive when provided"
             raise ValueError(msg)
+        if self.fallback_level < 0:
+            msg = "fallback_level must be non-negative"
+            raise ValueError(msg)
+        if self.parent_shard_index is not None and self.parent_shard_index < 0:
+            msg = "parent_shard_index must be non-negative"
+            raise ValueError(msg)
         if self.ue_indices is not None:
             _validate_non_negative_indices("ue_indices", self.ue_indices)
             object.__setattr__(self, "ue_indices", tuple(int(i) for i in self.ue_indices))
         if self.bs_indices is not None:
             _validate_non_negative_indices("bs_indices", self.bs_indices)
             object.__setattr__(self, "bs_indices", tuple(int(i) for i in self.bs_indices))
+        if self.shard_id is None:
+            object.__setattr__(self, "shard_id", f"{self.shard_index:03d}")
 
 
 @dataclass(frozen=True)

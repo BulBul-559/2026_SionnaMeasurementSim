@@ -162,13 +162,13 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
 
     output_dir = config.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir = _shard_manifest_dir(config)
+    results_dir = _shard_results_dir(config)
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
     shard_specs = _build_shard_specs(config)
     shard_count = len(shard_specs)
-    shard_jobs = [
-        _build_shard_run_config(config, spec)
-        for spec in shard_specs
-    ]
 
     parallel_workers = min(
         max(int(getattr(sharding, "parallel_workers", 1)), 1),
@@ -176,30 +176,47 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     )
     gpu_ids = [int(gpu_id) for gpu_id in getattr(sharding, "gpu_ids", [])]
     shard_results: list[dict[str, object]] = []
+    shard_attempts: list[dict[str, object]] = []
 
     if parallel_workers <= 1:
-        for index, shard_config in enumerate(shard_jobs):
+        for index, spec in enumerate(shard_specs):
             gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
-            result_path = _run_shard_worker(shard_config, gpu_id)
-            shard_results.append(_shard_result_summary(shard_config, result_path))
+            outcome = _run_shard_spec_with_fallback(config, spec, gpu_id)
+            shard_results.extend(outcome["results"])
+            shard_attempts.extend(outcome["attempts"])
     else:
         with ProcessPoolExecutor(max_workers=parallel_workers) as executor:
-            future_to_config = {}
-            for index, shard_config in enumerate(shard_jobs):
+            future_to_spec = {}
+            for index, spec in enumerate(shard_specs):
                 gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
-                future = executor.submit(_run_shard_worker, shard_config, gpu_id)
-                future_to_config[future] = shard_config
-            for future in as_completed(future_to_config):
-                shard_config = future_to_config[future]
-                result_path = future.result()
-                shard_results.append(_shard_result_summary(shard_config, result_path))
+                future = executor.submit(_run_shard_spec_with_fallback, config, spec, gpu_id)
+                future_to_spec[future] = spec
+            for future in as_completed(future_to_spec):
+                outcome = future.result()
+                shard_results.extend(outcome["results"])
+                shard_attempts.extend(outcome["attempts"])
 
-    shard_results.sort(key=lambda item: int(item["shard_index"]))
+    shard_results.sort(
+        key=lambda item: (
+            min([int(i) for i in item.get("global_ue_indices", [])] or [0]),
+            str(item.get("shard_id", "")),
+        )
+    )
+    shard_attempts.sort(key=lambda item: str(item.get("shard_id", "")))
     elapsed_seconds = time.perf_counter() - start
+    config_snapshot_path = write_manifest(
+        manifest_dir / "config_snapshot.json",
+        _config_snapshot(config),
+    )
+    attempts_path = _write_shard_attempts(manifest_dir, shard_attempts)
     aggregate_manifest = {
         "phase": "sharded_run_full",
         "results_h5": "",
         "results": shard_results,
+        "results_dir": results_dir.as_posix(),
+        "manifest_dir": manifest_dir.as_posix(),
+        "config_snapshot_path": config_snapshot_path.as_posix(),
+        "shard_attempts_path": attempts_path.as_posix() if attempts_path else "",
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
         "scene_id": config.scene_id or config.scene_file.stem,
@@ -210,18 +227,22 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "axis": _normalize_shard_axis(getattr(sharding, "axis", "ue")),
             "requested_axis": str(getattr(sharding, "axis", "ue")),
             "shard_size": int(getattr(sharding, "shard_size", config.max_ue)),
-            "shard_count": shard_count,
+            "planned_shard_count": shard_count,
+            "result_file_count": len(shard_results),
             "parallel_workers": parallel_workers,
             "gpu_ids": gpu_ids,
             "filename_pattern": getattr(
                 sharding, "filename_pattern", "result_{shard_index:03d}.h5"
             ),
+            "results_dir": getattr(sharding, "results_dir", "results"),
+            "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
             "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
+            "fallback": _sharding_fallback_summary(sharding, shard_attempts),
         },
         "config_snapshot": _config_snapshot(config),
         "performance": _aggregate_shard_performance(output_dir, shard_results),
     }
-    write_manifest(output_dir / "manifest.json", aggregate_manifest)
+    write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
     return output_dir
 
 
@@ -233,7 +254,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     logs_dir = output_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     worker_id = (
-        f"shard_{config.shard_spec.shard_index:03d}"
+        f"shard_{_shard_spec_id(config.shard_spec)}"
         if config.shard_spec is not None
         else "main"
     )
@@ -456,13 +477,13 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         manifest_data["diagnostics"] = result.diagnostics.to_summary_dict()
     if shard_metadata is not None:
         manifest_data["shard"] = _manifest_shard_summary(shard_metadata)
-    manifest_filename = (
-        f"manifest_{shard_metadata.shard_index:03d}.json"
+    manifest_path = (
+        _shard_manifest_path(config)
         if shard_metadata is not None
-        else "manifest.json"
+        else output_dir / "manifest.json"
     )
     with tracer.span("manifest_write"):
-        manifest_path = write_manifest(output_dir / manifest_filename, manifest_data)
+        manifest_path = write_manifest(manifest_path, manifest_data)
     perf_summary = tracer.finish({"results_h5": results_path.as_posix()})
     if perf_summary:
         manifest_data["performance"] = {
@@ -472,10 +493,10 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             ).replace(".jsonl", ".json"),
             "stage_totals_s": perf_summary.get("stage_totals_s", {}),
         }
-        manifest_path = write_manifest(output_dir / manifest_filename, manifest_data)
+        manifest_path = write_manifest(manifest_path, manifest_data)
 
     run_log_name = (
-        f"run_{shard_metadata.shard_index:03d}.log"
+        f"run_{_shard_spec_id(config.shard_spec)}.log"
         if shard_metadata is not None
         else "run.log"
     )
@@ -541,6 +562,35 @@ def _normalize_shard_axis(axis: object) -> str:
     raise ValueError(msg)
 
 
+def _shard_results_dir_name(config: RTTruthRunConfig) -> Path:
+    sharding = config.output_sharding_config
+    return Path(str(getattr(sharding, "results_dir", "results")))
+
+
+def _shard_manifest_dir_name(config: RTTruthRunConfig) -> Path:
+    sharding = config.output_sharding_config
+    return Path(str(getattr(sharding, "manifest_dir", "manifest")))
+
+
+def _shard_results_dir(config: RTTruthRunConfig) -> Path:
+    return config.output_dir / _shard_results_dir_name(config)
+
+
+def _shard_manifest_dir(config: RTTruthRunConfig) -> Path:
+    return config.output_dir / _shard_manifest_dir_name(config)
+
+
+def _shard_spec_id(spec: ShardSpec) -> str:
+    return str(spec.shard_id or f"{spec.shard_index:03d}")
+
+
+def _shard_manifest_path(config: RTTruthRunConfig) -> Path:
+    spec = config.shard_spec
+    if spec is None:
+        return config.output_dir / "manifest.json"
+    return _shard_manifest_dir(config) / f"manifest_{_shard_spec_id(spec)}.json"
+
+
 def _build_shard_run_config(config: RTTruthRunConfig, spec: ShardSpec) -> RTTruthRunConfig:
     sharding = config.output_sharding_config
     filename_pattern = (
@@ -552,6 +602,14 @@ def _build_shard_run_config(config: RTTruthRunConfig, spec: ShardSpec) -> RTTrut
         shard_index=spec.shard_index,
         shard_count=spec.shard_count,
     )
+    if spec.shard_id and spec.shard_id != f"{spec.shard_index:03d}":
+        path = Path(hdf5_filename)
+        index_token = f"{spec.shard_index:03d}"
+        fallback_stem = path.stem.replace(index_token, spec.shard_id, 1)
+        if fallback_stem == path.stem:
+            fallback_stem = f"{path.stem}_{spec.shard_id}"
+        hdf5_filename = f"{fallback_stem}{path.suffix}"
+    hdf5_filename = (_shard_results_dir_name(config) / hdf5_filename).as_posix()
     visualization_config = _shard_visualization_config(config, spec)
     return replace(
         config,
@@ -587,12 +645,171 @@ def _run_shard_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
     return _run_rt_truth_pipeline_single(config)
 
 
+def _run_shard_spec_with_fallback(
+    config: RTTruthRunConfig,
+    spec: ShardSpec,
+    gpu_id: int | None,
+) -> dict[str, list[dict[str, object]]]:
+    return _run_shard_spec_attempt(config, spec, gpu_id, reason="")
+
+
+def _run_shard_spec_attempt(
+    config: RTTruthRunConfig,
+    spec: ShardSpec,
+    gpu_id: int | None,
+    *,
+    reason: str,
+) -> dict[str, list[dict[str, object]]]:
+    shard_config = _build_shard_run_config(config, spec)
+    attempt: dict[str, object] = {
+        "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
+        "shard_index": spec.shard_index,
+        "parent_shard_index": (
+            spec.parent_shard_index
+            if spec.parent_shard_index is not None
+            else spec.shard_index
+        ),
+        "fallback_level": spec.fallback_level,
+        "ue_start": spec.ue_start,
+        "ue_count": spec.ue_count,
+        "reason": reason or spec.fallback_reason,
+        "status": "started",
+    }
+    try:
+        result_path = _run_shard_worker(shard_config, gpu_id)
+    except Exception as exc:
+        retry_error = _classify_retryable_shard_error(exc)
+        attempt.update(
+            {
+                "status": "failed",
+                "retry_error": retry_error or "",
+                "error": str(exc),
+            }
+        )
+        if not _can_fallback_shard(config, spec, retry_error):
+            raise
+        split_factor = int(
+            getattr(
+                getattr(config.output_sharding_config, "fallback", None),
+                "split_factor",
+                2,
+            )
+        )
+        children = _split_shard_spec_for_fallback(
+            spec,
+            retry_error or "retryable",
+            split_factor=split_factor,
+        )
+        attempt.update(
+            {
+                "status": "split",
+                "children": [child.shard_id for child in children],
+            }
+        )
+        results: list[dict[str, object]] = []
+        attempts: list[dict[str, object]] = [attempt]
+        for child in children:
+            outcome = _run_shard_spec_attempt(
+                config,
+                child,
+                gpu_id,
+                reason=retry_error or "retryable",
+            )
+            results.extend(outcome["results"])
+            attempts.extend(outcome["attempts"])
+        return {"results": results, "attempts": attempts}
+    attempt["status"] = "succeeded"
+    return {
+        "results": [_shard_result_summary(shard_config, result_path)],
+        "attempts": [attempt],
+    }
+
+
+def _classify_retryable_shard_error(exc: BaseException) -> str | None:
+    message = str(exc).lower()
+    if "jit_var_counter" in message or "exceeds the limit of 2^32" in message:
+        return "drjit_array_limit"
+    if "cuda out of memory" in message or "out of memory" in message or "oom" in message:
+        return "cuda_oom"
+    return None
+
+
+def _can_fallback_shard(
+    config: RTTruthRunConfig,
+    spec: ShardSpec,
+    retry_error: str | None,
+) -> bool:
+    sharding = config.output_sharding_config
+    fallback = getattr(sharding, "fallback", None)
+    if fallback is None or not bool(getattr(fallback, "enabled", False)):
+        return False
+    if retry_error not in set(getattr(fallback, "retry_errors", [])):
+        return False
+    count = _shard_ue_count(spec)
+    min_size = int(getattr(fallback, "min_shard_size", 1))
+    return count > min_size
+
+
+def _shard_ue_count(spec: ShardSpec) -> int:
+    if spec.ue_indices is not None:
+        return len(spec.ue_indices)
+    return int(spec.ue_count or 0)
+
+
+def _split_shard_spec_for_fallback(
+    spec: ShardSpec,
+    reason: str,
+    *,
+    split_factor: int = 2,
+) -> list[ShardSpec]:
+    count = _shard_ue_count(spec)
+    if count <= 1:
+        return []
+    split_factor = max(int(split_factor), 2)
+    base = count // split_factor
+    remainder = count % split_factor
+    sizes = [
+        base + (1 if index < remainder else 0)
+        for index in range(split_factor)
+        if base + (1 if index < remainder else 0) > 0
+    ]
+    parent_id = _shard_spec_id(spec)
+    children: list[ShardSpec] = []
+    offset = 0
+    for child_index, size in enumerate(sizes):
+        if spec.ue_indices is None:
+            ue_start = spec.ue_start + offset
+            ue_indices = None
+        else:
+            selected = spec.ue_indices[offset : offset + size]
+            ue_start = int(selected[0])
+            ue_indices = tuple(int(index) for index in selected)
+        children.append(
+            replace(
+                spec,
+                ue_start=ue_start,
+                ue_count=size,
+                ue_indices=ue_indices,
+                shard_id=f"{parent_id}_{child_index:02d}",
+                parent_shard_index=(
+                    spec.parent_shard_index
+                    if spec.parent_shard_index is not None
+                    else spec.shard_index
+                ),
+                fallback_level=spec.fallback_level + 1,
+                fallback_reason=reason,
+            )
+        )
+        offset += size
+    return children
+
+
 def _shard_result_summary(config: RTTruthRunConfig, result_path: Path) -> dict[str, object]:
     spec = config.shard_spec
     if spec is None:
         msg = "shard result summary requires shard_spec"
         raise ValueError(msg)
-    manifest_path = config.output_dir / f"manifest_{spec.shard_index:03d}.json"
+    manifest_path = _shard_manifest_path(config)
     shard_manifest = _read_json_if_exists(manifest_path)
     shard_summary = shard_manifest.get("shard", {})
     rx_indices = [
@@ -618,11 +835,21 @@ def _shard_result_summary(config: RTTruthRunConfig, result_path: Path) -> dict[s
         for index in shard_summary.get("global_bs_indices", rx_indices)
     ]
     return {
+        "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
         "shard_index": spec.shard_index,
         "shard_count": spec.shard_count,
+        "parent_shard_index": (
+            spec.parent_shard_index
+            if spec.parent_shard_index is not None
+            else spec.shard_index
+        ),
+        "fallback_level": spec.fallback_level,
+        "fallback_reason": spec.fallback_reason,
         "axis": str(shard_summary.get("axis", spec.axis)),
         "result_h5": Path(result_path).as_posix(),
         "manifest": manifest_path.as_posix(),
+        "ue_start": spec.ue_start,
+        "ue_count": int(spec.ue_count or len(tx_indices)),
         "global_rx_start": int(
             shard_summary.get("global_rx_start", rx_indices[0] if rx_indices else 0)
         ),
@@ -645,6 +872,39 @@ def _read_json_if_exists(path: Path) -> dict[str, object]:
         return {}
 
 
+def _write_shard_attempts(
+    manifest_dir: Path,
+    shard_attempts: list[dict[str, object]],
+) -> Path | None:
+    if not shard_attempts:
+        return None
+    path = manifest_dir / "shard_attempts.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True) for item in shard_attempts) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _sharding_fallback_summary(
+    sharding: object,
+    shard_attempts: list[dict[str, object]],
+) -> dict[str, object]:
+    fallback = getattr(sharding, "fallback", None)
+    split_attempts = [
+        item for item in shard_attempts if str(item.get("status", "")) == "split"
+    ]
+    return {
+        "enabled": bool(getattr(fallback, "enabled", False)),
+        "min_shard_size": int(getattr(fallback, "min_shard_size", 1)),
+        "split_factor": int(getattr(fallback, "split_factor", 2)),
+        "retry_errors": list(getattr(fallback, "retry_errors", [])),
+        "split_count": len(split_attempts),
+        "split_shard_ids": [str(item.get("shard_id", "")) for item in split_attempts],
+    }
+
+
 def _aggregate_shard_performance(
     output_dir: Path,
     shard_results: list[dict[str, object]],
@@ -653,8 +913,9 @@ def _aggregate_shard_performance(
     stage_totals: dict[str, float] = {}
     total_durations: list[float] = []
     for shard in shard_results:
+        shard_id = str(shard.get("shard_id", f"{int(shard['shard_index']):03d}"))
         shard_index = int(shard["shard_index"])
-        summary_path = output_dir / "logs" / f"perf_summary_shard_{shard_index:03d}.json"
+        summary_path = output_dir / "logs" / f"perf_summary_shard_{shard_id}.json"
         if not summary_path.exists():
             continue
         try:
@@ -1042,6 +1303,12 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
                     "result_{shard_index:03d}.h5",
                 )
             ),
+            "results_dir": str(
+                getattr(config.output_sharding_config, "results_dir", "results")
+            ),
+            "manifest_dir": str(
+                getattr(config.output_sharding_config, "manifest_dir", "manifest")
+            ),
             "parallel_workers": int(
                 getattr(config.output_sharding_config, "parallel_workers", 1)
             ),
@@ -1052,6 +1319,36 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             "visualization_mode": str(
                 getattr(config.output_sharding_config, "visualization_mode", "first_shard")
             ),
+            "fallback": {
+                "enabled": bool(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "enabled",
+                        False,
+                    )
+                ),
+                "min_shard_size": int(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "min_shard_size",
+                        1,
+                    )
+                ),
+                "split_factor": int(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "split_factor",
+                        2,
+                    )
+                ),
+                "retry_errors": list(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "retry_errors",
+                        [],
+                    )
+                ),
+            },
         },
     }
 

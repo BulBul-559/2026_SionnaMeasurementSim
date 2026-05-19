@@ -99,7 +99,9 @@ visualization: # 采样可视化
 
 `compression` 可选 `gzip`、`lzf`、`none`。大规模性能排查时可用 `none` 或 `lzf` 分离写盘压缩成本。
 
-`output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`parallel_workers`、`gpu_ids`、`visualization_mode`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件直接命名为 `result_000.h5`，不套额外 shard 目录。
+`output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`results_dir`、`manifest_dir`、`parallel_workers`、`gpu_ids`、`visualization_mode` 和 `fallback`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件写到 `results/result_000.h5`，aggregate manifest 和 config snapshot 写到 `manifest/`。
+
+`fallback` 默认开启，针对 CUDA OOM 与 Dr.Jit 单数组 2^32 上限自动把失败 shard 按 UE 二分重试。比如计划 shard `089` 覆盖 20 个 UE 时失败，会落成 `results/result_089_00.h5` 与 `results/result_089_01.h5`；下游只需要读取 `manifest/manifest.json`，不应假设文件名连续或每个计划 shard 只对应一个 HDF5。
 
 #### `carrier` — 载波与频率
 
@@ -485,7 +487,7 @@ results.h5
 
 ### 2.4 `/shard` — Shard 元数据
 
-普通单文件运行不写 `/shard`。开启 `output.sharding.enabled=true` 时，每个 `result_xxx.h5` 自包含局部数据，并写入以下映射：
+普通单文件运行不写 `/shard`。开启 `output.sharding.enabled=true` 时，每个 `results/result_xxx.h5` 自包含局部数据，并写入以下映射：
 
 | Dataset | 类型/Shape | 说明 |
 |---------|------------|------|
@@ -496,7 +498,7 @@ results.h5
 | `global_rx_indices` | [local_rx] int64 | 本文件局部 RX 对应的全局角色索引；配合 `/link/rx_role` 解释 |
 | `global_tx_indices` | [local_tx] int64 | 本文件局部 TX 对应的全局角色索引；配合 `/link/tx_role` 解释 |
 
-根目录 aggregate `manifest.json` 会汇总每个 shard 的文件路径、全局索引覆盖范围、可视化摘要和性能日志路径。
+`manifest/manifest.json` 会汇总每个 shard 的文件路径、全局索引覆盖范围、可视化摘要和性能日志路径。`manifest/config_snapshot.json` 保存 resolved 运行配置，便于数据目录脱离外部临时 YAML 后仍可复现。发生 fallback 时，`manifest/shard_attempts.jsonl` 保存失败原因与拆分链路。
 
 ### 2.5 `/input` — 输入引用
 
@@ -734,7 +736,7 @@ results.h5
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 
-大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `result_xxx.h5`，并由根目录 `manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `medium_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`。
+大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `medium_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
 ### 2.17 `/array` — 阵列观测与标签
 

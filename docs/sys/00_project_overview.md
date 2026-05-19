@@ -67,7 +67,7 @@ Label JSON + Scene XML + Config YAML
         │
         ▼
   ┌──────────────┐
-  │ HDF5 Writer  │ ──→ results.h5 或 result_xxx.h5 shards
+  │ HDF5 Writer  │ ──→ results.h5 或 results/result_xxx.h5 shards
   │ + Validator  │
   └──────────────┘
 ```

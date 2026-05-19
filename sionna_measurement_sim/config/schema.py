@@ -54,14 +54,41 @@ class InputConfig(BaseModel):
 
 
 # ── output ───────────────────────────────────────────────────────────
+class ShardingFallbackConfig(BaseModel):
+    enabled: bool = True
+    min_shard_size: int = Field(default=1, ge=1)
+    split_factor: int = Field(default=2, ge=2)
+    retry_errors: list[str] = Field(
+        default_factory=lambda: ["cuda_oom", "drjit_array_limit"]
+    )
+    failure_policy: str = Field(default="fail_run")
+
+    @model_validator(mode="after")
+    def check_fallback_values(self) -> ShardingFallbackConfig:
+        allowed = {"fail_run"}
+        if self.failure_policy not in allowed:
+            raise ValueError("output.sharding.fallback.failure_policy must be fail_run")
+        allowed_errors = {"cuda_oom", "drjit_array_limit"}
+        unknown = sorted(set(self.retry_errors) - allowed_errors)
+        if unknown:
+            raise ValueError(
+                "output.sharding.fallback.retry_errors contains unknown values: "
+                + ", ".join(unknown)
+            )
+        return self
+
+
 class OutputShardingConfig(BaseModel):
     enabled: bool = False
     axis: str = Field(default="ue")
     shard_size: int = Field(default=1000, ge=1)
     filename_pattern: str = Field(default="result_{shard_index:03d}.h5")
+    results_dir: str = Field(default="results")
+    manifest_dir: str = Field(default="manifest")
     parallel_workers: int = Field(default=1, ge=1)
     gpu_ids: list[int] = Field(default_factory=list)
     visualization_mode: str = Field(default="first_shard")
+    fallback: ShardingFallbackConfig = Field(default_factory=ShardingFallbackConfig)
 
     @model_validator(mode="after")
     def check_sharding_values(self) -> OutputShardingConfig:
@@ -69,6 +96,10 @@ class OutputShardingConfig(BaseModel):
             raise ValueError("output.sharding.axis must be 'ue'")
         if "{shard_index" not in self.filename_pattern:
             raise ValueError("output.sharding.filename_pattern must include {shard_index...}")
+        if not self.results_dir or Path(self.results_dir).is_absolute():
+            raise ValueError("output.sharding.results_dir must be a relative path")
+        if not self.manifest_dir or Path(self.manifest_dir).is_absolute():
+            raise ValueError("output.sharding.manifest_dir must be a relative path")
         if self.visualization_mode not in ("none", "first_shard", "all_shards"):
             raise ValueError(
                 "output.sharding.visualization_mode must be none/first_shard/all_shards"

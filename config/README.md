@@ -57,7 +57,7 @@ uv run python -m sionna_measurement_sim.app.cli run-full \
 
 项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
-大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `result_xxx.h5`，再由根目录 `manifest.json` 汇总。
+大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `results/result_xxx.h5`，再由 `manifest/manifest.json` 汇总。
 
 SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
 当前 pipeline 使用 `link.phy_link_direction` 直接解析 BS/UE 到 TX/RX：uplink 为
@@ -66,8 +66,8 @@ SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的
 在 `medium_0000` 的 `label0p2` 全量 baseline 中，`shard_size: 25` 会在
 `paths.cfr()` 阶段触发 Dr.Jit 单数组 entry 数超过 `2^32` 的限制；`shard_size: 20`
 已完成 `7 BS x 2583 UE` 全量 SRS-like direct uplink。因此默认 SRS-like 模板使用
-`shard_size: 20` 作为当前生产值。多个 shard 会分别写 `result_xxx.h5`，根目录
-`manifest.json` 汇总全局 UE/BS 索引。
+`shard_size: 20` 作为当前生产值。多个 shard 会分别写 `results/result_xxx.h5`，
+`manifest/manifest.json` 汇总全局 UE/BS 索引。
 
 ## Role View vs Link View
 
@@ -126,11 +126,18 @@ SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的
 | `axis` | str | "ue" | shard 维度；当前仅支持 `"ue"` |
 | `shard_size` | int | 1000 | 每个 shard 的 UE 数量 |
 | `filename_pattern` | str | `result_{shard_index:03d}.h5` | shard HDF5 文件名模板 |
+| `results_dir` | str | `results` | shard HDF5 文件子目录 |
+| `manifest_dir` | str | `manifest` | aggregate/per-shard manifest 与 config snapshot 子目录 |
 | `parallel_workers` | int | 1 | 并行 worker 数 |
 | `gpu_ids` | list[int] | [] | shard worker 轮询绑定的 GPU ID |
 | `visualization_mode` | str | "first_shard" | `none`、`first_shard`、`all_shards` |
+| `fallback.enabled` | bool | true | 单个 shard 失败时是否自动拆小重试 |
+| `fallback.min_shard_size` | int | 1 | fallback 最小 UE shard 大小 |
+| `fallback.split_factor` | int | 2 | 每次失败拆成几个子 shard |
+| `fallback.retry_errors` | list[str] | `["cuda_oom", "drjit_array_limit"]` | 允许自动回退的错误类型 |
+| `fallback.failure_policy` | str | `fail_run` | 到最小 shard 仍失败时终止运行 |
 
-shard 模式下，`run-full` 返回输出目录，根目录 `manifest.json` 汇总所有 `result_xxx.h5`。每个 HDF5 内有 `/shard` group，记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大 HDF5。
+shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `result_xxx.h5`，`manifest/manifest.json` 汇总所有 result 文件。每个 HDF5 内有 `/shard` group，记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大 HDF5。`manifest/config_snapshot.json` 会保存 resolved 运行配置，保证数据目录自包含。
 
 ### `carrier` — 载波与频率
 

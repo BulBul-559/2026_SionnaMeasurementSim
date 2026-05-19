@@ -88,12 +88,15 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
     )
 
     assert result_dir == output_dir
-    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
     assert len(manifest["results"]) == 2
     assert [item["global_ue_count"] for item in manifest["results"]] == [2, 1]
+    assert (output_dir / "manifest" / "config_snapshot.json").is_file()
 
     for index, expected_ue in enumerate(([0, 1], [2])):
-        path = output_dir / f"result_{index:03d}.h5"
+        path = output_dir / "results" / f"result_{index:03d}.h5"
         assert path.is_file()
         validate_hdf5_contract(path)
         with h5py.File(path, "r") as h5:

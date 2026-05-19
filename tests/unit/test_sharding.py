@@ -9,6 +9,7 @@ from sionna_measurement_sim.io.label_parser import (
     load_role_topology_from_label,
     load_topology_from_label,
 )
+from sionna_measurement_sim.rt import truth_pipeline
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, _build_shard_specs
 
 
@@ -156,6 +157,89 @@ def test_build_shard_specs_caps_to_available_ues_and_normalizes_ue_axis(tmp_path
     assert [spec.axis for spec in specs] == ["ue", "ue"]
     assert [spec.ue_start for spec in specs] == [0, 3]
     assert [spec.ue_count for spec in specs] == [3, 1]
+
+
+def test_split_shard_spec_for_fallback_preserves_parent_identity():
+    spec = truth_pipeline.ShardSpec(
+        shard_index=89,
+        shard_count=130,
+        axis="ue",
+        ue_start=1780,
+        ue_count=20,
+    )
+
+    children = truth_pipeline._split_shard_spec_for_fallback(
+        spec,
+        "drjit_array_limit",
+    )
+
+    assert [child.shard_id for child in children] == ["089_00", "089_01"]
+    assert [child.ue_start for child in children] == [1780, 1790]
+    assert [child.ue_count for child in children] == [10, 10]
+    assert [child.parent_shard_index for child in children] == [89, 89]
+    assert [child.fallback_level for child in children] == [1, 1]
+
+
+def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "out"
+    failed_once: set[tuple[int, int]] = set()
+
+    def fake_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
+        del gpu_id
+        assert config.shard_spec is not None
+        spec = config.shard_spec
+        key = (int(spec.ue_start), int(spec.ue_count or 0))
+        if key == (0, 2) and key not in failed_once:
+            failed_once.add(key)
+            raise RuntimeError(
+                "drjit.cuda.ad.TensorXf.__mul__(): jit_var_counter(): "
+                "tried to create an array with 4314885120 entries, "
+                "which exceeds the limit of 2^32 == 4294967296 entries."
+            )
+        result_path = config.output_dir / config.hdf5_filename
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_bytes(b"fake hdf5")
+        return result_path
+
+    monkeypatch.setattr(truth_pipeline, "_run_shard_worker", fake_worker)
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            max_bs=2,
+            max_ue=4,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=2,
+                parallel_workers=1,
+                visualization_mode="none",
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    assert (output_dir / "results" / "result_000_00.h5").is_file()
+    assert (output_dir / "results" / "result_000_01.h5").is_file()
+    assert (output_dir / "results" / "result_001.h5").is_file()
+    manifest_path = output_dir / "manifest" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["sharding"]["planned_shard_count"] == 2
+    assert manifest["sharding"]["result_file_count"] == 3
+    assert manifest["sharding"]["fallback"]["split_count"] == 1
+    assert manifest["config_snapshot_path"].endswith("manifest/config_snapshot.json")
+    assert (output_dir / "manifest" / "config_snapshot.json").is_file()
+    assert (output_dir / "manifest" / "shard_attempts.jsonl").is_file()
+    assert [item["global_ue_indices"] for item in manifest["results"]] == [
+        [0],
+        [1],
+        [2, 3],
+    ]
 
 
 def _write_label(tmp_path: Path) -> Path:

@@ -32,9 +32,17 @@ output:
     axis: "ue"
     shard_size: 20          # production-safe SRS UE block for 7 BS / 24 GB GPUs
     filename_pattern: "result_{shard_index:03d}.h5"
+    results_dir: "results"
+    manifest_dir: "manifest"
     parallel_workers: 1
     gpu_ids: []
     visualization_mode: "first_shard"
+    fallback:
+      enabled: true
+      min_shard_size: 1
+      split_factor: 2
+      retry_errors: ["cuda_oom", "drjit_array_limit"]
+      failure_policy: "fail_run"
 
 carrier:
   center_frequency_hz: 3500000000.0

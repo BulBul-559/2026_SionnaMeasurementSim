@@ -70,8 +70,10 @@ def write_manifest(path: str | Path, data: dict) -> Path
 ```
 
 输出 JSON manifest，记录运行参数、CFR shape、路径数、耗时、诊断摘要。启用
-`output.sharding.enabled=true` 时，根目录会生成 aggregate `manifest.json`，记录每个
-`result_xxx.h5` 的全局 BS/UE 索引、resolved TX/RX 索引、schema/debug 信息和性能摘要。
+`output.sharding.enabled=true` 时，`manifest/manifest.json` 是 aggregate 入口，记录每个
+`results/result_xxx.h5` 的全局 BS/UE 索引、resolved TX/RX 索引、schema/debug 信息和性能摘要。
+同目录还会保存 `config_snapshot.json`；若发生自动 shard fallback，会额外写
+`shard_attempts.jsonl`。
 
 ### `label_parser.py`
 

@@ -95,7 +95,7 @@ class RTTruthRunConfig:
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 ```
 
-普通模式返回输出 HDF5 文件路径。启用 `output.sharding.enabled=true` 时返回输出目录路径，目录下包含多个 `result_xxx.h5` 和一个 aggregate `manifest.json`。
+普通模式返回输出 HDF5 文件路径。启用 `output.sharding.enabled=true` 时返回输出目录路径，目录下包含 `results/result_xxx.h5`、`manifest/manifest.json`、`manifest/config_snapshot.json` 和可选 debug logs。
 
 **内部流程：**
 
@@ -119,7 +119,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 
 **Shard 外壳：**
 
-`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，根目录 `manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。
+`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `results/result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，`manifest/manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。若某个 shard 因 CUDA OOM 或 Dr.Jit 2^32 单数组上限失败，fallback 会把该 UE range 递归拆成更小 result 文件，例如 `result_089_00.h5`、`result_089_01.h5`，最终仍由 manifest 对外呈现连续 UE 覆盖。
 
 **链路方向口径：**
 
