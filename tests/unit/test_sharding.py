@@ -180,6 +180,16 @@ def test_split_shard_spec_for_fallback_preserves_parent_identity():
     assert [child.fallback_level for child in children] == [1, 1]
 
 
+def test_retryable_shard_error_classification_uses_exception_chain():
+    cause = RuntimeError("jit_malloc(): out of memory! Could not allocate bytes")
+    try:
+        raise RuntimeError("dr.while_loop(): encountered an exception") from cause
+    except RuntimeError as exc:
+        retry_error = truth_pipeline._classify_retryable_shard_error(exc)
+
+    assert retry_error == "cuda_oom"
+
+
 def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
     tmp_path: Path,
     monkeypatch,

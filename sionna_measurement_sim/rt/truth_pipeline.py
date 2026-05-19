@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -726,10 +727,15 @@ def _run_shard_spec_attempt(
 
 
 def _classify_retryable_shard_error(exc: BaseException) -> str | None:
-    message = str(exc).lower()
+    message = "".join(traceback.format_exception(exc)).lower()
     if "jit_var_counter" in message or "exceeds the limit of 2^32" in message:
         return "drjit_array_limit"
-    if "cuda out of memory" in message or "out of memory" in message or "oom" in message:
+    if (
+        "cuda out of memory" in message
+        or "out of memory" in message
+        or "jit_malloc(): out of memory" in message
+        or "oom" in message
+    ):
         return "cuda_oom"
     return None
 
