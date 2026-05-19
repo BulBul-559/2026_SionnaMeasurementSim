@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import multiprocessing as mp
 import os
 import time
 import traceback
@@ -646,6 +648,27 @@ def _run_shard_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
     return _run_rt_truth_pipeline_single(config)
 
 
+def _run_shard_worker_attempt(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
+    """Run one shard attempt, isolating fallback-enabled work in a fresh process."""
+
+    fallback = getattr(getattr(config, "output_sharding_config", None), "fallback", None)
+    if bool(getattr(fallback, "enabled", False)):
+        return _run_shard_worker_in_isolated_process(config, gpu_id)
+    return _run_shard_worker(config, gpu_id)
+
+
+def _run_shard_worker_in_isolated_process(
+    config: RTTruthRunConfig,
+    gpu_id: int | None,
+) -> Path:
+    """Run a shard attempt in a fresh process so Dr.Jit/CUDA OOM state is released."""
+
+    context = mp.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, mp_context=context) as executor:
+        future = executor.submit(_run_shard_worker, config, gpu_id)
+        return future.result()
+
+
 def _run_shard_spec_with_fallback(
     config: RTTruthRunConfig,
     spec: ShardSpec,
@@ -677,7 +700,7 @@ def _run_shard_spec_attempt(
         "status": "started",
     }
     try:
-        result_path = _run_shard_worker(shard_config, gpu_id)
+        result_path = _run_shard_worker_attempt(shard_config, gpu_id)
     except Exception as exc:
         retry_error = _classify_retryable_shard_error(exc)
         attempt.update(
@@ -689,6 +712,7 @@ def _run_shard_spec_attempt(
         )
         if not _can_fallback_shard(config, spec, retry_error):
             raise
+        _clear_accelerator_caches()
         split_factor = int(
             getattr(
                 getattr(config.output_sharding_config, "fallback", None),
@@ -710,6 +734,7 @@ def _run_shard_spec_attempt(
         results: list[dict[str, object]] = []
         attempts: list[dict[str, object]] = [attempt]
         for child in children:
+            _clear_accelerator_caches()
             outcome = _run_shard_spec_attempt(
                 config,
                 child,
@@ -724,6 +749,27 @@ def _run_shard_spec_attempt(
         "results": [_shard_result_summary(shard_config, result_path)],
         "attempts": [attempt],
     }
+
+
+def _clear_accelerator_caches() -> None:
+    """Release best-effort accelerator caches before retrying a smaller shard."""
+
+    gc.collect()
+    try:
+        import drjit as dr
+
+        dr.flush_malloc_cache()
+        dr.flush_kernel_cache()
+    except Exception:
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
 
 
 def _classify_retryable_shard_error(exc: BaseException) -> str | None:

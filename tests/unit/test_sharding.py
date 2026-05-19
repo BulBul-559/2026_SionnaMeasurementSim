@@ -197,6 +197,7 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
     label_path = _write_label(tmp_path)
     output_dir = tmp_path / "out"
     failed_once: set[tuple[int, int]] = set()
+    cleanup_calls: list[bool] = []
 
     def fake_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
         del gpu_id
@@ -215,7 +216,16 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
         result_path.write_bytes(b"fake hdf5")
         return result_path
 
-    monkeypatch.setattr(truth_pipeline, "_run_shard_worker", fake_worker)
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_run_shard_worker_in_isolated_process",
+        fake_worker,
+    )
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_clear_accelerator_caches",
+        lambda: cleanup_calls.append(True),
+    )
 
     result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -245,6 +255,7 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
     assert manifest["config_snapshot_path"].endswith("manifest/config_snapshot.json")
     assert (output_dir / "manifest" / "config_snapshot.json").is_file()
     assert (output_dir / "manifest" / "shard_attempts.jsonl").is_file()
+    assert cleanup_calls
     assert [item["global_ue_indices"] for item in manifest["results"]] == [
         [0],
         [1],
