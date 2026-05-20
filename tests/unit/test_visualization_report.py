@@ -50,6 +50,45 @@ def test_select_visualization_links_can_spread_ues_spatially(tmp_path: Path):
     assert selection["ue_indices"] == [0, 2]
 
 
+def test_select_visualization_links_uses_resolved_uplink_roles(tmp_path: Path):
+    h5_path = tmp_path / "uplink_fixture.h5"
+    with h5py.File(h5_path, "w") as h5:
+        link = h5.create_group("link")
+        link.create_dataset("tx_role", data=np.bytes_("ue"))
+        link.create_dataset("rx_role", data=np.bytes_("bs"))
+        h5.create_dataset(
+            "topology/tx_positions_m",
+            data=np.array(
+                [[0, 0, 1], [2, 2, 1], [8, 0, 1], [12, 2, 1]],
+                dtype=np.float32,
+            ),
+        )
+        h5.create_dataset(
+            "topology/rx_positions_m",
+            data=np.array([[0, 3, 2], [10, 3, 2]], dtype=np.float32),
+        )
+        h5.create_dataset(
+            "derived/link_valid_mask",
+            data=np.array([[True, False], [False, False], [False, True], [False, False]]),
+        )
+
+        config = VisualizationRunConfig(
+            enabled=True,
+            random_seed=7,
+            max_bs=2,
+            sample_ue_count=2,
+            max_ue=2,
+        )
+        selection = select_visualization_links(h5, config)
+        valid = h5["derived/link_valid_mask"][()]
+
+    assert selection["tx_role"] == "ue"
+    assert selection["rx_role"] == "bs"
+    assert selection["bs_indices"] == [0, 1]
+    assert set(selection["ue_indices"]) == {0, 2}
+    assert all(np.any(valid[ue, selection["bs_indices"]]) for ue in selection["ue_indices"])
+
+
 def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
     h5_path = _write_visualization_fixture(tmp_path / "fixture.h5")
     out_dir = tmp_path / "figures"
@@ -157,11 +196,11 @@ def test_cli_visualize_accepts_sample_policy(tmp_path: Path):
 def test_spatial_spectrum_row_limits_are_per_ue_across_selected_bs(tmp_path: Path):
     h5_path = tmp_path / "spectrum_limits.h5"
     with h5py.File(h5_path, "w") as h5:
-        data = np.zeros((1, 2, 3, 2, 2), dtype=np.float32)
+        data = np.zeros((1, 3, 2, 2, 2), dtype=np.float32)
         data[0, 0, 0] = 1.0
-        data[0, 0, 2] = 4.0
-        data[0, 1, 0] = 10.0
-        data[0, 1, 2] = 40.0
+        data[0, 2, 0] = 4.0
+        data[0, 0, 1] = 10.0
+        data[0, 2, 1] = 40.0
         h5.create_dataset("array/spatial_spectrum_truth", data=data)
 
         limits = _spatial_spectrum_row_limits(
@@ -170,6 +209,29 @@ def test_spatial_spectrum_row_limits_are_per_ue_across_selected_bs(tmp_path: Pat
         )
 
     assert limits == {0: (1.0, 4.0), 1: (10.0, 40.0)}
+
+
+def test_spatial_spectrum_row_limits_follow_uplink_link_roles(tmp_path: Path):
+    h5_path = tmp_path / "spectrum_limits_uplink.h5"
+    with h5py.File(h5_path, "w") as h5:
+        data = np.zeros((1, 4, 2, 2, 2), dtype=np.float32)
+        data[0, 0, 0] = 1.0
+        data[0, 0, 1] = 4.0
+        data[0, 2, 0] = 10.0
+        data[0, 2, 1] = 40.0
+        h5.create_dataset("array/spatial_spectrum_truth", data=data)
+
+        limits = _spatial_spectrum_row_limits(
+            h5["array/spatial_spectrum_truth"],
+            {
+                "ue_indices": [0, 2],
+                "bs_indices": [0, 1],
+                "tx_role": "ue",
+                "rx_role": "bs",
+            },
+        )
+
+    assert limits == {0: (1.0, 4.0), 2: (10.0, 40.0)}
 
 
 def _write_visualization_fixture(path: Path) -> Path:
@@ -228,7 +290,7 @@ def _write_visualization_fixture(path: Path) -> Path:
         h5.create_dataset("observation/snr_db", data=np.full((1, 2, 4), 30.0, dtype=np.float32))
         h5.create_dataset("evaluation/nmse_db", data=rng.normal(size=(1, 2, 4)).astype(np.float32))
 
-        rx_grid = rng.normal(size=(1, 4, 2, 2, 3, 8)) + 1j * rng.normal(size=(1, 4, 2, 2, 3, 8))
+        rx_grid = rng.normal(size=(1, 2, 4, 2, 3, 8)) + 1j * rng.normal(size=(1, 2, 4, 2, 3, 8))
         h5.create_dataset("waveform/rx_grid", data=rx_grid.astype(np.complex64))
         zenith = np.linspace(0.0, np.pi, 5, dtype=np.float32)
         azimuth = np.linspace(-np.pi, np.pi, 7, dtype=np.float32)
@@ -238,19 +300,19 @@ def _write_visualization_fixture(path: Path) -> Path:
         h5.create_dataset("array/angle_grid_rad", data=angle_grid)
         h5.create_dataset(
             "array/spatial_spectrum_label",
-            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+            data=rng.random((1, 2, 4, 5, 7), dtype=np.float32),
         )
         h5.create_dataset(
             "array/spatial_spectrum_truth",
-            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+            data=rng.random((1, 2, 4, 5, 7), dtype=np.float32),
         )
         h5.create_dataset(
             "array/spatial_spectrum_cfr_est",
-            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+            data=rng.random((1, 2, 4, 5, 7), dtype=np.float32),
         )
         h5.create_dataset(
             "array/spatial_spectrum_observation",
-            data=rng.random((1, 4, 2, 5, 7), dtype=np.float32),
+            data=rng.random((1, 2, 4, 5, 7), dtype=np.float32),
         )
 
         nlos_shape = (2, 4, 2, 2, 3)

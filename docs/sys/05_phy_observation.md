@@ -288,6 +288,11 @@ estimation success，以及 SRS resource NMSE / interpolation NMSE / resource SN
 quality 指标。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
 `/observation/cfr_est` 生成 `/array/spatial_spectrum_srs`。
 
+`/array/spatial_spectrum_*` 使用与 Sionna `PlanarArray` 一致的接收阵列 steering：
+y-z 平面、top-left 起、column-first 编号、第一行 z 为正。可视化阶段按
+`/link/tx_role` 和 `/link/rx_role` 将 link-view 轴映射回 BS/UE 标签，direct uplink
+中 `tx=UE, rx=BS` 不再按历史 `BS->UE` 假设取图。
+
 schema `1.4.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
 `noise_variance`，并写 SRS 专属 `/waveform/srs_resource_mask`、
 `/waveform/srs_pilot_symbols`、`/waveform/srs_re_symbol_indices`、

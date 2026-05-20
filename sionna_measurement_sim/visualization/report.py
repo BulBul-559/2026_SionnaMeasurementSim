@@ -99,8 +99,9 @@ def select_visualization_links(
 ) -> dict[str, Any]:
     """Select BS/UE indices using BS/UE semantics regardless of HDF5 group ordering."""
 
-    num_bs = int(h5["topology/tx_positions_m"].shape[0])
-    num_ue = int(h5["topology/rx_positions_m"].shape[0])
+    tx_role, rx_role = _link_roles(h5)
+    num_bs = _role_count(h5, "bs", tx_role=tx_role, rx_role=rx_role)
+    num_ue = _role_count(h5, "ue", tx_role=tx_role, rx_role=rx_role)
     if bs_indices is None:
         bs = list(range(min(num_bs, config.max_bs)))
     else:
@@ -115,13 +116,22 @@ def select_visualization_links(
     elif config.sample_policy == "first":
         ue = list(range(min(num_ue, min(config.sample_ue_count, config.max_ue))))
     else:
-        ue = _sample_ue_indices(h5, config, bs, num_ue)
+        ue = _sample_ue_indices(
+            h5,
+            config,
+            bs,
+            num_ue,
+            tx_role=tx_role,
+            rx_role=rx_role,
+        )
     if not ue and num_ue:
         ue = [0]
 
     return {
         "bs_indices": [int(value) for value in bs],
         "ue_indices": [int(value) for value in ue],
+        "tx_role": tx_role,
+        "rx_role": rx_role,
     }
 
 
@@ -130,6 +140,9 @@ def _sample_ue_indices(
     config: VisualizationRunConfig,
     bs: list[int],
     num_ue: int,
+    *,
+    tx_role: str,
+    rx_role: str,
 ) -> list[int]:
     rng = np.random.default_rng(config.random_seed)
     target = min(config.sample_ue_count, config.max_ue, num_ue)
@@ -142,7 +155,7 @@ def _sample_ue_indices(
         and "derived/link_valid_mask" in h5
     ):
         valid = np.asarray(h5["derived/link_valid_mask"][()])
-        candidates = np.flatnonzero(np.any(valid[np.asarray(bs), :], axis=0))
+        candidates = _valid_ue_candidates(valid, bs, tx_role=tx_role, rx_role=rx_role)
     else:
         candidates = np.arange(num_ue)
 
@@ -151,9 +164,17 @@ def _sample_ue_indices(
         count = min(target, candidates.size)
         if (
             config.sample_policy == "spatially_spread_valid_links"
-            and "topology/rx_positions_m" in h5
+            and _role_positions_dataset(h5, "ue", tx_role=tx_role, rx_role=rx_role) is not None
         ):
-            selected.extend(_select_spatially_spread_ues(h5, candidates, count))
+            selected.extend(
+                _select_spatially_spread_ues(
+                    h5,
+                    candidates,
+                    count,
+                    tx_role=tx_role,
+                    rx_role=rx_role,
+                )
+            )
         else:
             selected.extend(rng.choice(candidates, size=count, replace=False).tolist())
     if len(selected) < target:
@@ -168,8 +189,14 @@ def _select_spatially_spread_ues(
     h5: h5py.File,
     candidates: np.ndarray,
     count: int,
+    *,
+    tx_role: str,
+    rx_role: str,
 ) -> list[int]:
-    positions = np.asarray(h5["topology/rx_positions_m"][candidates, :2], dtype=np.float64)
+    positions_dataset = _role_positions_dataset(h5, "ue", tx_role=tx_role, rx_role=rx_role)
+    if positions_dataset is None:
+        return candidates[:count].astype(int).tolist()
+    positions = np.asarray(positions_dataset[candidates, :2], dtype=np.float64)
     finite = np.all(np.isfinite(positions), axis=1)
     if not np.any(finite):
         return candidates[:count].astype(int).tolist()
@@ -195,6 +222,102 @@ def _select_spatially_spread_ues(
         selected_positions.append(xy[next_index])
         remaining[next_index] = False
     return candidate_values[np.asarray(selected_offsets, dtype=np.int64)].tolist()
+
+
+def _link_roles(h5: h5py.File) -> tuple[str, str]:
+    """Return resolved TX/RX roles, defaulting to legacy BS->UE files."""
+
+    tx_role = _read_h5_string(h5, "link/tx_role", default="bs")
+    rx_role = _read_h5_string(h5, "link/rx_role", default="ue")
+    if {tx_role, rx_role} != {"bs", "ue"}:
+        return "bs", "ue"
+    return tx_role, rx_role
+
+
+def _read_h5_string(h5: h5py.File, path: str, *, default: str) -> str:
+    if path not in h5:
+        return default
+    value = h5[path][()]
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def _role_count(h5: h5py.File, role: str, *, tx_role: str, rx_role: str) -> int:
+    dataset = _role_positions_dataset(h5, role, tx_role=tx_role, rx_role=rx_role)
+    if dataset is None:
+        return 0
+    return int(dataset.shape[0])
+
+
+def _role_positions_dataset(
+    h5: h5py.File,
+    role: str,
+    *,
+    tx_role: str,
+    rx_role: str,
+) -> h5py.Dataset | None:
+    if role == tx_role and "topology/tx_positions_m" in h5:
+        return h5["topology/tx_positions_m"]
+    if role == rx_role and "topology/rx_positions_m" in h5:
+        return h5["topology/rx_positions_m"]
+    return None
+
+
+def _role_positions(h5: h5py.File, role: str, selection: dict[str, Any]) -> np.ndarray:
+    dataset = _role_positions_dataset(
+        h5,
+        role,
+        tx_role=str(selection.get("tx_role", "bs")),
+        rx_role=str(selection.get("rx_role", "ue")),
+    )
+    if dataset is None:
+        return np.empty((0, 3), dtype=np.float32)
+    return np.asarray(dataset[()], dtype=np.float32)
+
+
+def _link_index_pair(selection: dict[str, Any], bs_idx: int, ue_idx: int) -> tuple[int, int]:
+    tx_role = str(selection.get("tx_role", "bs"))
+    if tx_role == "bs":
+        return int(bs_idx), int(ue_idx)
+    return int(ue_idx), int(bs_idx)
+
+
+def _selected_link_pairs(selection: dict[str, Any]) -> list[tuple[int, int]]:
+    return [
+        _link_index_pair(selection, int(bs_idx), int(ue_idx))
+        for bs_idx in selection["bs_indices"]
+        for ue_idx in selection["ue_indices"]
+    ]
+
+
+def _link_matrix_for_bs_ue(values: np.ndarray, selection: dict[str, Any]) -> np.ndarray:
+    array = np.asarray(values)
+    out = np.empty(
+        (len(selection["bs_indices"]), len(selection["ue_indices"])),
+        dtype=array.dtype,
+    )
+    for row, bs_idx in enumerate(selection["bs_indices"]):
+        for col, ue_idx in enumerate(selection["ue_indices"]):
+            tx_idx, rx_idx = _link_index_pair(selection, int(bs_idx), int(ue_idx))
+            out[row, col] = array[tx_idx, rx_idx]
+    return out
+
+
+def _valid_ue_candidates(
+    valid: np.ndarray,
+    bs: list[int],
+    *,
+    tx_role: str,
+    rx_role: str,
+) -> np.ndarray:
+    _ = rx_role
+    if not bs:
+        return np.array([], dtype=np.int64)
+    bs_array = np.asarray(bs, dtype=np.int64)
+    if tx_role == "bs":
+        return np.flatnonzero(np.any(valid[bs_array, :], axis=0))
+    return np.flatnonzero(np.any(valid[:, bs_array], axis=1))
 
 
 def _dispatch_plot(
@@ -241,17 +364,39 @@ def _plot_topology(
     config: VisualizationRunConfig,
     **_: Any,
 ) -> Path:
-    tx = h5["topology/tx_positions_m"][()]
-    rx = h5["topology/rx_positions_m"][()]
+    bs_positions = _role_positions(h5, "bs", selection)
+    ue_positions = _role_positions(h5, "ue", selection)
     bs = selection["bs_indices"]
     ue = selection["ue_indices"]
     figure, axis = plt.subplots(figsize=(7, 5))
-    axis.scatter(rx[:, 0], rx[:, 1], s=8, alpha=0.25, label="UE all")
-    axis.scatter(tx[:, 0], tx[:, 1], marker="^", s=70, color="tab:red", label="BS all")
-    if ue:
-        axis.scatter(rx[ue, 0], rx[ue, 1], s=45, color="tab:blue", label="UE selected")
-    if bs:
-        axis.scatter(tx[bs, 0], tx[bs, 1], marker="^", s=110, color="black", label="BS selected")
+    if ue_positions.size:
+        axis.scatter(ue_positions[:, 0], ue_positions[:, 1], s=8, alpha=0.25, label="UE all")
+    if bs_positions.size:
+        axis.scatter(
+            bs_positions[:, 0],
+            bs_positions[:, 1],
+            marker="^",
+            s=70,
+            color="tab:red",
+            label="BS all",
+        )
+    if ue and ue_positions.size:
+        axis.scatter(
+            ue_positions[ue, 0],
+            ue_positions[ue, 1],
+            s=45,
+            color="tab:blue",
+            label="UE selected",
+        )
+    if bs and bs_positions.size:
+        axis.scatter(
+            bs_positions[bs, 0],
+            bs_positions[bs, 1],
+            marker="^",
+            s=110,
+            color="black",
+            label="BS selected",
+        )
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_title("Topology Sample")
@@ -285,7 +430,7 @@ def _plot_link_overview(
     figure, axes = plt.subplots(1, 4, figsize=(15, 4), squeeze=False)
     for axis, (title, data) in zip(axes[0], datasets, strict=True):
         image = axis.imshow(
-            np.asarray(data)[np.ix_(bs, ue)],
+            _link_matrix_for_bs_ue(np.asarray(data), selection),
             aspect="auto",
             origin="lower",
             interpolation="none",
@@ -314,7 +459,12 @@ def _plot_cfr_lines(
         output_dir / f"cfr_lines_magnitude.{config.format}",
         selection,
         config,
-        lambda axis, bs, ue: _draw_cfr_lines(axis, cfr[bs, ue], freqs, value_kind="magnitude"),
+        lambda axis, bs, ue: _draw_cfr_lines(
+            axis,
+            cfr[_link_index_pair(selection, bs, ue)],
+            freqs,
+            value_kind="magnitude",
+        ),
         "CFR magnitude lines",
     )
     phase = _plot_link_grid(
@@ -322,7 +472,12 @@ def _plot_cfr_lines(
         output_dir / f"cfr_lines_phase.{config.format}",
         selection,
         config,
-        lambda axis, bs, ue: _draw_cfr_lines(axis, cfr[bs, ue], freqs, value_kind="phase"),
+        lambda axis, bs, ue: _draw_cfr_lines(
+            axis,
+            cfr[_link_index_pair(selection, bs, ue)],
+            freqs,
+            value_kind="phase",
+        ),
         "CFR phase lines",
     )
     return [magnitude, phase]
@@ -343,7 +498,10 @@ def _plot_cfr_heatmap(
         selection,
         config,
         lambda axis, bs, ue: _draw_ant_subcarrier_heatmap(
-            axis, cfr[bs, ue], "|CFR| [dB]", value_kind="magnitude_db"
+            axis,
+            cfr[_link_index_pair(selection, bs, ue)],
+            "|CFR| [dB]",
+            value_kind="magnitude_db",
         ),
         "CFR antenna-pair heatmaps",
     )
@@ -353,7 +511,10 @@ def _plot_cfr_heatmap(
         selection,
         config,
         lambda axis, bs, ue: _draw_ant_subcarrier_heatmap(
-            axis, cfr[bs, ue], "CFR phase [rad]", value_kind="phase"
+            axis,
+            cfr[_link_index_pair(selection, bs, ue)],
+            "CFR phase [rad]",
+            value_kind="phase",
         ),
         "CFR phase antenna-pair heatmaps",
     )
@@ -372,16 +533,20 @@ def _plot_cfr_error(
     estimate = h5["observation/cfr_est"]
 
     def draw_magnitude(axis: Any, bs: int, ue: int) -> None:
+        tx_idx, rx_idx = _link_index_pair(selection, bs, ue)
         amplitude_error_db = (
-            20.0 * np.log10(np.abs(estimate[0, bs, ue]) + _EPS)
-            - 20.0 * np.log10(np.abs(truth[bs, ue]) + _EPS)
+            20.0 * np.log10(np.abs(estimate[0, tx_idx, rx_idx]) + _EPS)
+            - 20.0 * np.log10(np.abs(truth[tx_idx, rx_idx]) + _EPS)
         )
         _draw_ant_subcarrier_heatmap(
             axis, amplitude_error_db, "CFR magnitude error [dB]", value_kind="real"
         )
 
     def draw_phase(axis: Any, bs: int, ue: int) -> None:
-        phase_error = _wrap_phase(np.angle(estimate[0, bs, ue]) - np.angle(truth[bs, ue]))
+        tx_idx, rx_idx = _link_index_pair(selection, bs, ue)
+        phase_error = _wrap_phase(
+            np.angle(estimate[0, tx_idx, rx_idx]) - np.angle(truth[tx_idx, rx_idx])
+        )
         _draw_ant_subcarrier_heatmap(
             axis, phase_error, "CFR phase error [rad]", value_kind="real"
         )
@@ -416,7 +581,8 @@ def _plot_waveform_grid(
     rx_grid = h5["waveform/rx_grid"]
 
     def draw(axis: Any, bs: int, ue: int) -> None:
-        data = rx_grid[0, ue, bs]
+        tx_idx, rx_idx = _link_index_pair(selection, bs, ue)
+        data = rx_grid[0, tx_idx, rx_idx]
         power = 10.0 * np.log10(np.mean(np.abs(data) ** 2, axis=0) + _EPS)
         image = axis.imshow(
             power.T,
@@ -446,8 +612,6 @@ def _plot_aoa(
     **_: Any,
 ) -> Path:
     _require(h5, ("derived/first_path_aoa_azimuth_rad", "derived/first_path_aoa_zenith_rad"))
-    bs = selection["bs_indices"]
-    ue = selection["ue_indices"]
     figure, axis = plt.subplots(figsize=(7, 5))
     for label, az_path, ze_path in (
         ("first", "derived/first_path_aoa_azimuth_rad", "derived/first_path_aoa_zenith_rad"),
@@ -456,8 +620,8 @@ def _plot_aoa(
     ):
         if az_path not in h5 or ze_path not in h5:
             continue
-        az = h5[az_path][()][np.ix_(bs, ue)].ravel()
-        ze = h5[ze_path][()][np.ix_(bs, ue)].ravel()
+        az = _link_matrix_for_bs_ue(h5[az_path][()], selection).ravel()
+        ze = _link_matrix_for_bs_ue(h5[ze_path][()], selection).ravel()
         mask = np.isfinite(az) & np.isfinite(ze)
         if np.any(mask):
             axis.scatter(az[mask], ze[mask], label=label, alpha=0.75)
@@ -484,8 +648,6 @@ def _plot_nlos_paths(
             "paths/nlos_truth/path_power_db",
         ),
     )
-    bs = selection["bs_indices"]
-    ue = selection["ue_indices"]
     valid = h5["paths/nlos_truth/valid"][()]
     delays = h5["paths/nlos_truth/delay_s"][()]
     powers = h5["paths/nlos_truth/path_power_db"][()]
@@ -495,16 +657,16 @@ def _plot_nlos_paths(
         else None
     )
     figure, axes = plt.subplots(1, 2, figsize=(11, 4))
-    nlos_index = _nlos_selection_index(valid, bs, ue)
-    mask = valid[nlos_index]
-    delay_sel = delays[nlos_index]
-    power_sel = powers[nlos_index]
+    selected_paths = _selected_path_arrays(selection, valid, delays, powers, azimuth)
+    mask = selected_paths["valid"]
+    delay_sel = selected_paths["delay_s"]
+    power_sel = selected_paths["path_power_db"]
     axes[0].scatter(delay_sel[mask] * 1e9, power_sel[mask], s=8, alpha=0.6)
     axes[0].set_xlabel("delay [ns]")
     axes[0].set_ylabel("power [dB]")
     axes[0].set_title("NLoS delay-power")
     if azimuth is not None:
-        az_sel = azimuth[nlos_index]
+        az_sel = selected_paths["aoa_azimuth_rad"]
         axes[1].hist(az_sel[mask & np.isfinite(az_sel)], bins=36)
     axes[1].set_xlabel("AoA azimuth [rad]")
     axes[1].set_ylabel("count")
@@ -563,7 +725,8 @@ def _plot_spatial_spectrum(
             source: h5py.Dataset = data,
             limits: dict[int, tuple[float, float]] = row_limits,
         ) -> None:
-            spectrum = source[0, ue, bs]
+            tx_idx, rx_idx = _link_index_pair(selection, bs, ue)
+            spectrum = source[0, tx_idx, rx_idx]
             vmin, vmax = limits[int(ue)]
             image = axis.imshow(
                 spectrum,
@@ -619,7 +782,8 @@ def _plot_spatial_spectrum_polar_grid(
     spectra: dict[tuple[int, int], np.ndarray] = {}
     for ue_idx in ue:
         for bs_idx in bs:
-            spectrum = np.asarray(dataset[0, ue_idx, bs_idx], dtype=np.float32)
+            tx_idx, rx_idx = _link_index_pair(selection, int(bs_idx), int(ue_idx))
+            spectrum = np.asarray(dataset[0, tx_idx, rx_idx], dtype=np.float32)
             spectra[(int(ue_idx), int(bs_idx))] = spectrum
 
     figure, axes = plt.subplots(
@@ -765,13 +929,12 @@ def _plot_path_samples(
     vertices = h5["paths/samples/vertices_m"][()]
     counts = h5["paths/samples/vertex_count"][()]
     links = h5["paths/samples/sampled_link_indices"][()]
-    bs_set = set(selection["bs_indices"])
-    ue_set = set(selection["ue_indices"])
+    selected_link_pairs = set(_selected_link_pairs(selection))
     figure = plt.figure(figsize=(7, 5))
     axis = figure.add_subplot(111, projection="3d")
     plotted = 0
     for sample in range(vertices.shape[0]):
-        if (int(links[sample, 0]) not in bs_set) or (int(links[sample, 1]) not in ue_set):
+        if (int(links[sample, 0]), int(links[sample, 1])) not in selected_link_pairs:
             continue
         for path_idx in range(vertices.shape[1]):
             count = int(counts[sample, path_idx])
@@ -936,7 +1099,8 @@ def _spatial_spectrum_row_limits(
     for ue_idx in selection["ue_indices"]:
         finite_chunks: list[np.ndarray] = []
         for bs_idx in bs_indices:
-            values = np.asarray(dataset[0, int(ue_idx), bs_idx], dtype=np.float32)
+            tx_idx, rx_idx = _link_index_pair(selection, int(bs_idx), int(ue_idx))
+            values = np.asarray(dataset[0, tx_idx, rx_idx], dtype=np.float32)
             finite = values[np.isfinite(values)]
             if finite.size:
                 finite_chunks.append(finite)
@@ -988,6 +1152,47 @@ def _last_two_dim_view(values: np.ndarray) -> np.ndarray:
     if array.ndim == 1:
         return array.reshape(1, -1)
     return array
+
+
+def _selected_path_arrays(
+    selection: dict[str, Any],
+    valid: np.ndarray,
+    delays: np.ndarray,
+    powers: np.ndarray,
+    azimuth: np.ndarray | None,
+) -> dict[str, np.ndarray]:
+    pairs = _selected_link_pairs(selection)
+    if not pairs:
+        empty_bool = np.zeros((0,), dtype=np.bool_)
+        empty_float = np.zeros((0,), dtype=np.float32)
+        return {
+            "valid": empty_bool,
+            "delay_s": empty_float,
+            "path_power_db": empty_float,
+            "aoa_azimuth_rad": empty_float,
+        }
+    valid_chunks = []
+    delay_chunks = []
+    power_chunks = []
+    azimuth_chunks = []
+    for tx_idx, rx_idx in pairs:
+        valid_chunks.append(np.asarray(valid[tx_idx, rx_idx]).ravel())
+        delay_chunks.append(np.asarray(delays[tx_idx, rx_idx]).ravel())
+        power_chunks.append(np.asarray(powers[tx_idx, rx_idx]).ravel())
+        if azimuth is not None:
+            azimuth_chunks.append(np.asarray(azimuth[tx_idx, rx_idx]).ravel())
+    result = {
+        "valid": np.concatenate(valid_chunks).astype(np.bool_, copy=False),
+        "delay_s": np.concatenate(delay_chunks).astype(np.float32, copy=False),
+        "path_power_db": np.concatenate(power_chunks).astype(np.float32, copy=False),
+        "aoa_azimuth_rad": np.zeros((0,), dtype=np.float32),
+    }
+    if azimuth_chunks:
+        result["aoa_azimuth_rad"] = np.concatenate(azimuth_chunks).astype(
+            np.float32,
+            copy=False,
+        )
+    return result
 
 
 def _nlos_selection_index(

@@ -178,11 +178,17 @@ def _steering_matrix(
     rx_spacing_lambda: tuple[float, float],
 ) -> np.ndarray:
     vertical_spacing, horizontal_spacing = rx_spacing_lambda
-    row = np.arange(rx_num_rows, dtype=np.float32) - (rx_num_rows - 1) / 2.0
-    col = np.arange(rx_num_cols, dtype=np.float32) - (rx_num_cols - 1) / 2.0
-    rr, cc = np.meshgrid(row, col, indexing="ij")
-    element_y = cc.reshape(-1) * np.float32(horizontal_spacing)
-    element_z = rr.reshape(-1) * np.float32(vertical_spacing)
+    col, row = np.meshgrid(
+        np.arange(rx_num_cols, dtype=np.float32),
+        np.arange(rx_num_rows, dtype=np.float32),
+        indexing="ij",
+    )
+    element_y = (
+        col.reshape(-1) - np.float32((rx_num_cols - 1) / 2.0)
+    ) * np.float32(horizontal_spacing)
+    element_z = (
+        np.float32((rx_num_rows - 1) / 2.0) - row.reshape(-1)
+    ) * np.float32(vertical_spacing)
 
     zenith = angle_grid_rad[..., 0][..., np.newaxis]
     azimuth = angle_grid_rad[..., 1][..., np.newaxis]

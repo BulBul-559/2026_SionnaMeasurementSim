@@ -72,12 +72,16 @@ def test_bartlett_spectrum_peak_matches_synthetic_direction():
     zenith, azimuth = angle_grid[target_zenith_idx, target_azimuth_idx]
 
     rows, cols = 2, 2
-    row = np.arange(rows, dtype=np.float32) - (rows - 1) / 2.0
-    col = np.arange(cols, dtype=np.float32) - (cols - 1) / 2.0
-    rr, cc = np.meshgrid(row, col, indexing="ij")
+    cc, rr = np.meshgrid(
+        np.arange(cols, dtype=np.float32),
+        np.arange(rows, dtype=np.float32),
+        indexing="ij",
+    )
+    element_y = cc.reshape(-1) - (cols - 1) / 2.0
+    element_z = (rows - 1) / 2.0 - rr.reshape(-1)
     direction_y = np.sin(zenith) * np.sin(azimuth)
     direction_z = np.cos(zenith)
-    phase = np.pi * (cc.reshape(-1) * direction_y + rr.reshape(-1) * direction_z)
+    phase = np.pi * (element_y * direction_y + element_z * direction_z)
     steering = np.exp(1j * phase).astype(np.complex64) / np.sqrt(np.float32(rows * cols))
     samples = np.repeat(steering[:, np.newaxis], 8, axis=1)
     samples = samples.reshape(1, 1, 1, rows * cols, 8)

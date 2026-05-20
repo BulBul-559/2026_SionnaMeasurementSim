@@ -153,7 +153,10 @@ visualization: # 采样可视化
 | `link_chunk_size` | int | 512 | Bartlett 空间谱按 link chunk 向量化的 chunk 大小 |
 
 这里的“全向”指扫描角度范围覆盖完整方向域；天线方向图仍由
-`antenna.*.pattern` 控制，默认模板使用 `iso`。
+`antenna.*.pattern` 控制，默认模板使用 `iso`。Bartlett steering vector 按 Sionna
+`PlanarArray` 的 y-z 平面布局生成：top-left 起、column-first 编号、第一行 z 为正；
+可视化读取时会根据 `/link/tx_role` 和 `/link/rx_role` 把 link-view 轴映射回
+BS/UE 语义。
 
 #### `visualization` — 采样可视化
 
