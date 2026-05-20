@@ -170,6 +170,25 @@ impairments:
     clipping_threshold: null
   impairment_seed: 142
 
+ranging:
+  enabled: false
+  source: "cfr_est"
+  estimators: ["pdp_peak", "phase_slope"]
+  default_estimator: "pdp_peak"
+  write_rtt_equivalent: true
+  pdp_peak:
+    oversampling_factor: 8
+    window: "hann"
+    peak_policy: "earliest_above_relative_threshold"
+    relative_threshold_db: -12.0
+    min_peak_snr_db: 6.0
+    interpolation: "parabolic_log_power"
+    max_delay_s: null
+  phase_slope:
+    unwrap: true
+    aggregate: "power_weighted_median"
+    min_mean_power: 1.0e-12
+
 receiver:
   estimator_type: "srs_ls"
   channel_estimator: "srs_ls"

@@ -48,9 +48,8 @@ REQUIRED_TRUTH_DATASETS = (
     "derived/geometric_distance_m",
     "derived/los_distance_m",
     "derived/first_path_delay_s",
+    "derived/first_path_propagation_range_m",
     "derived/strongest_path_delay_s",
-    "derived/rtt_like_m",
-    "derived/rtt_like_s",
     "derived/los_aoa_azimuth_rad",
     "derived/los_aoa_zenith_rad",
     "derived/strongest_aoa_azimuth_rad",
@@ -160,12 +159,34 @@ REQUIRED_OBSERVATION_DATASETS = (
     "evaluation/num_blocks",
 )
 
+PDP_PEAK_RANGING_DATASETS = (
+    "ranging/pdp_peak/toa_est_s",
+    "ranging/pdp_peak/one_way_range_est_m",
+    "ranging/pdp_peak/rtt_equiv_s",
+    "ranging/pdp_peak/range_error_m",
+    "ranging/pdp_peak/detection_success",
+    "ranging/pdp_peak/selected_delay_bin",
+    "ranging/pdp_peak/peak_power_linear",
+    "ranging/pdp_peak/peak_snr_db",
+)
+
+PHASE_SLOPE_RANGING_DATASETS = (
+    "ranging/phase_slope/toa_est_s",
+    "ranging/phase_slope/one_way_range_est_m",
+    "ranging/phase_slope/rtt_equiv_s",
+    "ranging/phase_slope/range_error_m",
+    "ranging/phase_slope/detection_success",
+    "ranging/phase_slope/fit_residual_rad",
+)
+
 
 def validate_hdf5_contract(path: str | Path) -> None:
     """Validate the minimal truth HDF5 contract."""
 
     with h5py.File(path, "r") as h5:
         _require_absent(h5, "channel/cfr")
+        _require_absent(h5, "derived/rtt_like_m")
+        _require_absent(h5, "derived/rtt_like_s")
         _require_present(h5, ("meta/schema_version",), kind=h5py.Dataset)
         _require_present(h5, REQUIRED_TRUTH_GROUPS, kind=h5py.Group)
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
@@ -186,6 +207,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _validate_nr_srs_fields_if_applicable(h5)
             if "calibration" in h5:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
+        if "ranging" in h5:
+            _validate_ranging(h5)
         _validate_units(h5)
         _validate_values(h5)
 
@@ -244,9 +267,8 @@ def _validate_derived_shapes(h5: h5py.File) -> None:
         "derived/geometric_distance_m",
         "derived/los_distance_m",
         "derived/first_path_delay_s",
+        "derived/first_path_propagation_range_m",
         "derived/strongest_path_delay_s",
-        "derived/rtt_like_m",
-        "derived/rtt_like_s",
         "derived/los_aoa_azimuth_rad",
         "derived/los_aoa_zenith_rad",
         "derived/strongest_aoa_azimuth_rad",
@@ -440,8 +462,7 @@ def _validate_units(h5: h5py.File) -> None:
         "paths/nlos_truth/delay_s",
         "derived/geometric_distance_m",
         "derived/first_path_delay_s",
-        "derived/rtt_like_m",
-        "derived/rtt_like_s",
+        "derived/first_path_propagation_range_m",
         "derived/tx_rx_midpoint_m",
         "derived/tx_rx_bearing_rad",
         "derived/tx_rx_distance_m",
@@ -457,6 +478,23 @@ def _validate_units(h5: h5py.File) -> None:
             "evaluation/nmse_db",
         ):
             if "unit" not in h5[dataset_path].attrs:
+                msg = f"Missing unit attribute on /{dataset_path}"
+                raise SchemaValidationError(msg)
+    if "ranging" in h5:
+        for dataset_path in (
+            "ranging/pdp_peak/toa_est_s",
+            "ranging/pdp_peak/one_way_range_est_m",
+            "ranging/pdp_peak/rtt_equiv_s",
+            "ranging/pdp_peak/range_error_m",
+            "ranging/pdp_peak/peak_power_linear",
+            "ranging/pdp_peak/peak_snr_db",
+            "ranging/phase_slope/toa_est_s",
+            "ranging/phase_slope/one_way_range_est_m",
+            "ranging/phase_slope/rtt_equiv_s",
+            "ranging/phase_slope/range_error_m",
+            "ranging/phase_slope/fit_residual_rad",
+        ):
+            if dataset_path in h5 and "unit" not in h5[dataset_path].attrs:
                 msg = f"Missing unit attribute on /{dataset_path}"
                 raise SchemaValidationError(msg)
 
@@ -495,6 +533,78 @@ def _validate_values(h5: h5py.File) -> None:
             if not np.all(np.isfinite(values)):
                 msg = f"/{dataset_path} must contain finite values"
                 raise SchemaValidationError(msg)
+
+
+def _validate_ranging(h5: h5py.File) -> None:
+    if "observation/cfr_est" not in h5:
+        msg = "/ranging requires /observation/cfr_est"
+        raise SchemaValidationError(msg)
+    _require_present(h5, ("ranging/default_estimator",), kind=h5py.Dataset)
+    default_estimator = h5["ranging/default_estimator"][()]
+    if isinstance(default_estimator, bytes):
+        default_estimator = default_estimator.decode("utf-8")
+    if default_estimator not in ("pdp_peak", "phase_slope"):
+        msg = "/ranging/default_estimator must be pdp_peak or phase_slope"
+        raise SchemaValidationError(msg)
+    if default_estimator not in h5["ranging"]:
+        msg = f"/ranging/{default_estimator} is required by default_estimator"
+        raise SchemaValidationError(msg)
+    if "pdp_peak" in h5["ranging"]:
+        _require_present(h5, PDP_PEAK_RANGING_DATASETS, kind=h5py.Dataset)
+        _validate_ranging_estimator_common(
+            h5,
+            "ranging/pdp_peak",
+            extra=("selected_delay_bin", "peak_power_linear", "peak_snr_db"),
+        )
+    if "phase_slope" in h5["ranging"]:
+        _require_present(h5, PHASE_SLOPE_RANGING_DATASETS, kind=h5py.Dataset)
+        _validate_ranging_estimator_common(
+            h5,
+            "ranging/phase_slope",
+            extra=("fit_residual_rad",),
+        )
+
+
+def _validate_ranging_estimator_common(
+    h5: h5py.File,
+    group_path: str,
+    *,
+    extra: tuple[str, ...],
+) -> None:
+    link_shape = h5["observation/cfr_est"].shape[:3]
+    group = h5[group_path]
+    for name in (
+        "toa_est_s",
+        "one_way_range_est_m",
+        "rtt_equiv_s",
+        "range_error_m",
+        "detection_success",
+        *extra,
+    ):
+        dataset = group[name]
+        if dataset.shape != link_shape:
+            msg = f"/{group_path}/{name} must match [snapshot,tx,rx]"
+            raise SchemaValidationError(msg)
+        if "index_order" not in dataset.attrs:
+            msg = f"Missing index_order attribute on /{group_path}/{name}"
+            raise SchemaValidationError(msg)
+    success = group["detection_success"][()].astype(np.bool_)
+    for name in ("toa_est_s", "one_way_range_est_m", "rtt_equiv_s", "range_error_m"):
+        values = group[name][()]
+        if not np.all(np.isfinite(values[success])):
+            msg = f"/{group_path}/{name} must be finite where detection_success is true"
+            raise SchemaValidationError(msg)
+        if not np.all(np.isnan(values[~success])):
+            msg = f"/{group_path}/{name} must be NaN where detection_success is false"
+            raise SchemaValidationError(msg)
+    if "selected_delay_bin" in group:
+        selected = group["selected_delay_bin"][()]
+        if not np.all(selected[success] >= 0):
+            msg = f"/{group_path}/selected_delay_bin must be non-negative on success"
+            raise SchemaValidationError(msg)
+        if not np.all(selected[~success] == -1):
+            msg = f"/{group_path}/selected_delay_bin must be -1 on failure"
+            raise SchemaValidationError(msg)
 
 
 def _observation_enabled(h5: h5py.File) -> bool:

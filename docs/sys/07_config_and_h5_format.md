@@ -40,6 +40,7 @@ rt:            # 射线追踪 (max_depth, los, specular_reflection, ...)
 link:          # 链路配置 (duplex_mode, phy_link_direction)
 phy:           # 物理层 (standard, snr_db, nr_pusch fields)
 impairments:   # 损伤模型 (awgn, cfo, sfo, phase_noise, timing, agc_adc)
+ranging:       # 波形级 ToA/range observation (source=cfr_est)
 receiver:      # 接收机 (estimator_type, mimo_detector, failure_policy)
 motion:        # 运动/多普勒 (mobility_mode, num_time_steps, velocity)
 calibration:   # 校准 (profile_id)
@@ -294,6 +295,29 @@ AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 lin
 
 `null` 值表示不施加该损伤（即便 `enabled=true`）。损伤施加顺序：IFFT → CFO（时域）→ FFT → SFO → 相偏 → 定时偏 → AGC/ADC 削波。
 
+#### `ranging` — 波形级 ToA/range 观测
+
+`ranging` 在 PHY observation 之后运行，不属于某个标准模块私有逻辑。v1 只支持
+`source: "cfr_est"`，即从 `/observation/cfr_est` 估计 ToA/range；开启时必须有
+`phy.enabled=true`。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写 `/ranging` group |
+| `source` | str | `"cfr_est"` | v1 仅支持该值 |
+| `estimators` | list[str] | `["pdp_peak", "phase_slope"]` | 启用 estimator |
+| `default_estimator` | str | `"pdp_peak"` | 下游默认 estimator |
+| `write_rtt_equivalent` | bool | true | 写 `rtt_equiv_s=2*toa_est_s`；不是协议 RTT |
+| `pdp_peak.oversampling_factor` | int | 8 | PDP IFFT zero-padding 倍数 |
+| `pdp_peak.window` | str | `"hann"` | `hann` 或 `rect` |
+| `pdp_peak.relative_threshold_db` | float | -12.0 | 相对最强峰的首径候选阈值 |
+| `pdp_peak.min_peak_snr_db` | float | 6.0 | 峰值检测最小 SNR |
+| `pdp_peak.interpolation` | str | `"parabolic_log_power"` | 峰值亚 bin 插值 |
+| `pdp_peak.max_delay_s` | float\|null | null | 可选最大搜索 delay |
+| `phase_slope.unwrap` | bool | true | phase 斜率拟合前是否 unwrap |
+| `phase_slope.aggregate` | str | `"power_weighted_median"` | 天线 pair 聚合方式 |
+| `phase_slope.min_mean_power` | float | 1.0e-12 | pair 级最小平均功率 |
+
 #### `receiver` — 接收机
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -331,6 +355,7 @@ AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 lin
 
 - `carrier.subcarrier_spacing_hz` 与 `bandwidth_hz / num_subcarriers` 一致性（1% 容差）
 - `phy.fft_size >= 2`
+- `ranging.enabled=true` 时必须 `phy.enabled=true`
 - `motion.bs_velocity_mps` 和 `motion.ue_velocity_mps` 必须是 3 分量
 - `motion.mobility_mode == "doppler_synthetic"` 时 `sampling_frequency_hz > 0`
 
@@ -445,7 +470,7 @@ results.h5
 ├── /antenna                       # 天线阵列规格
 ├── /scene                         # 场景引用
 ├── /frequency                     # 频率网格
-├── /derived                       # 距离、ToA/RTT-like、AoA、LoS/NLoS 派生标签
+├── /derived                       # 几何距离、first-path truth delay/range、AoA、LoS/NLoS
 ├── /channel
 │   └── /truth
 │       ├── cfr                    # CFR 真值 [tx, rx, rx_ant, tx_ant, subcarrier]
@@ -461,6 +486,7 @@ results.h5
 ├── /waveform                      # 波形参数（PHY 启用时）
 ├── /array                         # NR PUSCH 阵列观测和 AoA/空间谱标签
 ├── /observation                   # 观测 CFR（PHY 启用时）
+├── /ranging                       # 从 cfr_est 估计的 ToA/range observation（可选）
 ├── /impairments                   # 损伤配置（PHY 启用时）
 ├── /receiver                      # 接收机配置（PHY 启用时）
 ├── /evaluation                    # 评估指标（PHY 启用时）
@@ -473,7 +499,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.1.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.2.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -606,9 +632,8 @@ results.h5
 | `geometric_distance_m` | [tx, rx] | m | TX/RX 三维欧氏距离 |
 | `los_distance_m` | [tx, rx] | m | LoS 路径传播距离；无 LoS 为 NaN |
 | `first_path_delay_s` | [tx, rx] | s | 最早有效路径 delay；无路径为 NaN |
+| `first_path_propagation_range_m` | [tx, rx] | m | `first_path_delay_s * c`，最早路径 truth propagation range |
 | `strongest_path_delay_s` | [tx, rx] | s | 最强路径 delay；无路径为 NaN |
-| `rtt_like_m` | [tx, rx] | m | `first_path_delay_s * c`，一程传播 range，不是真实 WiFi RTT |
-| `rtt_like_s` | [tx, rx] | s | 与 `first_path_delay_s` 同口径 |
 | `los_aoa_azimuth_rad` / `los_aoa_zenith_rad` | [tx, rx] | rad | LoS 到达角；无 LoS 为 NaN |
 | `strongest_aoa_azimuth_rad` / `strongest_aoa_zenith_rad` | [tx, rx] | rad | 最强路径 AoA |
 | `first_path_aoa_azimuth_rad` / `first_path_aoa_zenith_rad` | [tx, rx] | rad | 最早路径 AoA |
@@ -781,7 +806,32 @@ schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 
 > `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.1.0` 后 NR SRS-like 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`。
 
-### 2.20 `/impairments` — 损伤配置（PHY 启用时）
+### 2.20 `/ranging` — 波形级 ToA/range 观测（可选）
+
+仅当 `ranging.enabled=true` 时写入。`/ranging` 是 observation，不覆盖 `/derived`
+truth。当前 v1 从 `/observation/cfr_est` 估计上行波形 ToA/one-way range：
+
+| Dataset | Shape/类型 | Unit | 说明 |
+|---------|------------|------|------|
+| `default_estimator` | scalar string | — | 默认 estimator 名称 |
+| `pdp_peak/toa_est_s` | [snap, tx, rx] float32 | s | PDP 峰值 ToA 估计；失败为 NaN |
+| `pdp_peak/one_way_range_est_m` | [snap, tx, rx] float32 | m | `toa_est_s * c`；失败为 NaN |
+| `pdp_peak/rtt_equiv_s` | [snap, tx, rx] float32 | s | `2 * toa_est_s`，two-way equivalent，不是协议 RTT |
+| `pdp_peak/range_error_m` | [snap, tx, rx] float32 | m | `one_way_range_est_m - /derived/first_path_propagation_range_m` |
+| `pdp_peak/detection_success` | [snap, tx, rx] bool | — | PDP 峰值是否通过检测门限 |
+| `pdp_peak/selected_delay_bin` | [snap, tx, rx] int32 | — | 选中 delay bin；失败为 -1 |
+| `pdp_peak/peak_power_linear` | [snap, tx, rx] float32 | linear | 选中峰功率 |
+| `pdp_peak/peak_snr_db` | [snap, tx, rx] float32 | dB | 峰值相对噪底 SNR |
+| `phase_slope/toa_est_s` | [snap, tx, rx] float32 | s | phase-slope ToA 估计；失败为 NaN |
+| `phase_slope/one_way_range_est_m` | [snap, tx, rx] float32 | m | `toa_est_s * c` |
+| `phase_slope/rtt_equiv_s` | [snap, tx, rx] float32 | s | two-way equivalent |
+| `phase_slope/range_error_m` | [snap, tx, rx] float32 | m | 相对 first-path truth range 的误差 |
+| `phase_slope/detection_success` | [snap, tx, rx] bool | — | 是否得到有效相位斜率拟合 |
+| `phase_slope/fit_residual_rad` | [snap, tx, rx] float32 | rad | 加权线性拟合残差 |
+
+schema 校验要求成功位置的 range/toa/error 为 finite，失败位置为 NaN。
+
+### 2.21 `/impairments` — 损伤配置（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -793,7 +843,7 @@ schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 | `iq_imbalance_config` | string | IQ 不平衡配置摘要 |
 | `agc_adc_config` | string | AGC/ADC 配置摘要 |
 
-### 2.21 `/receiver` — 接收机配置（PHY 启用时）
+### 2.22 `/receiver` — 接收机配置（PHY 启用时）
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
@@ -809,7 +859,7 @@ schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 
 > NR PUSCH 场景下 `receiver_type` 必须是 `"pusch_receiver"`，`mimo_detector` 必须是 `"lmmse"` 或 `"kbest"`。
 
-### 2.22 `/evaluation` — 评估指标（PHY 启用时）
+### 2.23 `/evaluation` — 评估指标（PHY 启用时）
 
 | Dataset | Shape | Dtype | Unit | 说明 |
 |---------|-------|-------|------|------|
@@ -834,7 +884,7 @@ schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 - `0 <= num_block_errors <= num_blocks`
 - `bler == num_block_errors / num_blocks`
 
-### 2.23 `/calibration` — 校准
+### 2.24 `/calibration` — 校准
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|

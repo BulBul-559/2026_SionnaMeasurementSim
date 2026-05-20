@@ -61,6 +61,7 @@ def write_measurement_result(
             _write_waveform(h5, result)
             _write_array(h5, result)
             _write_observation(h5, result)
+            _write_ranging(h5, result)
             _write_impairments(h5, result)
             _write_receiver(h5, result)
             _write_evaluation(h5, result)
@@ -196,14 +197,13 @@ def _write_derived(h5: h5py.File, result: MeasurementSimulationResult) -> None:
         unit="s", index_order=link_order,
     )
     _write_dataset(
+        group, "first_path_propagation_range_m",
+        derived.first_path_propagation_range_m,
+        unit="m", index_order=link_order,
+    )
+    _write_dataset(
         group, "strongest_path_delay_s", derived.strongest_path_delay_s,
         unit="s", index_order=link_order,
-    )
-    _write_dataset(
-        group, "rtt_like_m", derived.rtt_like_m, unit="m", index_order=link_order,
-    )
-    _write_dataset(
-        group, "rtt_like_s", derived.rtt_like_s, unit="s", index_order=link_order,
     )
     _write_dataset(
         group, "los_aoa_azimuth_rad", derived.los_aoa_azimuth_rad,
@@ -530,6 +530,66 @@ def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> No
     _write_dataset(group, "phase_offset_rad", observation.phase_offset_rad, unit="rad")
     _write_dataset(group, "agc_gain_db", observation.agc_gain_db, unit="dB")
     _write_dataset(group, "clipping_flag", observation.clipping_flag)
+
+
+def _write_ranging(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    ranging = result.ranging
+    if ranging is None:
+        return
+    group = h5.require_group("ranging")
+    _write_scalar(group, "default_estimator", ranging.default_estimator)
+    if ranging.pdp_peak is not None:
+        estimator = group.require_group("pdp_peak")
+        _write_dataset(estimator, "toa_est_s", ranging.pdp_peak.toa_est_s, unit="s",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(
+            estimator,
+            "one_way_range_est_m",
+            ranging.pdp_peak.one_way_range_est_m,
+            unit="m",
+            index_order="snapshot,tx,rx",
+        )
+        _write_dataset(estimator, "rtt_equiv_s", ranging.pdp_peak.rtt_equiv_s, unit="s",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(estimator, "range_error_m", ranging.pdp_peak.range_error_m, unit="m",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(estimator, "detection_success", ranging.pdp_peak.detection_success,
+                       index_order="snapshot,tx,rx")
+        _write_dataset(estimator, "selected_delay_bin", ranging.pdp_peak.selected_delay_bin,
+                       index_order="snapshot,tx,rx")
+        _write_dataset(
+            estimator,
+            "peak_power_linear",
+            ranging.pdp_peak.peak_power_linear,
+            unit="linear",
+            index_order="snapshot,tx,rx",
+        )
+        _write_dataset(estimator, "peak_snr_db", ranging.pdp_peak.peak_snr_db, unit="dB",
+                       index_order="snapshot,tx,rx")
+    if ranging.phase_slope is not None:
+        estimator = group.require_group("phase_slope")
+        _write_dataset(estimator, "toa_est_s", ranging.phase_slope.toa_est_s, unit="s",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(
+            estimator,
+            "one_way_range_est_m",
+            ranging.phase_slope.one_way_range_est_m,
+            unit="m",
+            index_order="snapshot,tx,rx",
+        )
+        _write_dataset(estimator, "rtt_equiv_s", ranging.phase_slope.rtt_equiv_s, unit="s",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(estimator, "range_error_m", ranging.phase_slope.range_error_m, unit="m",
+                       index_order="snapshot,tx,rx")
+        _write_dataset(estimator, "detection_success", ranging.phase_slope.detection_success,
+                       index_order="snapshot,tx,rx")
+        _write_dataset(
+            estimator,
+            "fit_residual_rad",
+            ranging.phase_slope.fit_residual_rad,
+            unit="rad",
+            index_order="snapshot,tx,rx",
+        )
 
 
 def _write_impairments(h5: h5py.File, result: MeasurementSimulationResult) -> None:

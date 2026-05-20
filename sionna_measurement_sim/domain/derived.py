@@ -27,9 +27,8 @@ class DerivedLabels:
     geometric_distance_m: np.ndarray
     los_distance_m: np.ndarray
     first_path_delay_s: np.ndarray
+    first_path_propagation_range_m: np.ndarray
     strongest_path_delay_s: np.ndarray
-    rtt_like_m: np.ndarray
-    rtt_like_s: np.ndarray
     los_aoa_azimuth_rad: np.ndarray
     los_aoa_zenith_rad: np.ndarray
     strongest_aoa_azimuth_rad: np.ndarray
@@ -51,9 +50,8 @@ class DerivedLabels:
         for name in (
             "los_distance_m",
             "first_path_delay_s",
+            "first_path_propagation_range_m",
             "strongest_path_delay_s",
-            "rtt_like_m",
-            "rtt_like_s",
             "los_aoa_azimuth_rad",
             "los_aoa_zenith_rad",
             "strongest_aoa_azimuth_rad",
@@ -75,9 +73,8 @@ class DerivedLabels:
             "geometric_distance_m",
             "los_distance_m",
             "first_path_delay_s",
+            "first_path_propagation_range_m",
             "strongest_path_delay_s",
-            "rtt_like_m",
-            "rtt_like_s",
             "los_aoa_azimuth_rad",
             "los_aoa_zenith_rad",
             "strongest_aoa_azimuth_rad",
@@ -152,9 +149,10 @@ def build_derived_labels(
         geometric_distance_m=geometric_distance_m,
         los_distance_m=los_distance_m,
         first_path_delay_s=first_path_delay_s,
+        first_path_propagation_range_m=(
+            first_path_delay_s * SPEED_OF_LIGHT_MPS
+        ).astype(np.float32),
         strongest_path_delay_s=strongest_path_delay_s,
-        rtt_like_m=(first_path_delay_s * SPEED_OF_LIGHT_MPS).astype(np.float32),
-        rtt_like_s=first_path_delay_s.copy(),
         los_aoa_azimuth_rad=los_aoa_azimuth_rad,
         los_aoa_zenith_rad=los_aoa_zenith_rad,
         strongest_aoa_azimuth_rad=strongest_aoa_azimuth_rad,

@@ -304,6 +304,70 @@ class ImpairmentsConfig(BaseModel):
     impairment_seed: int = Field(default=142)
 
 
+# ── ranging ──────────────────────────────────────────────────────────
+class PdpPeakRangingConfig(BaseModel):
+    oversampling_factor: int = Field(default=8, ge=1)
+    window: str = Field(default="hann")
+    peak_policy: str = Field(default="earliest_above_relative_threshold")
+    relative_threshold_db: float = Field(default=-12.0)
+    min_peak_snr_db: float = Field(default=6.0)
+    interpolation: str = Field(default="parabolic_log_power")
+    max_delay_s: float | None = None
+
+    @model_validator(mode="after")
+    def check_supported_values(self) -> PdpPeakRangingConfig:
+        if self.window not in ("hann", "rect"):
+            raise ValueError("ranging.pdp_peak.window must be hann/rect")
+        if self.peak_policy != "earliest_above_relative_threshold":
+            raise ValueError(
+                "ranging.pdp_peak.peak_policy must be "
+                "earliest_above_relative_threshold"
+            )
+        if self.interpolation not in ("parabolic_log_power", "none"):
+            raise ValueError(
+                "ranging.pdp_peak.interpolation must be parabolic_log_power/none"
+            )
+        if self.max_delay_s is not None and self.max_delay_s <= 0:
+            raise ValueError("ranging.pdp_peak.max_delay_s must be positive when set")
+        return self
+
+
+class PhaseSlopeRangingConfig(BaseModel):
+    unwrap: bool = True
+    aggregate: str = Field(default="power_weighted_median")
+    min_mean_power: float = Field(default=1.0e-12, ge=0)
+
+    @model_validator(mode="after")
+    def check_supported_values(self) -> PhaseSlopeRangingConfig:
+        if self.aggregate != "power_weighted_median":
+            raise ValueError(
+                "ranging.phase_slope.aggregate must be power_weighted_median"
+            )
+        return self
+
+
+class RangingConfig(BaseModel):
+    enabled: bool = False
+    source: str = Field(default="cfr_est")
+    estimators: list[str] = Field(default_factory=lambda: ["pdp_peak", "phase_slope"])
+    default_estimator: str = Field(default="pdp_peak")
+    write_rtt_equivalent: bool = True
+    pdp_peak: PdpPeakRangingConfig = Field(default_factory=PdpPeakRangingConfig)
+    phase_slope: PhaseSlopeRangingConfig = Field(default_factory=PhaseSlopeRangingConfig)
+
+    @model_validator(mode="after")
+    def check_supported_values(self) -> RangingConfig:
+        supported = {"pdp_peak", "phase_slope"}
+        unknown = sorted(set(self.estimators) - supported)
+        if unknown:
+            raise ValueError(f"Unsupported ranging estimators: {unknown}")
+        if self.source != "cfr_est":
+            raise ValueError("Only ranging.source='cfr_est' is supported")
+        if self.default_estimator not in self.estimators:
+            raise ValueError("ranging.default_estimator must be listed in estimators")
+        return self
+
+
 # ── receiver ─────────────────────────────────────────────────────────
 class ReceiverConfig(BaseModel):
     estimator_type: str = Field(default="ls")
@@ -408,6 +472,7 @@ class MeasurementConfig(BaseModel):
     phy: PHYConfig = Field(default_factory=PHYConfig)
     array: ArrayConfig = Field(default_factory=ArrayConfig)
     impairments: ImpairmentsConfig = Field(default_factory=ImpairmentsConfig)
+    ranging: RangingConfig = Field(default_factory=RangingConfig)
     receiver: ReceiverConfig = Field(default_factory=ReceiverConfig)
     motion: MotionConfig = Field(default_factory=MotionConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
@@ -419,6 +484,10 @@ class MeasurementConfig(BaseModel):
         if self.phy.enabled:
             if self.phy.fft_size < 2:
                 raise ValueError("phy.fft_size must be >= 2 when phy enabled")
+        if self.ranging.enabled and not self.phy.enabled:
+            raise ValueError(
+                "ranging.enabled=true requires phy.enabled=true and /observation/cfr_est"
+            )
         if self.motion.enabled and self.motion.mobility_mode == "doppler_synthetic":
             if self.motion.sampling_frequency_hz <= 0:
                 raise ValueError(

@@ -60,6 +60,8 @@ from sionna_measurement_sim.perf import PerfTracer
 from sionna_measurement_sim.phy.impairments import ImpairmentConfig
 from sionna_measurement_sim.phy.modules import PHYContext, get_phy_module
 from sionna_measurement_sim.preflight.system import collect_basic_environment
+from sionna_measurement_sim.ranging.config import RangingConfig
+from sionna_measurement_sim.ranging.runner import run_ranging_observation
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.report import generate_visualization_report
 
@@ -145,12 +147,16 @@ class RTTruthRunConfig:
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = 1
+    ranging_config: RangingConfig = field(default_factory=RangingConfig)
     visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     """Run RT truth pipeline, optionally as UE HDF5 shards."""
 
+    if config.ranging_config.enabled and config.observation_snr_db is None:
+        msg = "ranging.enabled=true requires PHY observation with /observation/cfr_est"
+        raise ValueError(msg)
     if _should_run_sharded(config):
         return run_sharded_rt_truth_pipeline(config)
     return _run_rt_truth_pipeline_single(config)
@@ -366,6 +372,13 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
             phy_extra["array_outputs"] = _build_truth_array_outputs(
                 config, derived, adapter_result.truth.cfr
             )
+    with tracer.span("ranging"):
+        ranging_result = run_ranging_observation(
+            observation=observation_bundle.observation if observation_bundle else None,
+            frequency=frequency,
+            derived=derived,
+            config=config.ranging_config,
+        )
     shard_metadata = _build_shard_metadata(config, role_topology, mapping)
     result = MeasurementSimulationResult(
         metadata=Metadata(
@@ -429,6 +442,7 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         shard=shard_metadata,
         waveform_extras=phy_extra.get("waveform_extras"),
         array_outputs=phy_extra.get("array_outputs"),
+        ranging=ranging_result,
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -478,6 +492,8 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         manifest_data["visualization"] = _manifest_visualization_summary(visualization_summary)
     if result.diagnostics is not None:
         manifest_data["diagnostics"] = result.diagnostics.to_summary_dict()
+    if result.ranging is not None:
+        manifest_data["ranging"] = _manifest_ranging_summary(result.ranging)
     if shard_metadata is not None:
         manifest_data["shard"] = _manifest_shard_summary(shard_metadata)
     manifest_path = (
@@ -1311,6 +1327,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
         "phy_standard": config.phy_standard,
+        "ranging": _ranging_config_snapshot(config.ranging_config),
         "link_config": {
             "duplex_mode": config.link_config.duplex_mode,
             "phy_link_direction": config.link_config.phy_link_direction,
@@ -1400,6 +1417,51 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             },
         },
     }
+
+
+def _ranging_config_snapshot(config: RangingConfig) -> dict[str, object]:
+    return {
+        "enabled": config.enabled,
+        "source": config.source,
+        "estimators": list(config.estimators),
+        "default_estimator": config.default_estimator,
+        "write_rtt_equivalent": config.write_rtt_equivalent,
+        "pdp_peak": {
+            "oversampling_factor": config.pdp_peak.oversampling_factor,
+            "window": config.pdp_peak.window,
+            "peak_policy": config.pdp_peak.peak_policy,
+            "relative_threshold_db": config.pdp_peak.relative_threshold_db,
+            "min_peak_snr_db": config.pdp_peak.min_peak_snr_db,
+            "interpolation": config.pdp_peak.interpolation,
+            "max_delay_s": config.pdp_peak.max_delay_s,
+        },
+        "phase_slope": {
+            "unwrap": config.phase_slope.unwrap,
+            "aggregate": config.phase_slope.aggregate,
+            "min_mean_power": config.phase_slope.min_mean_power,
+        },
+    }
+
+
+def _manifest_ranging_summary(ranging: object) -> dict[str, object]:
+    summary = {"default_estimator": str(ranging.default_estimator)}
+    for name in ("pdp_peak", "phase_slope"):
+        result = getattr(ranging, name, None)
+        if result is None:
+            continue
+        success = np.asarray(result.detection_success, dtype=np.bool_)
+        abs_error = np.abs(np.asarray(result.range_error_m, dtype=np.float32))
+        finite_error = np.isfinite(abs_error) & success
+        summary[name] = {
+            "finite_rate": float(np.mean(finite_error)) if finite_error.size else 0.0,
+            "mean_abs_range_error_m": (
+                float(np.mean(abs_error[finite_error])) if np.any(finite_error) else float("nan")
+            ),
+            "median_abs_range_error_m": (
+                float(np.median(abs_error[finite_error])) if np.any(finite_error) else float("nan")
+            ),
+        }
+    return summary
 
 
 def _manifest_visualization_summary(summary: dict[str, object]) -> dict[str, object]:

@@ -10,6 +10,7 @@
 - NR PUSCH 4x4 SU-MIMO（perfect CSI + DMRS LS 估计，LMMSE/KBest 检测器）
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
 - NR SRS-like full-band uplink sounding（全带宽已知 pilot + LS CSI；暂非完整 3GPP SRS）
+- 波形级 ranging observation：从 `/observation/cfr_est` 估计 ToA/one-way range，支持 PDP peak 与 phase-slope estimator
 - PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
 - TB/CRC 语义的 BLER（transport block CRC pass/fail）
@@ -17,7 +18,7 @@
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
-- HDF5 schema `1.1.0` 强校验（NR PUSCH/SRS-like 统一 waveform 字段）
+- HDF5 schema `1.2.0` 强校验（NR PUSCH/SRS-like 统一 waveform 字段，ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果为 `223 passed, 19 skipped`
 
@@ -170,12 +171,13 @@ outputs/<run_dir>/
 | `/antenna` | 阵列类型、极化、天线数 |
 | `/frequency` | 中心频率、带宽、子载波 |
 | `/channel/truth` | 真值 CFR `[tx, rx, rx_ant, tx_ant, subcarrier]`、CIR、LoS/NLoS |
-| `/derived` | 距离、ToA/RTT-like、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
+| `/derived` | 几何距离、first-path truth delay/range、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
 | `/waveform` | OFDM/NR 波形；NR PUSCH/SRS-like 统一保存 `tx_grid/rx_grid/noise_variance`，SRS-like 另写 `pilot_code` |
 | `/array` | 阵列 snapshot、AoA 标签、空间谱标签；SRS-like 可写 `spatial_spectrum_srs` |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
+| `/ranging` | 从受损后 `cfr_est` 估计的 ToA/range observation；含 `pdp_peak` 与 `phase_slope` |
 | `/receiver` | 估计器类型、MIMO 检测器 |
 | `/evaluation` | NMSE、BER、BLER（TB CRC）、num_block_errors/num_blocks |
 | `/runtime` | 软件版本、耗时 |
@@ -258,6 +260,7 @@ SionnaMeasurementSim/
 | [07_config_and_h5_format](docs/sys/07_config_and_h5_format.md) | 配置与 HDF5 数据契约 |
 | [phy_module_development](docs/sys/phy_module_development.md) | 新 PHY module 接入指南 |
 | [nr_srs_standard_todo](docs/sys/nr_srs_standard_todo.md) | SRS-like 到标准 NR SRS 的 TODO |
+| [ranging_observation_todo](docs/sys/ranging_observation_todo.md) | Ranging / RTT observation 后续增强 TODO |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
 | [nr_srs_rt_variant_sweep_6x5](docs/performance/nr_srs_rt_variant_sweep_6x5.md) | SRS-like `synthetic_array=false` RT sweep、OOM 口径和 true/false 对照 |
 

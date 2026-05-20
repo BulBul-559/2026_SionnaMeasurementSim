@@ -241,6 +241,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             from sionna_measurement_sim.config.loader import load_config_or_exit
             from sionna_measurement_sim.domain.array import ArraySpectrumConfig
             from sionna_measurement_sim.domain.link import LinkConfig as DomainLinkConfig
+            from sionna_measurement_sim.ranging.config import (
+                PdpPeakRangingConfig as DomainPdpPeakRangingConfig,
+            )
+            from sionna_measurement_sim.ranging.config import (
+                PhaseSlopeRangingConfig as DomainPhaseSlopeRangingConfig,
+            )
+            from sionna_measurement_sim.ranging.config import (
+                RangingConfig as DomainRangingConfig,
+            )
             from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 
             cfg = load_config_or_exit(args.config)
@@ -417,6 +426,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mimo_detector=cfg.phy.mimo_detector,
                 channel_estimator=cfg.phy.channel_estimator,
                 receiver_failure_policy=cfg.phy.receiver_failure_policy,
+                ranging_config=DomainRangingConfig(
+                    enabled=cfg.ranging.enabled,
+                    source=cfg.ranging.source,
+                    estimators=tuple(cfg.ranging.estimators),
+                    default_estimator=cfg.ranging.default_estimator,
+                    write_rtt_equivalent=cfg.ranging.write_rtt_equivalent,
+                    pdp_peak=DomainPdpPeakRangingConfig(
+                        oversampling_factor=cfg.ranging.pdp_peak.oversampling_factor,
+                        window=cfg.ranging.pdp_peak.window,
+                        peak_policy=cfg.ranging.pdp_peak.peak_policy,
+                        relative_threshold_db=cfg.ranging.pdp_peak.relative_threshold_db,
+                        min_peak_snr_db=cfg.ranging.pdp_peak.min_peak_snr_db,
+                        interpolation=cfg.ranging.pdp_peak.interpolation,
+                        max_delay_s=cfg.ranging.pdp_peak.max_delay_s,
+                    ),
+                    phase_slope=DomainPhaseSlopeRangingConfig(
+                        unwrap=cfg.ranging.phase_slope.unwrap,
+                        aggregate=cfg.ranging.phase_slope.aggregate,
+                        min_mean_power=cfg.ranging.phase_slope.min_mean_power,
+                    ),
+                ),
             )
         else:
             seed = args.seed if args.seed is not None else 42

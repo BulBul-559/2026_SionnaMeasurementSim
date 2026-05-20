@@ -362,6 +362,30 @@ estimation success。标准 NR SRS 的 comb、sequence、cyclic shift、hopping 
 | `agc_adc.clipping_threshold` | float\|null | 3.0 | ADC 削波阈值 |
 | `impairment_seed` | int | 142 | 损伤随机种子 |
 
+### `ranging` — 波形级 ToA/range 观测
+
+`ranging` 是独立于 SRS/PUSCH 的 observation 后处理模块。开启后必须同时启用
+`phy.enabled=true`，并从 `/observation/cfr_est` 估计 ToA/one-way range；它不会改写
+`/derived` truth 字段。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写 `/ranging` group |
+| `source` | str | `"cfr_est"` | v1 仅支持从 `/observation/cfr_est` 估计 |
+| `estimators` | list[str] | `["pdp_peak", "phase_slope"]` | 启用的 estimator |
+| `default_estimator` | str | `"pdp_peak"` | 下游默认读取的 estimator 名称 |
+| `write_rtt_equivalent` | bool | true | 是否写 `rtt_equiv_s = 2 * toa_est_s`；它不是协议 RTT |
+| `pdp_peak.oversampling_factor` | int | 8 | IFFT PDP zero-padding 倍数 |
+| `pdp_peak.window` | str | `"hann"` | PDP 窗函数；可选 `hann`、`rect` |
+| `pdp_peak.peak_policy` | str | `"earliest_above_relative_threshold"` | 选择最早可检测峰 |
+| `pdp_peak.relative_threshold_db` | float | -12.0 | 相对最强峰的首径检测阈值 |
+| `pdp_peak.min_peak_snr_db` | float | 6.0 | 峰值相对噪底的最小检测 SNR |
+| `pdp_peak.interpolation` | str | `"parabolic_log_power"` | 峰值亚 bin 插值 |
+| `pdp_peak.max_delay_s` | float\|null | null | 可选最大搜索 delay |
+| `phase_slope.unwrap` | bool | true | phase vs frequency 是否 unwrap |
+| `phase_slope.aggregate` | str | `"power_weighted_median"` | 多天线 pair 聚合方式 |
+| `phase_slope.min_mean_power` | float | 1.0e-12 | pair 级最小平均功率 |
+
 ### `receiver` — 接收机
 
 | 字段 | 类型 | 默认值 | 说明 |

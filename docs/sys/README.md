@@ -21,6 +21,7 @@
 - `03_adapters.md`：Sionna RT adapter。
 - `phy_module_development.md`：新增 PHY module 的最小开发规范。
 - `nr_srs_standard_todo.md`：当前 SRS-like 与完整 3GPP NR SRS 的差距。
+- `ranging_observation_todo.md`：waveform ranging、协议 RTT、clock/bias 和 NLoS 修正后续增强。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
 
 ## 当前事实
@@ -33,8 +34,10 @@
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `1.1.0`；NR PUSCH/SRS-like 统一写 `/waveform/tx_grid`、
+- 当前 schema 版本是 `1.2.0`；NR PUSCH/SRS-like 统一写 `/waveform/tx_grid`、
   `/waveform/rx_grid`、`/waveform/noise_variance`。
+- `/derived` 保留 truth 语义，`first_path_propagation_range_m` 表示最早路径传播距离；
+  估计型 ToA/range 写在 `/ranging`。
 - NR PUSCH 与 NR SRS-like 已共享 `common_link.py` 的 clean channel →
   impairment/AWGN 链路；`custom_ofdm` 仍是 legacy 路径。
 

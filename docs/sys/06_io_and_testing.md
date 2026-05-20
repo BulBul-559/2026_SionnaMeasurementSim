@@ -22,7 +22,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 ```
 /meta /input /topology /devices /antenna /scene /frequency
 /channel/truth /paths/samples /paths/full /link
-/waveform /observation /impairments /receiver /evaluation
+/waveform /observation /ranging /impairments /receiver /evaluation
 /derived /array /calibration /motion /runtime
 ```
 
@@ -47,7 +47,7 @@ def validate_hdf5_contract(path: str | Path) -> None
    - `cfr_est.shape[1:] == truth_cfr.shape`
    - `frequencies_hz.shape[-1] == truth_cfr.shape[-1]`
 5. **数值有效性**：CFR 至少一个有限值、频率严格递增
-6. **禁止路径**：`/channel/cfr` 必须不存在
+6. **禁止路径**：`/channel/cfr`、`/derived/rtt_like_m`、`/derived/rtt_like_s` 必须不存在
 7. **NR PUSCH 专有字段**（当 `waveform/standard == "nr_pusch"`）：
    - `num_prb`、`num_layers`、`num_antenna_ports`、`mimo_detector` 等
    - `num_layers >= 1`、`num_antenna_ports >= num_layers`
@@ -59,6 +59,10 @@ def validate_hdf5_contract(path: str | Path) -> None
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
    - `bler == num_block_errors / num_blocks`
+10. **Ranging 契约**（当 `/ranging` 存在）：
+    - 必须已有 `/observation/cfr_est`
+    - `pdp_peak` / `phase_slope` 输出 shape 为 `[snapshot, tx, rx]`
+    - 成功位置为 finite，失败位置为 NaN，`selected_delay_bin` 失败为 -1
 
 ### `hdf5_reader.py`
 

@@ -7,6 +7,7 @@ import numpy as np
 
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
+from sionna_measurement_sim.ranging.config import RangingConfig
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 
 
@@ -34,6 +35,7 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
                 zenith_bins=5,
                 azimuth_bins=7,
             ),
+            ranging_config=RangingConfig(enabled=True),
         )
     )
 
@@ -49,5 +51,11 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
         assert h5["array/spatial_spectrum_srs"].shape == (1, 1, 1, 5, 7)
         assert "waveform/tx_time" not in h5
         assert "waveform/rx_time" not in h5
+        assert h5["derived/first_path_propagation_range_m"].shape == (1, 1)
+        assert "derived/rtt_like_m" not in h5
+        assert h5["ranging/default_estimator"][()].decode("utf-8") == "pdp_peak"
+        assert h5["ranging/pdp_peak/toa_est_s"].shape == (1, 1, 1)
+        assert h5["ranging/pdp_peak/one_way_range_est_m"].attrs["unit"] == "m"
+        assert h5["ranging/phase_slope/range_error_m"].shape == (1, 1, 1)
         assert int(h5["evaluation/num_blocks"][()]) == 0
         assert np.all(np.isfinite(h5["evaluation/nmse_db"][()]))

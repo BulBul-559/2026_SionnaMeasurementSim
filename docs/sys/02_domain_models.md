@@ -158,6 +158,22 @@ class ObservationResult:
     agc_gain_db, clipping_flag
 ```
 
+### `RangingResult` (`ranging/result.py`)
+
+`ranging/` 是独立包，但结果对象挂到 `MeasurementSimulationResult.ranging`。它只吃
+numpy/domain 输入，不依赖 Sionna 或 HDF5 writer。
+
+```python
+@dataclass(frozen=True)
+class RangingResult:
+    default_estimator: str
+    pdp_peak: PdpPeakResult | None
+    phase_slope: PhaseSlopeResult | None
+```
+
+两个 estimator 的核心输出 shape 均为 `[snapshot, tx, rx]`。检测失败位置写 NaN，
+`detection_success=false`；PDP peak 的 `selected_delay_bin` 失败位置写 `-1`。
+
 ### `EvaluationResult` (`observation.py`)
 
 ```python
@@ -234,6 +250,7 @@ class MeasurementSimulationResult:
     impairments: ImpairmentSpec | None
     receiver: ReceiverSpec | None
     evaluation: EvaluationResult | None
+    ranging: RangingResult | None
     calibration: CalibrationResult | None
     link: LinkConfig | None
     waveform_extras: dict | None       # NR PUSCH/SRS-like 频域 grid 与专属字段

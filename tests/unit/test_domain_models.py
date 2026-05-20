@@ -145,8 +145,11 @@ def test_derived_labels_select_paths_globally_over_antennas():
     assert derived.tx_rx_midpoint_m[0, 0].tolist() == pytest.approx([1.5, 2.0])
     assert derived.first_path_delay_s[0, 0] == pytest.approx(1e-9)
     assert derived.strongest_path_delay_s[0, 0] == pytest.approx(2e-9)
-    assert derived.rtt_like_s[0, 0] == pytest.approx(1e-9)
-    assert derived.rtt_like_m[0, 0] == pytest.approx(1e-9 * SPEED_OF_LIGHT_MPS)
+    assert derived.first_path_propagation_range_m[0, 0] == pytest.approx(
+        1e-9 * SPEED_OF_LIGHT_MPS
+    )
+    assert not hasattr(derived, "rtt_like_s")
+    assert not hasattr(derived, "rtt_like_m")
     assert derived.los_distance_m[0, 0] == pytest.approx(3e-9 * SPEED_OF_LIGHT_MPS)
     assert derived.first_path_aoa_azimuth_rad[0, 0] == pytest.approx(1.8)
     assert derived.first_path_aoa_zenith_rad[0, 0] == pytest.approx(1.7)

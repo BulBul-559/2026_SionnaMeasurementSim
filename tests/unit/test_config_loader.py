@@ -48,6 +48,8 @@ def test_load_default_mvp_config():
     assert cfg.visualization.max_bs == 5
     assert cfg.visualization.sample_ue_count == 3
     assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
+    assert cfg.ranging.enabled is False
+    assert cfg.ranging.estimators == ["pdp_peak", "phase_slope"]
 
 
 def test_old_tx_rx_config_fields_are_rejected(tmp_path: Path):
@@ -149,6 +151,22 @@ array:
     )
 
     with pytest.raises((ValueError, SystemExit)):
+        load_config(config_path)
+
+
+def test_ranging_requires_phy_observation_when_enabled(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+phy:
+  enabled: false
+ranging:
+  enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="ranging.enabled"):
         load_config(config_path)
 
 

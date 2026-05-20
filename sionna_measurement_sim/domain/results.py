@@ -7,6 +7,7 @@ import platform
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -42,6 +43,9 @@ from sionna_measurement_sim.domain.path import (
 )
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.domain.validation import require_shape
+
+if TYPE_CHECKING:
+    from sionna_measurement_sim.ranging.result import RangingResult
 
 
 @dataclass(frozen=True)
@@ -294,6 +298,7 @@ class MeasurementSimulationResult:
     shard: ShardMetadata | None = None
     waveform_extras: dict | None = None
     array_outputs: dict | None = None
+    ranging: RangingResult | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr
@@ -350,6 +355,17 @@ class MeasurementSimulationResult:
             if self.evaluation.nmse_db.shape != self.observation.valid_mask.shape:
                 msg = "evaluation nmse_db shape must match observation link mask"
                 raise ValueError(msg)
+        if self.ranging is not None:
+            if self.observation is None:
+                msg = "ranging results require observation cfr_est"
+                raise ValueError(msg)
+            link_shape = self.observation.valid_mask.shape
+            for estimator in (self.ranging.pdp_peak, self.ranging.phase_slope):
+                if estimator is None:
+                    continue
+                if estimator.toa_est_s.shape != link_shape:
+                    msg = "ranging estimator link shape must match observation link mask"
+                    raise ValueError(msg)
         if self.derived is None:
             object.__setattr__(
                 self,
