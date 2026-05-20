@@ -190,6 +190,7 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 - `cfr_heatmap` 输出 `cfr_heatmap_magnitude.png` 和 `cfr_heatmap_phase.png`；热力图轴为 `[subcarrier, antenna_pair]`。
 - `cfr_error` 输出 `cfr_error_magnitude.png` 和 `cfr_error_phase.png`；幅度误差为估计 CFR 幅度相对 truth CFR 幅度的 dB 差，相位误差为 wrap 到 `[-pi, pi]` 的相位差。
 - `waveform_grid` 输出 `waveform_rx_grid.png`，轴为 `[subcarrier, OFDM symbol]`，颜色为接收 grid 的天线聚合功率。
+- `path_samples` 只绘制当前采样选择中的第一个 UE-BS 链路，避免多个链路的路径几何叠到同一张 3D 图里；可通过多次指定不同 BS/UE 生成多链路对比。
 - `spatial_spectrum` 按数据源分开输出 `spatial_spectrum_label.png`、
   `spatial_spectrum_truth.png`、`spatial_spectrum_cfr_est.png`、
   `spatial_spectrum_observation.png`，标题中标明 AoA heatmap label、truth CFR Bartlett、estimated CFR Bartlett 或 RX grid Bartlett。

@@ -319,6 +319,7 @@ nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu,power.draw
 - direct uplink 下 UE 是 source，UE block 大小比 BS 数更容易触发 RT/Dr.Jit 限制。
 - 多文件 shard 是当前推荐输出方式，不建议为了训练强行合并成单个巨大 HDF5。
 - 空间谱和 visualization 默认关闭；它们适合小样本诊断，不适合默认全量生产。
+- `path_samples` 可视化只画当前采样选择中的第一个 UE-BS 链路，避免多个链路路径几何混叠。
 - HDF5 下游读取应通过 `manifest/manifest.json` 和其中记录的 `results/result_xxx.h5` shard 列表，不要假设只有 `results.h5`，也不要假设文件名连续；fallback 可能产生 `result_089_00.h5` 这类子 shard。
 - `nr_srs` 是 standards-shaped v2 subset，不要在论文或文档里称为 standards-complete 3GPP SRS。
 

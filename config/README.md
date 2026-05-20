@@ -219,6 +219,7 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 
 - 所有涉及子载波的热力图统一把 subcarrier 放在纵轴；CFR 折线图例外，使用 subcarrier 横轴，便于直接看频域曲线。
 - Matplotlib 热力图显式使用 `interpolation="none"`，不做显示层插值或平滑。
+- `path_samples` 只绘制当前采样选择中的第一个 UE-BS 链路，避免多个链路路径叠加后难以判断几何关系；如需对比多条链路，应分别指定 BS/UE 后多次可视化。
 - `cfr_lines`、`cfr_heatmap`、`cfr_error` 都会输出幅度和相位两张图，文件名分别带
   `_magnitude` / `_phase` 后缀；其中 CFR error 的幅度图是估计幅度相对真值幅度的 dB 误差，相位图是 wrap 到 `[-pi, pi]` 的相位误差。
 - `spatial_spectrum` 会按数据来源分开输出：

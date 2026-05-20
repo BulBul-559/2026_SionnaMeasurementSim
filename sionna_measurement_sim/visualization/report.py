@@ -291,6 +291,17 @@ def _selected_link_pairs(selection: dict[str, Any]) -> list[tuple[int, int]]:
     ]
 
 
+def _first_selected_link_pair(selection: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Return the first selected link as BS/UE indices plus resolved TX/RX indices."""
+
+    if not selection["bs_indices"] or not selection["ue_indices"]:
+        raise _SkipPlot("no selected BS/UE link for path samples")
+    bs_idx = int(selection["bs_indices"][0])
+    ue_idx = int(selection["ue_indices"][0])
+    tx_idx, rx_idx = _link_index_pair(selection, bs_idx, ue_idx)
+    return bs_idx, ue_idx, tx_idx, rx_idx
+
+
 def _link_matrix_for_bs_ue(values: np.ndarray, selection: dict[str, Any]) -> np.ndarray:
     array = np.asarray(values)
     out = np.empty(
@@ -929,12 +940,12 @@ def _plot_path_samples(
     vertices = h5["paths/samples/vertices_m"][()]
     counts = h5["paths/samples/vertex_count"][()]
     links = h5["paths/samples/sampled_link_indices"][()]
-    selected_link_pairs = set(_selected_link_pairs(selection))
+    bs_idx, ue_idx, tx_idx, rx_idx = _first_selected_link_pair(selection)
     figure = plt.figure(figsize=(7, 5))
     axis = figure.add_subplot(111, projection="3d")
     plotted = 0
     for sample in range(vertices.shape[0]):
-        if (int(links[sample, 0]), int(links[sample, 1])) not in selected_link_pairs:
+        if (int(links[sample, 0]), int(links[sample, 1])) != (tx_idx, rx_idx):
             continue
         for path_idx in range(vertices.shape[1]):
             count = int(counts[sample, path_idx])
@@ -943,11 +954,11 @@ def _plot_path_samples(
                 axis.plot(points[:, 0], points[:, 1], points[:, 2], alpha=0.65)
                 plotted += 1
     if plotted == 0:
-        raise _SkipPlot("no sampled paths for selected links")
+        raise _SkipPlot(f"no sampled paths for UE {ue_idx} - BS {bs_idx}")
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_zlabel("z [m]")
-    axis.set_title("Sampled Path Geometry")
+    axis.set_title(f"Sampled Path Geometry UE {ue_idx} - BS {bs_idx}")
     return _save_figure(figure, output_dir / f"path_samples.{config.format}", config)
 
 

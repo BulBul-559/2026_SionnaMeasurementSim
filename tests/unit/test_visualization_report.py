@@ -9,6 +9,7 @@ import numpy as np
 from sionna_measurement_sim.app.cli import main
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.report import (
+    _first_selected_link_pair,
     _spatial_spectrum_row_limits,
     generate_visualization_report,
     select_visualization_links,
@@ -87,6 +88,24 @@ def test_select_visualization_links_uses_resolved_uplink_roles(tmp_path: Path):
     assert selection["bs_indices"] == [0, 1]
     assert set(selection["ue_indices"]) == {0, 2}
     assert all(np.any(valid[ue, selection["bs_indices"]]) for ue in selection["ue_indices"])
+
+
+def test_path_samples_single_link_selection_is_role_aware():
+    downlink_selection = {
+        "bs_indices": [1, 0],
+        "ue_indices": [2, 3],
+        "tx_role": "bs",
+        "rx_role": "ue",
+    }
+    uplink_selection = {
+        "bs_indices": [1, 0],
+        "ue_indices": [2, 3],
+        "tx_role": "ue",
+        "rx_role": "bs",
+    }
+
+    assert _first_selected_link_pair(downlink_selection) == (1, 2, 1, 2)
+    assert _first_selected_link_pair(uplink_selection) == (1, 2, 2, 1)
 
 
 def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
