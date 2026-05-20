@@ -39,7 +39,7 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
 
     with h5py.File(output_path, "r") as h5:
         assert "channel/cfr" not in h5
-        assert h5["meta/schema_version"][()].decode("utf-8") == "1.3.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "1.4.0"
         assert h5["meta/contract_name"][()].decode("utf-8") == "sionna_measurement_sim_hdf5"
         assert h5["meta/index_order"][()].decode("utf-8") == "tx,rx,rx_ant,tx_ant,..."
         assert h5["meta/unit_convention"][()].decode("utf-8") == "si_mks"
@@ -120,7 +120,7 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     metadata = read_metadata(output_path)
     cfr = read_truth_cfr(output_path)
 
-    assert metadata["schema_version"] == "1.3.0"
+    assert metadata["schema_version"] == "1.4.0"
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")

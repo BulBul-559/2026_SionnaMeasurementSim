@@ -13,7 +13,7 @@
 项目支持三种 PHY 标准：
 - **custom_ofdm**：简化 OFDM + LS 估计 + 完整 impairment 链
 - **nr_pusch**：5G NR PUSCH 上行链路，支持 4x4 SU-MIMO 和 MU-MIMO
-- **nr_srs**：NR SRS standards-shaped subset，输出 resource LS 与 full-band interpolated CSI，不是完整 3GPP NR SRS
+- **nr_srs**：NR SRS standards-shaped v2 subset，输出 resource LS/despread 与 full-band interpolated CSI，不是完整 3GPP NR SRS
 
 新对话或新 agent 应先读 `docs/agent_handoff.md`，再按任务需要阅读本目录。
 

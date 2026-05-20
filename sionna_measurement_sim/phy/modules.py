@@ -155,7 +155,7 @@ class NRPUSCHModule:
 
 
 class NRSRSModule:
-    """Adapter for the NR SRS-like full-band sounding observation path."""
+    """Adapter for the NR SRS standards-shaped v2 observation path."""
 
     standard = "nr_srs"
 
@@ -170,6 +170,7 @@ class NRSRSModule:
             truth_cfr=adapter_result.truth.cfr,
             cfr_snapshots=adapter_result.truth.cfr_snapshots,
             has_signal=adapter_result.truth.has_geometric_signal,
+            path_power_db=adapter_result.truth.path_power_db,
             link_config=config.link_config,
             phy_config=config,
             carrier_config=config,

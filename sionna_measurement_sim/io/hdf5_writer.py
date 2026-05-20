@@ -438,13 +438,13 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                         unit="linear_complex",
                         index_order="srs_port,ofdm_symbol,subcarrier",
                     )
-                if "srs_port_index" in extras:
+                if "srs_re_symbol_indices" in extras:
                     _write_dataset(
                         group,
-                        "srs_port_index",
-                        extras["srs_port_index"],
+                        "srs_re_symbol_indices",
+                        extras["srs_re_symbol_indices"],
                         unit="index",
-                        index_order="ul_tx_ant",
+                        index_order="srs_re",
                     )
                 if "srs_re_subcarrier_indices" in extras:
                     _write_dataset(
@@ -454,12 +454,36 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                         unit="index",
                         index_order="srs_re",
                     )
+                if "srs_port_tx_ant_map" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_port_tx_ant_map",
+                        extras["srs_port_tx_ant_map"],
+                        unit="index",
+                        index_order="srs_port,srs_symbol",
+                    )
                 if "srs_symbol_indices" in extras:
                     _write_dataset(
                         group,
                         "srs_symbol_indices",
                         extras["srs_symbol_indices"],
                         unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_prb_start_per_symbol" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_prb_start_per_symbol",
+                        extras["srs_prb_start_per_symbol"],
+                        unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_prb_count_per_symbol" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_prb_count_per_symbol",
+                        extras["srs_prb_count_per_symbol"],
+                        unit="count",
                         index_order="srs_symbol",
                     )
                 if "srs_cyclic_shift_indices" in extras:
@@ -469,6 +493,62 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                         extras["srs_cyclic_shift_indices"],
                         unit="index",
                         index_order="srs_port",
+                    )
+                if "srs_sequence_group_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_sequence_group_indices",
+                        extras["srs_sequence_group_indices"],
+                        unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_sequence_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_sequence_indices",
+                        extras["srs_sequence_indices"],
+                        unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_zc_root_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_zc_root_indices",
+                        extras["srs_zc_root_indices"],
+                        unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_tx_power_dbm" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_tx_power_dbm",
+                        extras["srs_tx_power_dbm"],
+                        unit="dBm",
+                        index_order="snapshot,tx,srs_port",
+                    )
+                if "srs_power_scale_linear" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_power_scale_linear",
+                        extras["srs_power_scale_linear"],
+                        unit="linear",
+                        index_order="snapshot,tx,srs_port",
+                    )
+                if "srs_serving_rx_index" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_serving_rx_index",
+                        extras["srs_serving_rx_index"],
+                        unit="index",
+                        index_order="snapshot,tx",
+                    )
+                if "srs_path_loss_db" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_path_loss_db",
+                        extras["srs_path_loss_db"],
+                        unit="dB",
+                        index_order="snapshot,tx",
                     )
         # TODO: export custom OFDM tx_grid/rx_grid only after that path carries
         # real generated frequency-domain waveform tensors.
@@ -586,7 +666,7 @@ def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> No
             "cfr_est_resource",
             extras["cfr_est_resource"],
             unit="linear_complex",
-            index_order="snapshot,tx,rx,rx_ant,tx_ant,srs_re",
+            index_order="snapshot,tx,rx,rx_ant,srs_port,srs_re",
         )
 
 

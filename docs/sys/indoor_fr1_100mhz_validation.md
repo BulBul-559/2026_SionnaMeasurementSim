@@ -101,9 +101,11 @@ outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 |---|---|
 | `/channel/truth/cfr` | `[20, 7, 16, 2, 3276]` |
 | `/observation/cfr_est` | `[1, 20, 7, 16, 2, 3276]` |
-| `/waveform/rx_grid` | schema `1.3.0` 后为 `[1, 20, 7, 16, 14, 3276]` |
-| `/waveform/tx_grid` | schema `1.3.0` 后为 `[1, 20, 7, 2, 14, 3276]` |
-| `/waveform/srs_resource_mask` | schema `1.3.0` 后为 `[14, 3276]` |
+| `/waveform/rx_grid` | schema `1.4.0` 后为 `[1, 20, 7, 16, 14, 3276]` |
+| `/waveform/tx_grid` | schema `1.4.0` 后为 `[1, 20, 7, 2, 14, 3276]` |
+| `/waveform/srs_resource_mask` | schema `1.4.0` 后为 `[14, 3276]` |
+| `/waveform/srs_re_symbol_indices` | schema `1.4.0` 后为 `[srs_re]` flattened active RE |
+| `/waveform/srs_port_tx_ant_map` | schema `1.4.0` 后为 `[srs_port, srs_symbol]` |
 
 最后一个 shard 只有 3 个 UE，因此 TX 维为 3。
 

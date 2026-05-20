@@ -18,7 +18,7 @@ uv run python -m sionna_measurement_sim.app.cli \
     --phy-standard nr_pusch \
     --output-dir outputs/my_nr_pusch_run
 
-# 使用 NR SRS standards-shaped subset 配置
+# 使用 NR SRS standards-shaped v2 subset 配置
 uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
     run-full \
@@ -329,8 +329,10 @@ override。`/observation/cfo_hz`、`sfo_ppm`、`timing_offset_samples`、
 
 `standard: "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_prb`、`tx_power_dbm`、
 `receiver_failure_policy` 等通用/NR-family 字段，并通过 `phy.srs` 控制 SRS resource。
-当前实现是 standards-shaped subset：完整 14-symbol slot 中只在 SRS symbols 填充
-comb/BWP resource，receiver 从 SRS RE 做 LS，再插值到 full-band
+当前实现是 standards-shaped v2 subset：完整 14-symbol slot 中只在 SRS symbols
+填充 comb/BWP/hopping resource，支持 deterministic `nr_zc`、group/sequence
+hopping、cyclic-shift port multiplexing、antenna switching 口径和简化 uplink power
+scaling。receiver 从 flattened SRS RE 做 despread/LS，再插值到 full-band
 `/observation/cfr_est`。它不产生 BER/BLER，只输出 NMSE、幅度/相位误差、
 correlation、estimation success 和 SRS resource quality 指标。
 
@@ -338,7 +340,7 @@ correlation、estimation success 和 SRS resource quality 指标。
 |------|------|--------|------|
 | `srs.slot_length_symbols` | int | 14 | 当前单 slot 的 OFDM symbol 数 |
 | `srs.start_symbol` | int | 12 | SRS 起始 symbol |
-| `srs.num_srs_symbols` | int | 2 | SRS 占用 symbol 数；阶段一需不小于 SRS port/UE TX 天线数 |
+| `srs.num_srs_symbols` | int | 2 | SRS 占用 symbol 数；`cyclic_shift_multiplexing="time"` 时需不小于 SRS port 数 |
 | `srs.comb_size` | int | 2 | SRS comb size，支持 1/2/4 |
 | `srs.comb_offset` | int | 0 | comb offset，需小于 comb size |
 | `srs.bwp_start_prb` | int | 0 | SRS BWP 起始 PRB |
@@ -347,15 +349,27 @@ correlation、estimation success 和 SRS resource quality 指标。
 | `srs.periodicity_slots` | int | 1 | periodic/semipersistent 调度周期 |
 | `srs.slot_offset` | int | 0 | 调度 slot offset |
 | `srs.slot_number` | int | 0 | 当前单 slot 编号；若未被调度则 fail-fast |
-| `srs.sequence_type` | str | "zc_like" | 阶段一只支持可复现 ZC-like sequence |
+| `srs.sequence_type` | str | "zc_like" | `"zc_like"` \| `"nr_zc"`；`nr_zc` 用于 v2 low-PAPR/ZC-like sounding |
 | `srs.sequence_id` | int | 0 | sequence seed/id |
-| `srs.group_hopping` | str | "disabled" | 阶段一必须 disabled |
-| `srs.sequence_hopping` | str | "disabled" | 阶段一必须 disabled |
-| `srs.cyclic_shift_indices` | list[int]\|null | null | null 时按 port 自动分配 0..N-1；阶段一仅做 phase rotation/metadata |
+| `srs.group_hopping` | str | "disabled" | `"disabled"` \| `"enabled"` |
+| `srs.sequence_hopping` | str | "disabled" | `"disabled"` \| `"enabled"` |
+| `srs.cyclic_shift_multiplexing` | str | "cyclic_shift" | `"cyclic_shift"` 同 symbol port 复用；`"time"` 为 time-symbol orthogonality fallback |
+| `srs.cyclic_shift_indices` | list[int]\|null | null | null 时按 port 均匀分配 0..11；`cyclic_shift` 模式要求唯一 |
+| `srs.hopping.enabled` | bool | false | 是否启用每 SRS symbol 的 frequency/bandwidth hopping |
+| `srs.hopping.frequency_offsets_prb` | list[int] | [] | 空或长度等于 `num_srs_symbols`；每 symbol PRB offset |
+| `srs.hopping.bandwidth_num_prb` | list[int] | [] | 空或长度等于 `num_srs_symbols`；每 symbol SRS PRB 数 |
+| `srs.ports.num_srs_ports` | int\|null | null | null 时使用 UE TX 天线数 |
+| `srs.ports.mapping` | str | "one_to_one" | `"one_to_one"` \| `"antenna_switching"` |
+| `srs.ports.port_tx_ant_map` | list[list[int]]\|null | null | `antenna_switching` 时为 `[srs_port,srs_symbol]`，`-1` 表示该 symbol 不发 |
+| `srs.ports.usage` | str | "non_codebook" | `"codebook"` \| `"non_codebook"` metadata |
+| `srs.power_control.enabled` | bool | false | 是否启用 pathloss-compensated SRS power scaling |
+| `srs.power_control.p0_dbm` | float | 0.0 | open-loop power control 的基准功率 |
+| `srs.power_control.alpha` | float | 0.8 | pathloss compensation 系数 |
+| `srs.power_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
+| `srs.power_control.serving_rx_policy` | str | "strongest_path" | `"strongest_path"` \| `"first_rx"` |
 
-阶段一仍不能称为完整 3GPP NR SRS；真实 group/sequence hopping、同 symbol cyclic-shift
-port multiplexing、frequency hopping、ports/layers 和 power control 仍见
-`docs/sys/nr_srs_standard_todo.md`。
+当前仍不能称为完整 3GPP NR SRS；v2 是 standards-shaped subset，尚未做 38.211/38.213
+reference 对齐、真实闭环功控或认证级一致性测试。
 
 > **MIMO 配置提示：**
 > - 4x4 SU-MIMO: `mimo_mode="su_mimo"`, `num_layers=4`, `num_antenna_ports=4`

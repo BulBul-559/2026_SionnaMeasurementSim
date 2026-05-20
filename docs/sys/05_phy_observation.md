@@ -20,7 +20,7 @@ phy/
 ├── nr_mimo_channel.py        # CIR → CFR 桥接 + 维度转换
 ├── nr_channel_backend.py     # 可插拔信道后端
 ├── nr_pusch_observation.py   # NR PUSCH 主链路 (SU/MU-MIMO)
-└── nr_srs_observation.py     # NR SRS standards-shaped subset
+└── nr_srs_observation.py     # NR SRS standards-shaped v2 subset
 ```
 
 ## 零、PHY Module Registry (`modules.py`)
@@ -270,31 +270,35 @@ def run_nr_pusch_observation(
 
 ## 七、NR SRS Subset (`nr_srs_observation.py`)
 
-`nr_srs` 当前是 standards-shaped NR SRS subset，不是完整 3GPP NR SRS：
+`nr_srs` 当前是 standards-shaped NR SRS v2 subset，不是完整 3GPP NR SRS：
 
 1. 读取 resolved link-view truth CFR；uplink 下 shape 为 `[tx=ue, rx=bs, bs_ant, ue_ant, subcarrier]`
 2. 按 `phy.srs` 生成 full-slot 14-symbol `tx_grid`，非 SRS symbol 为 0
-3. comb/BWP resource 写入 `srs_resource_mask` 和 `srs_re_subcarrier_indices`
-4. 生成可复现 ZC-like pilot；阶段一 cyclic shift 只做 port-specific phase rotation
-5. 通过 clean channel 得到 `y_clean`
-6. `ObservationImpairmentChain` 统一施加 impairment/AWGN 得到 `rx_grid`
-7. receiver 从 SRS RE 提取 resource LS，写 `/observation/cfr_est_resource`
-8. 频域 linear interpolation 得到 full-band `/observation/cfr_est`
+3. comb/BWP/hopping resource 写入 `srs_resource_mask`、`srs_re_symbol_indices` 和 `srs_re_subcarrier_indices`
+4. 生成可复现 `zc_like` 或 deterministic `nr_zc` pilot，可启用 group/sequence hopping
+5. 按 `ports` 生成 `srs_port_tx_ant_map`，支持 one-to-one 与简化 antenna switching
+6. 可选按 RT `path_power_db` 做 open-loop SRS power scaling，写 `srs_tx_power_dbm` 和 `srs_power_scale_linear`
+7. 通过 clean channel 得到 `y_clean`
+8. `ObservationImpairmentChain` 统一施加 impairment/AWGN 得到 `rx_grid`
+9. receiver 从 flattened SRS RE 做 time-code LS 或 cyclic-shift delay-window despreading，写 `/observation/cfr_est_resource`
+10. 频域 linear interpolation 得到 full-band `/observation/cfr_est`
 
 SRS 不输出 BER/BLER，`evaluation` 包含 full-band NMSE、幅度/相位误差、correlation、
 estimation success，以及 SRS resource NMSE / interpolation NMSE / resource SNR 等
 quality 指标。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
 `/observation/cfr_est` 生成 `/array/spatial_spectrum_srs`。
 
-schema `1.3.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
+schema `1.4.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
 `noise_variance`，并写 SRS 专属 `/waveform/srs_resource_mask`、
-`/waveform/srs_pilot_symbols`、`/waveform/srs_port_index`、
-`/waveform/srs_re_subcarrier_indices`。不再写 `/waveform/pilot_code` 或
-`/observation/srs_cfr_est`。
+`/waveform/srs_pilot_symbols`、`/waveform/srs_re_symbol_indices`、
+`/waveform/srs_re_subcarrier_indices`、`/waveform/srs_port_tx_ant_map`、
+per-symbol PRB、cyclic shift、sequence 和 power-control metadata。不再写
+`/waveform/pilot_code`、`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`。
 
-完整 group/sequence hopping、同 symbol cyclic-shift port multiplexing、frequency
-hopping、ports/layers 和 power control 仍在后续阶段，详见
-`docs/sys/nr_srs_standard_todo.md`。
+当前 v2 已覆盖 group/sequence hopping、同 symbol cyclic-shift port multiplexing、
+frequency/bandwidth hopping、port/antenna switching 口径和简化 power scaling；
+仍未做 38.211/38.213 reference 对齐、完整 antenna switching procedure、闭环功控或
+3GPP-compliant 声明，详见 `docs/sys/nr_srs_standard_todo.md`。
 
 ### SU-MIMO per-link 处理：`_process_su_mimo_per_link()`
 

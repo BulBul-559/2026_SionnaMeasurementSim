@@ -170,7 +170,24 @@ phy:
     sequence_id: 0
     group_hopping: "disabled"
     sequence_hopping: "disabled"
+    cyclic_shift_multiplexing: "cyclic_shift"
     cyclic_shift_indices: null
+    hopping:
+      enabled: false
+      frequency_offsets_prb: []
+      bandwidth_num_prb: []
+    ports:
+      num_srs_ports: null
+      mapping: "one_to_one"
+      port_tx_ant_map: null
+      usage: "non_codebook"
+    power_control:
+      enabled: false
+      p0_dbm: 0.0
+      alpha: 0.8
+      min_tx_power_dbm: -40.0
+      max_tx_power_dbm: 23.0
+      serving_rx_policy: "strongest_path"
 
 impairments:
   awgn:

@@ -38,6 +38,7 @@ def _srs_config(**overrides):
         "sequence_id": 0,
         "group_hopping": "disabled",
         "sequence_hopping": "disabled",
+        "cyclic_shift_multiplexing": "cyclic_shift",
         "cyclic_shift_indices": None,
     }
     values.update(overrides)
@@ -59,6 +60,7 @@ def test_nr_srs_full_band_ls_recovers_truth_without_noise():
                     start_symbol=10,
                     num_srs_symbols=4,
                     comb_size=1,
+                    cyclic_shift_multiplexing="time",
                 )
             ),
         SimpleNamespace(num_subcarriers=8),
@@ -72,13 +74,15 @@ def test_nr_srs_full_band_ls_recovers_truth_without_noise():
     assert result["waveform_grids"]["noise_variance"].shape == (1, 1, 1)
     assert result["waveform_grids"]["srs_resource_mask"].shape == (14, 8)
     assert result["waveform_grids"]["srs_pilot_symbols"].shape == (4, 14, 8)
-    assert result["waveform_grids"]["srs_re_subcarrier_indices"].tolist() == list(range(8))
-    assert result["waveform_grids"]["cfr_est_resource"].shape == (1, 1, 1, 2, 4, 8)
+    assert result["waveform_grids"]["srs_re_subcarrier_indices"].tolist() == list(range(8)) * 4
+    expected_symbols = [10] * 8 + [11] * 8 + [12] * 8 + [13] * 8
+    assert result["waveform_grids"]["srs_re_symbol_indices"].tolist() == expected_symbols
+    assert result["waveform_grids"]["cfr_est_resource"].shape == (1, 1, 1, 2, 4, 32)
     assert result["evaluation"].ber == 0.0
     assert result["evaluation"].bler == 0.0
 
 
-def test_nr_srs_fails_when_configured_symbols_cannot_separate_ports():
+def test_nr_srs_time_mode_fails_when_configured_symbols_cannot_separate_ports():
     truth = np.ones((1, 1, 4, 2, 8), dtype=np.complex64)
 
     with np.testing.assert_raises_regex(ValueError, "num_srs_symbols"):
@@ -86,13 +90,44 @@ def test_nr_srs_fails_when_configured_symbols_cannot_separate_ports():
             truth,
             LinkConfig(),
             _phy_config(
-                srs_config=_srs_config(start_symbol=12, num_srs_symbols=1, comb_size=1)
+                srs_config=_srs_config(
+                    start_symbol=12,
+                    num_srs_symbols=1,
+                    comb_size=1,
+                    cyclic_shift_multiplexing="time",
+                )
             ),
             SimpleNamespace(num_subcarriers=8),
         )
 
 
-def test_nr_srs_comb_resource_ls_recovers_truth_on_srs_re():
+def test_nr_srs_cyclic_shift_recovers_flat_channels():
+    truth = np.zeros((1, 1, 2, 4, 24), dtype=np.complex64)
+    values = np.asarray([1.0 + 1.0j, 2.0 - 1.0j, -0.5 + 0.2j, 0.3 - 0.7j], dtype=np.complex64)
+    for tx_ant, value in enumerate(values):
+        truth[0, 0, :, tx_ant, :] = value
+
+    result = run_nr_srs_observation(
+        truth,
+        LinkConfig(),
+        _phy_config(
+            srs_config=_srs_config(
+                start_symbol=12,
+                num_srs_symbols=2,
+                comb_size=1,
+                sequence_type="nr_zc",
+                group_hopping="enabled",
+                sequence_hopping="enabled",
+            )
+        ),
+        SimpleNamespace(num_subcarriers=24),
+    )
+
+    np.testing.assert_allclose(result["observation"].cfr_est, truth[np.newaxis, ...], atol=1e-5)
+    assert result["waveform_grids"]["srs_cyclic_shift_indices"].tolist() == [0, 3, 6, 9]
+
+
+def test_nr_srs_time_comb_resource_ls_recovers_truth_on_srs_re():
     rng = np.random.default_rng(456)
     truth = (
         rng.standard_normal((1, 1, 2, 2, 24), dtype=np.float32)
@@ -102,7 +137,7 @@ def test_nr_srs_comb_resource_ls_recovers_truth_on_srs_re():
     result = run_nr_srs_observation(
         truth,
         LinkConfig(),
-        _phy_config(srs_config=_srs_config(comb_size=2)),
+        _phy_config(srs_config=_srs_config(comb_size=2, cyclic_shift_multiplexing="time")),
         SimpleNamespace(num_subcarriers=24),
     )
 

@@ -1466,9 +1466,24 @@ def _srs_config_snapshot(config: Any | None) -> dict[str, object]:
         "sequence_id",
         "group_hopping",
         "sequence_hopping",
+        "cyclic_shift_multiplexing",
         "cyclic_shift_indices",
+        "hopping",
+        "ports",
+        "power_control",
     )
-    return {field: getattr(config, field) for field in fields if hasattr(config, field)}
+    snapshot: dict[str, object] = {}
+    for field_name in fields:
+        if not hasattr(config, field_name):
+            continue
+        value = getattr(config, field_name)
+        if hasattr(value, "model_dump"):
+            snapshot[field_name] = dict(value.model_dump())
+        elif hasattr(value, "__dict__"):
+            snapshot[field_name] = dict(vars(value))
+        else:
+            snapshot[field_name] = value
+    return snapshot
 
 
 def _manifest_ranging_summary(ranging: object) -> dict[str, object]:

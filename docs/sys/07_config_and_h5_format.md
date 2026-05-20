@@ -264,11 +264,11 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 **NR SRS subset 字段**：
 
 `standard == "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_prb`、`tx_power_dbm`
-等字段，并通过 `phy.srs` 控制 resource。阶段一支持 full-slot time allocation、
-comb/BWP resource、ZC-like pilot、简化 cyclic shift metadata、resource LS 和
-full-band interpolation。当前实现不是完整 3GPP NR SRS；group/sequence hopping、
-同 symbol cyclic-shift port multiplexing、frequency hopping、ports/layers 和
-power control 仍见 `docs/sys/nr_srs_standard_todo.md`。
+等字段，并通过 `phy.srs` 控制 resource。v2 支持 full-slot time allocation、
+comb/BWP/hopping resource、`zc_like`/`nr_zc` pilot、group/sequence hopping、
+同 symbol cyclic-shift port multiplexing、port/antenna switching 口径、简化
+SRS power scaling、resource LS/despread 和 full-band interpolation。当前实现仍不是
+完整 3GPP NR SRS，reference 对齐与闭环功控见 `docs/sys/nr_srs_standard_todo.md`。
 
 NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
 AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 link 的平均功率
@@ -500,7 +500,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.3.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.4.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -764,15 +764,21 @@ results.h5
 | `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
 | `srs_resource_mask` | bool [ofdm_symbol, subcarrier] | SRS resource RE mask |
 | `srs_pilot_symbols` | complex64 [srs_port, ofdm_symbol, subcarrier] | 每个 SRS port 的 pilot 符号，非 SRS RE 为 0 |
-| `srs_port_index` | int32 [ul_tx_ant] | UE TX antenna 到 SRS port 的映射 |
-| `srs_re_subcarrier_indices` | int32 [srs_re] | compact SRS RE 的子载波索引 |
+| `srs_re_symbol_indices` | int32 [srs_re] | flattened SRS RE 的 OFDM symbol 索引 |
+| `srs_re_subcarrier_indices` | int32 [srs_re] | flattened SRS RE 的子载波索引 |
 | `srs_symbol_indices` | int32 [srs_symbol] | SRS symbol 索引 |
-| `srs_cyclic_shift_indices` | int32 [srs_port] | 阶段一 port-specific cyclic shift 配置 |
+| `srs_port_tx_ant_map` | int32 [srs_port, srs_symbol] | 每个 SRS port 在每个 SRS symbol 使用的 UE TX antenna；`-1` 表示 inactive |
+| `srs_prb_start_per_symbol` | int32 [srs_symbol] | 每个 SRS symbol 的 PRB 起点 |
+| `srs_prb_count_per_symbol` | int32 [srs_symbol] | 每个 SRS symbol 的 PRB 数 |
+| `srs_cyclic_shift_indices` | int32 [srs_port] | port-specific cyclic shift 配置 |
+| `srs_tx_power_dbm` | float32 [snap, ul_tx, srs_port] | SRS open-loop power-control 后的发射功率 |
+| `srs_power_scale_linear` | float32 [snap, ul_tx, srs_port] | 相对 `phy.tx_power_dbm` 的发射幅度缩放 |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
-schema `1.3.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`
-或 `/observation/srs_cfr_est`。resource LS 写到 `/observation/cfr_est_resource`，
-full-band 插值结果仍写 `/observation/cfr_est`。
+schema `1.4.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`、
+`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`。resource LS/despread 写到
+`/observation/cfr_est_resource [snapshot,tx,rx,rx_ant,srs_port,srs_re]`，full-band
+插值结果仍写 `/observation/cfr_est [snapshot,tx,rx,rx_ant,tx_ant,subcarrier]`。
 
 大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
@@ -812,7 +818,7 @@ full-band 插值结果仍写 `/observation/cfr_est`。
 | `agc_gain_db` | [snap, rx] | float | dB | 接收侧 AGC 增益 |
 | `clipping_flag` | [snap, tx, rx] | bool | — | ADC 削波标志 |
 
-> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.3.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS 另写 `/observation/cfr_est_resource`。
+> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.4.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS/despread 另写 `/observation/cfr_est_resource`。
 
 ### 2.20 `/ranging` — 波形级 ToA/range 观测（可选）
 

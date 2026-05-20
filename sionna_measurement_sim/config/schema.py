@@ -223,6 +223,68 @@ class RTConfig(BaseModel):
 
 
 # ── phy ──────────────────────────────────────────────────────────────
+class SRSHoppingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    frequency_offsets_prb: list[int] = Field(default_factory=list)
+    bandwidth_num_prb: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_hopping_values(self) -> SRSHoppingConfig:
+        if any(int(value) < 0 for value in self.frequency_offsets_prb):
+            raise ValueError("phy.srs.hopping.frequency_offsets_prb must be non-negative")
+        if any(int(value) < 1 for value in self.bandwidth_num_prb):
+            raise ValueError("phy.srs.hopping.bandwidth_num_prb must be positive")
+        return self
+
+
+class SRSPortsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    num_srs_ports: int | None = Field(default=None, ge=1)
+    mapping: str = Field(default="one_to_one")
+    port_tx_ant_map: list[list[int]] | None = None
+    usage: str = Field(default="non_codebook")
+
+    @model_validator(mode="after")
+    def check_ports_values(self) -> SRSPortsConfig:
+        if self.mapping not in ("one_to_one", "antenna_switching"):
+            raise ValueError("phy.srs.ports.mapping must be one_to_one/antenna_switching")
+        if self.usage not in ("codebook", "non_codebook"):
+            raise ValueError("phy.srs.ports.usage must be codebook/non_codebook")
+        if self.port_tx_ant_map is not None:
+            if not self.port_tx_ant_map or any(not row for row in self.port_tx_ant_map):
+                raise ValueError("phy.srs.ports.port_tx_ant_map must be a non-empty 2-D list")
+            width = len(self.port_tx_ant_map[0])
+            if any(len(row) != width for row in self.port_tx_ant_map):
+                raise ValueError("phy.srs.ports.port_tx_ant_map rows must have equal length")
+            if any(int(value) < -1 for row in self.port_tx_ant_map for value in row):
+                raise ValueError("phy.srs.ports.port_tx_ant_map values must be >= -1")
+        return self
+
+
+class SRSPowerControlConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    p0_dbm: float = 0.0
+    alpha: float = Field(default=0.8, ge=0.0, le=1.0)
+    min_tx_power_dbm: float = -40.0
+    max_tx_power_dbm: float = 23.0
+    serving_rx_policy: str = Field(default="strongest_path")
+
+    @model_validator(mode="after")
+    def check_power_control_values(self) -> SRSPowerControlConfig:
+        if self.min_tx_power_dbm > self.max_tx_power_dbm:
+            raise ValueError("phy.srs.power_control min_tx_power_dbm must be <= max")
+        if self.serving_rx_policy not in ("strongest_path", "first_rx"):
+            raise ValueError(
+                "phy.srs.power_control.serving_rx_policy must be strongest_path/first_rx"
+            )
+        return self
+
+
 class SRSConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,7 +303,11 @@ class SRSConfig(BaseModel):
     sequence_id: int = Field(default=0, ge=0)
     group_hopping: str = Field(default="disabled")
     sequence_hopping: str = Field(default="disabled")
+    cyclic_shift_multiplexing: str = Field(default="cyclic_shift")
     cyclic_shift_indices: list[int] | None = None
+    hopping: SRSHoppingConfig = Field(default_factory=SRSHoppingConfig)
+    ports: SRSPortsConfig = Field(default_factory=SRSPortsConfig)
+    power_control: SRSPowerControlConfig = Field(default_factory=SRSPowerControlConfig)
 
     @model_validator(mode="after")
     def check_supported_values(self) -> SRSConfig:
@@ -255,12 +321,14 @@ class SRSConfig(BaseModel):
             raise ValueError(
                 "phy.srs.trigger_mode must be aperiodic/periodic/semipersistent"
             )
-        if self.sequence_type != "zc_like":
-            raise ValueError("phy.srs.sequence_type only supports zc_like in v1")
-        if self.group_hopping != "disabled":
-            raise ValueError("phy.srs.group_hopping must be disabled in v1")
-        if self.sequence_hopping != "disabled":
-            raise ValueError("phy.srs.sequence_hopping must be disabled in v1")
+        if self.sequence_type not in ("zc_like", "nr_zc"):
+            raise ValueError("phy.srs.sequence_type must be zc_like/nr_zc")
+        if self.group_hopping not in ("disabled", "enabled"):
+            raise ValueError("phy.srs.group_hopping must be disabled/enabled")
+        if self.sequence_hopping not in ("disabled", "enabled"):
+            raise ValueError("phy.srs.sequence_hopping must be disabled/enabled")
+        if self.cyclic_shift_multiplexing not in ("time", "cyclic_shift"):
+            raise ValueError("phy.srs.cyclic_shift_multiplexing must be time/cyclic_shift")
         if self.cyclic_shift_indices is not None:
             if any(int(value) < 0 or int(value) > 11 for value in self.cyclic_shift_indices):
                 raise ValueError("phy.srs.cyclic_shift_indices must be in [0, 11]")

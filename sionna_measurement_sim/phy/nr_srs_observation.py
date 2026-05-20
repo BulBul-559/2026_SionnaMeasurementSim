@@ -18,6 +18,7 @@ from sionna_measurement_sim.phy.common_link import (
     ObservationImpairmentChain,
     ResultAssembler,
 )
+from sionna_measurement_sim.phy.nr_srs_power_control import compute_srs_power_control
 from sionna_measurement_sim.phy.nr_srs_resources import (
     NRSRSResource,
     build_srs_resource,
@@ -34,14 +35,16 @@ def run_nr_srs_observation(
     *,
     cfr_snapshots: np.ndarray | None = None,
     has_signal: np.ndarray | None = None,
+    path_power_db: np.ndarray | None = None,
     tracer: Any | None = None,
 ) -> dict[str, Any]:
     """Run standards-shaped NR SRS resource sounding and LS CFR estimation.
 
-    This is a standards-shaped subset rather than a complete 3GPP NR SRS
-    implementation. Stage 1 supports comb/BWP resource mapping, full-slot time
-    allocation, a deterministic ZC-like pilot, and simplified cyclic-shift
-    metadata while port separation still uses time-symbol orthogonality.
+    This is a standards-shaped v2 subset rather than a complete 3GPP NR SRS
+    implementation. It supports comb/BWP resource mapping, full-slot time
+    allocation, deterministic ZC-like or NR-ZC-style pilots, sequence/group
+    hopping metadata, cyclic-shift port multiplexing, hopping plans, antenna
+    mapping, and optional SRS power scaling.
     """
 
     _ = link_config
@@ -56,15 +59,25 @@ def run_nr_srs_observation(
     srs_resource_config = resolve_srs_resource_config(
         phy_config,
         num_subcarriers=num_subcarriers,
-        num_ports=num_ul_tx_ant,
+        num_tx_ant=num_ul_tx_ant,
     )
     srs_resource = build_srs_resource(
         srs_resource_config,
         num_subcarriers=num_subcarriers,
-        num_ports=num_ul_tx_ant,
+        num_tx_ant=num_ul_tx_ant,
         default_num_prb=int(getattr(phy_config, "num_prb", max(1, num_subcarriers // 12))),
     )
+    num_srs_ports = int(srs_resource.pilot_symbols.shape[0])
     num_symbols = int(srs_resource_config.slot_length_symbols)
+    power_control = compute_srs_power_control(
+        path_power_db=path_power_db,
+        snapshot_count=num_snap,
+        tx_count=num_ul_tx,
+        rx_count=num_ul_rx,
+        num_srs_ports=num_srs_ports,
+        base_tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
+        config=srs_resource_config.power_control,
+    )
     snr_db = float(
         getattr(phy_config, "snr_db", None)
         if getattr(phy_config, "snr_db", None) is not None
@@ -83,6 +96,7 @@ def run_nr_srs_observation(
             link_shape=(num_snap, num_ul_tx, num_ul_rx),
             num_ul_tx_ant=num_ul_tx_ant,
             srs_resource=srs_resource,
+            power_scale_linear=power_control.power_scale_linear,
         )
     _record_array_event(tracer, "nr_srs.array_shape", "h_ul", h_ul)
     _record_array_event(tracer, "nr_srs.array_shape", "tx_grid", tx_grid)
@@ -109,12 +123,14 @@ def run_nr_srs_observation(
         h_hat_resource = _estimate_srs_resource_cfr(
             rx_grid=rx_grid,
             srs_resource=srs_resource,
+            power_scale_linear=power_control.power_scale_linear,
         )
     with _span(tracer, "nr_srs.interpolate_full_band"):
         h_hat_ul = _interpolate_resource_cfr(
             h_hat_resource,
-            resource_indices=srs_resource.re_subcarrier_indices,
+            srs_resource=srs_resource,
             num_subcarriers=num_subcarriers,
+            num_tx_ant=num_ul_tx_ant,
         )
     with _span(tracer, "nr_srs.to_link_view"):
         cfr_est = h_hat_ul.astype(np.complex64, copy=False)
@@ -132,7 +148,7 @@ def run_nr_srs_observation(
             cfr_est,
             valid_mask,
         )
-        truth_resource = truth_dl[..., srs_resource.re_subcarrier_indices]
+        truth_resource = _truth_resource_for_ports(truth_dl, srs_resource)
         resource_nmse_db, _, _, _ = _estimate_metrics(
             truth_resource,
             h_hat_resource,
@@ -183,17 +199,26 @@ def run_nr_srs_observation(
             "noise_variance": chain_scalars["noise_variance"],
             "srs_resource_mask": srs_resource.resource_mask,
             "srs_pilot_symbols": srs_resource.pilot_symbols,
-            "srs_port_index": srs_resource.port_index,
+            "srs_re_symbol_indices": srs_resource.re_symbol_indices,
             "srs_re_subcarrier_indices": srs_resource.re_subcarrier_indices,
             "srs_symbol_indices": srs_resource.srs_symbol_indices,
+            "srs_port_tx_ant_map": srs_resource.port_tx_ant_map,
+            "srs_prb_start_per_symbol": srs_resource.prb_start_per_symbol,
+            "srs_prb_count_per_symbol": srs_resource.prb_count_per_symbol,
             "srs_cyclic_shift_indices": srs_resource.cyclic_shift_indices,
+            "srs_sequence_group_indices": srs_resource.sequence_group_indices,
+            "srs_sequence_indices": srs_resource.sequence_indices,
+            "srs_zc_root_indices": srs_resource.zc_root_indices,
+            "srs_tx_power_dbm": power_control.tx_power_dbm,
+            "srs_power_scale_linear": power_control.power_scale_linear,
+            "srs_serving_rx_index": power_control.serving_rx_index,
+            "srs_path_loss_db": power_control.path_loss_db,
             "cfr_est_resource": h_hat_resource.astype(np.complex64, copy=False),
             "srs_resource_nmse_db": resource_nmse_db,
             "srs_interpolation_nmse_db": nmse_db,
             "srs_resource_snr_db": chain_scalars["snr_db"],
             "srs_num_resource_elements": np.int32(
                 srs_resource.re_subcarrier_indices.size
-                * srs_resource.srs_symbol_indices.size
             ),
         }
     return {
@@ -212,7 +237,7 @@ def run_nr_srs_observation(
         "impairments": impairment_result.impairment_spec,
         "waveform_grids": waveform_grids,
         "metadata": {
-            "srs_scope": "standards_shaped_subset_stage1",
+            "srs_scope": "standards_shaped_subset_v2",
             "num_srs_symbols": int(srs_resource.srs_symbol_indices.size),
             "num_ul_tx_ant": num_ul_tx_ant,
             "num_ul_rx_ant": num_ul_rx_ant,
@@ -223,6 +248,11 @@ def run_nr_srs_observation(
             "sequence_type": srs_resource_config.sequence_type,
             "group_hopping": srs_resource_config.group_hopping,
             "sequence_hopping": srs_resource_config.sequence_hopping,
+            "cyclic_shift_multiplexing": srs_resource_config.cyclic_shift_multiplexing,
+            "ports_mapping": srs_resource_config.ports.mapping,
+            "ports_usage": srs_resource_config.ports.usage,
+            "hopping_enabled": bool(srs_resource_config.hopping.enabled),
+            "power_control_enabled": bool(srs_resource_config.power_control.enabled),
         },
     }
 
@@ -260,15 +290,31 @@ def _build_srs_tx_grid(
     link_shape: tuple[int, int, int],
     num_ul_tx_ant: int,
     srs_resource: NRSRSResource,
+    power_scale_linear: np.ndarray,
 ) -> np.ndarray:
     num_symbols, num_subcarriers = srs_resource.resource_mask.shape
     tx_grid = np.zeros(
         (*link_shape, num_ul_tx_ant, num_symbols, num_subcarriers),
         dtype=np.complex64,
     )
-    for tx_ant in range(num_ul_tx_ant):
-        port = int(srs_resource.port_index[tx_ant])
-        tx_grid[..., tx_ant, :, :] = srs_resource.pilot_symbols[port]
+    scale = np.asarray(power_scale_linear, dtype=np.float32)
+    if scale.shape[:2] != link_shape[:2] or scale.shape[2] != srs_resource.pilot_symbols.shape[0]:
+        raise ValueError(
+            "power_scale_linear must have shape [snapshot,tx,srs_port], "
+            f"got {scale.shape}"
+        )
+    for port in range(srs_resource.pilot_symbols.shape[0]):
+        for local_symbol, symbol in enumerate(srs_resource.srs_symbol_indices):
+            tx_ant = int(srs_resource.port_tx_ant_map[port, local_symbol])
+            if tx_ant < 0:
+                continue
+            if tx_ant >= num_ul_tx_ant:
+                raise ValueError("SRS port_tx_ant_map references missing TX antenna")
+            pilot = srs_resource.pilot_symbols[port, int(symbol), :]
+            tx_grid[:, :, :, tx_ant, int(symbol), :] += (
+                scale[:, :, port][:, :, np.newaxis, np.newaxis]
+                * pilot[np.newaxis, np.newaxis, np.newaxis, :]
+            )
     return tx_grid
 
 
@@ -276,80 +322,206 @@ def _estimate_srs_resource_cfr(
     *,
     rx_grid: np.ndarray,
     srs_resource: NRSRSResource,
+    power_scale_linear: np.ndarray,
 ) -> np.ndarray:
     rx_grid = np.asarray(rx_grid, dtype=np.complex64)
-    srs_symbols = srs_resource.srs_symbol_indices
-    re_indices = srs_resource.re_subcarrier_indices
-    rx_srs = rx_grid[..., :, srs_symbols, :]
-    rx_re = rx_srs[..., re_indices]
     link_shape = rx_grid.shape[:3]
     num_rx_ant = rx_grid.shape[3]
-    num_tx_ant = srs_resource.port_index.size
+    num_ports = srs_resource.pilot_symbols.shape[0]
     h_hat = np.empty(
-        (*link_shape, num_rx_ant, num_tx_ant, re_indices.size),
+        (*link_shape, num_rx_ant, num_ports, srs_resource.re_subcarrier_indices.size),
         dtype=np.complex64,
     )
-    for tx_ant in range(num_tx_ant):
-        port = int(srs_resource.port_index[tx_ant])
-        pilots = srs_resource.pilot_symbols[
-            port,
-            srs_symbols[:, np.newaxis],
-            re_indices[np.newaxis, :],
-        ]
-        denom = np.sum(np.abs(pilots) ** 2, axis=0).astype(np.float32)
-        numerator = np.sum(
-            rx_re
-            * np.conjugate(pilots)[
-                np.newaxis,
-                np.newaxis,
-                np.newaxis,
-                np.newaxis,
-                :,
-                :,
-            ],
-            axis=-2,
+    if srs_resource.config.cyclic_shift_multiplexing == "time":
+        return _estimate_time_multiplexed_resource_cfr(
+            rx_grid=rx_grid,
+            srs_resource=srs_resource,
+            power_scale_linear=power_scale_linear,
+            output=h_hat,
         )
-        h_hat[..., tx_ant, :] = numerator / np.maximum(denom, np.float32(1e-30))
-    return h_hat
+    return _estimate_cyclic_shift_resource_cfr(
+        rx_grid=rx_grid,
+        srs_resource=srs_resource,
+        power_scale_linear=power_scale_linear,
+        output=h_hat,
+    )
+
+
+def _estimate_time_multiplexed_resource_cfr(
+    *,
+    rx_grid: np.ndarray,
+    srs_resource: NRSRSResource,
+    power_scale_linear: np.ndarray,
+    output: np.ndarray,
+) -> np.ndarray:
+    output.fill(0.0)
+    scale = np.asarray(power_scale_linear, dtype=np.float32)
+    unique_subcarriers = np.unique(srs_resource.re_subcarrier_indices)
+    for port in range(srs_resource.pilot_symbols.shape[0]):
+        port_scale = np.maximum(scale[:, :, port], np.float32(1e-12))
+        for subcarrier in unique_subcarriers:
+            flat_positions = np.nonzero(srs_resource.re_subcarrier_indices == subcarrier)[0]
+            symbols = srs_resource.re_symbol_indices[flat_positions]
+            pilots = srs_resource.pilot_symbols[port, symbols, int(subcarrier)]
+            ref = (
+                pilots[np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+                * port_scale[:, :, np.newaxis, np.newaxis, np.newaxis]
+            )
+            rx_values = rx_grid[..., :, symbols, int(subcarrier)]
+            numerator = np.sum(rx_values * np.conjugate(ref), axis=-1)
+            denom = np.sum(np.abs(ref) ** 2, axis=-1).astype(np.float32)
+            est = numerator / np.maximum(denom, np.float32(1e-30))
+            output[..., port, flat_positions] = est[..., np.newaxis]
+    return output
+
+
+def _estimate_cyclic_shift_resource_cfr(
+    *,
+    rx_grid: np.ndarray,
+    srs_resource: NRSRSResource,
+    power_scale_linear: np.ndarray,
+    output: np.ndarray,
+) -> np.ndarray:
+    output.fill(0.0)
+    scale = np.asarray(power_scale_linear, dtype=np.float32)
+    window_cache: dict[int, np.ndarray] = {}
+    for port in range(srs_resource.pilot_symbols.shape[0]):
+        port_scale = np.maximum(scale[:, :, port], np.float32(1e-12))
+        for local_symbol, symbol in enumerate(srs_resource.srs_symbol_indices):
+            if int(srs_resource.port_tx_ant_map[port, local_symbol]) < 0:
+                continue
+            flat_positions = np.nonzero(srs_resource.re_symbol_indices == int(symbol))[0]
+            re_indices = srs_resource.re_subcarrier_indices[flat_positions]
+            rx_re = rx_grid[..., :, int(symbol), re_indices]
+            unit_pilot = srs_resource.pilot_symbols[port, int(symbol), re_indices]
+            mixed = (
+                rx_re
+                * np.conjugate(unit_pilot)[np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+                / port_scale[:, :, np.newaxis, np.newaxis, np.newaxis]
+            )
+            n_re = int(re_indices.size)
+            if n_re not in window_cache:
+                window_cache[n_re] = _cyclic_shift_delay_window(
+                    srs_resource.cyclic_shift_indices,
+                    n_re,
+                )
+            delay = np.fft.ifft(mixed, axis=-1)
+            estimate = np.fft.fft(delay * window_cache[n_re], axis=-1).astype(
+                np.complex64,
+                copy=False,
+            )
+            output[..., port, flat_positions] = estimate
+    return output
 
 
 def _interpolate_resource_cfr(
     resource_cfr: np.ndarray,
     *,
-    resource_indices: np.ndarray,
+    srs_resource: NRSRSResource,
     num_subcarriers: int,
+    num_tx_ant: int,
 ) -> np.ndarray:
     resource_cfr = np.asarray(resource_cfr, dtype=np.complex64)
-    resource_indices = np.asarray(resource_indices, dtype=np.int32)
-    if resource_indices.size == 0:
-        raise ValueError("resource_indices must not be empty")
-    if resource_indices.size == num_subcarriers and np.array_equal(
-        resource_indices,
-        np.arange(num_subcarriers, dtype=np.int32),
-    ):
-        return resource_cfr.copy()
-
     freq = np.arange(num_subcarriers, dtype=np.float32)
-    x = resource_indices.astype(np.float32)
-    flat = resource_cfr.reshape((-1, resource_indices.size))
-    out = np.empty((flat.shape[0], num_subcarriers), dtype=np.complex64)
-    if resource_indices.size == 1:
-        out[...] = flat[:, :1]
-    else:
-        for row_idx, row in enumerate(flat):
-            real = np.interp(freq, x, row.real).astype(np.float32)
-            imag = np.interp(freq, x, row.imag).astype(np.float32)
-            out[row_idx] = real + 1j * imag
-    return out.reshape((*resource_cfr.shape[:-1], num_subcarriers))
+    subcarriers = np.asarray(srs_resource.re_subcarrier_indices, dtype=np.int32)
+    local_symbols = _resource_local_symbol_indices(srs_resource)
+    flat = resource_cfr.reshape((-1, resource_cfr.shape[-2], resource_cfr.shape[-1]))
+    out = np.zeros((flat.shape[0], num_tx_ant, num_subcarriers), dtype=np.complex64)
+    for row_idx, row in enumerate(flat):
+        for tx_ant in range(num_tx_ant):
+            point_subcarriers: list[np.ndarray] = []
+            point_values: list[np.ndarray] = []
+            for port in range(row.shape[0]):
+                active = srs_resource.port_tx_ant_map[port, local_symbols] == tx_ant
+                if not np.any(active):
+                    continue
+                point_subcarriers.append(subcarriers[active])
+                point_values.append(row[port, active])
+            if not point_subcarriers:
+                continue
+            x_all = np.concatenate(point_subcarriers).astype(np.int32, copy=False)
+            y_all = np.concatenate(point_values).astype(np.complex64, copy=False)
+            order = np.argsort(x_all, kind="stable")
+            x_sorted = x_all[order]
+            y_sorted = y_all[order]
+            unique_x, inverse = np.unique(x_sorted, return_inverse=True)
+            y_unique = np.zeros(unique_x.shape, dtype=np.complex64)
+            counts = np.zeros(unique_x.shape, dtype=np.float32)
+            np.add.at(y_unique, inverse, y_sorted)
+            np.add.at(counts, inverse, 1.0)
+            y_unique /= np.maximum(counts, np.float32(1.0))
+            if unique_x.size == 1:
+                out[row_idx, tx_ant, :] = y_unique[0]
+            else:
+                x_float = unique_x.astype(np.float32)
+                real = np.interp(freq, x_float, y_unique.real).astype(np.float32)
+                imag = np.interp(freq, x_float, y_unique.imag).astype(np.float32)
+                out[row_idx, tx_ant, :] = real + 1j * imag
+    return out.reshape((*resource_cfr.shape[:-2], num_tx_ant, num_subcarriers))
 
 
 def _reference_pilot_symbols(srs_resource: NRSRSResource) -> np.ndarray:
     first_port = srs_resource.pilot_symbols[0]
-    first_symbol = int(srs_resource.srs_symbol_indices[0])
     return np.asarray(
-        first_port[first_symbol, srs_resource.re_subcarrier_indices],
+        first_port[srs_resource.re_symbol_indices, srs_resource.re_subcarrier_indices],
         dtype=np.complex64,
     )
+
+
+def _truth_resource_for_ports(
+    truth: np.ndarray,
+    srs_resource: NRSRSResource,
+) -> np.ndarray:
+    truth = np.asarray(truth, dtype=np.complex64)
+    out = np.zeros(
+        (
+            *truth.shape[:4],
+            srs_resource.pilot_symbols.shape[0],
+            srs_resource.re_subcarrier_indices.size,
+        ),
+        dtype=np.complex64,
+    )
+    local_symbols = _resource_local_symbol_indices(srs_resource)
+    for port in range(srs_resource.pilot_symbols.shape[0]):
+        for flat_idx, local_symbol in enumerate(local_symbols):
+            tx_ant = int(srs_resource.port_tx_ant_map[port, local_symbol])
+            if tx_ant < 0:
+                continue
+            subcarrier = int(srs_resource.re_subcarrier_indices[flat_idx])
+            out[..., port, flat_idx] = truth[..., tx_ant, subcarrier]
+    return out
+
+
+def _resource_local_symbol_indices(srs_resource: NRSRSResource) -> np.ndarray:
+    local_by_symbol = {
+        int(symbol): local_idx for local_idx, symbol in enumerate(srs_resource.srs_symbol_indices)
+    }
+    return np.asarray(
+        [local_by_symbol[int(symbol)] for symbol in srs_resource.re_symbol_indices],
+        dtype=np.int32,
+    )
+
+
+def _cyclic_shift_delay_window(cyclic_shifts: np.ndarray, n_re: int) -> np.ndarray:
+    if n_re < 1:
+        raise ValueError("SRS resource must have at least one RE")
+    shifts = np.asarray(cyclic_shifts, dtype=np.int32)
+    if shifts.size <= 1:
+        width = n_re
+    else:
+        distances: list[int] = []
+        for idx, left in enumerate(shifts):
+            for right in shifts[idx + 1:]:
+                delta = int(abs(int(left) - int(right))) % 12
+                if delta == 0:
+                    continue
+                bin_delta = int(round(n_re * min(delta, 12 - delta) / 12.0))
+                if bin_delta > 0:
+                    distances.append(bin_delta)
+        width = max(1, min(distances) // 2) if distances else max(1, n_re // 8)
+    window = np.zeros((n_re,), dtype=np.complex64)
+    window[: min(width, n_re)] = 1.0 + 0.0j
+    return window
 
 
 def _build_valid_mask(

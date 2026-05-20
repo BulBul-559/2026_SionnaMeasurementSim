@@ -820,8 +820,14 @@ NR_SRS_REQUIRED_FIELDS = (
     "waveform/noise_variance",
     "waveform/srs_resource_mask",
     "waveform/srs_pilot_symbols",
-    "waveform/srs_port_index",
+    "waveform/srs_re_symbol_indices",
     "waveform/srs_re_subcarrier_indices",
+    "waveform/srs_port_tx_ant_map",
+    "waveform/srs_prb_start_per_symbol",
+    "waveform/srs_prb_count_per_symbol",
+    "waveform/srs_cyclic_shift_indices",
+    "waveform/srs_tx_power_dbm",
+    "waveform/srs_power_scale_linear",
     "observation/cfr_est_resource",
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
@@ -833,7 +839,7 @@ NR_SRS_REQUIRED_FIELDS = (
 
 
 def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
-    """When waveform/standard == 'nr_srs', enforce stage-1 SRS subset fields."""
+    """When waveform/standard == 'nr_srs', enforce stage-2 SRS subset fields."""
 
     if "waveform/standard" not in h5:
         return
@@ -852,8 +858,14 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     noise_variance = h5["waveform/noise_variance"]
     resource_mask = h5["waveform/srs_resource_mask"]
     pilot_symbols = h5["waveform/srs_pilot_symbols"]
-    port_index = h5["waveform/srs_port_index"]
+    re_symbols = h5["waveform/srs_re_symbol_indices"]
     re_indices = h5["waveform/srs_re_subcarrier_indices"]
+    port_map = h5["waveform/srs_port_tx_ant_map"]
+    prb_start = h5["waveform/srs_prb_start_per_symbol"]
+    prb_count = h5["waveform/srs_prb_count_per_symbol"]
+    cyclic_shifts = h5["waveform/srs_cyclic_shift_indices"]
+    tx_power = h5["waveform/srs_tx_power_dbm"]
+    power_scale = h5["waveform/srs_power_scale_linear"]
     cfr_resource = h5["observation/cfr_est_resource"]
     if tx_grid.ndim != 6:
         raise SchemaValidationError(f"/waveform/tx_grid must be rank 6, got {tx_grid.shape}")
@@ -868,21 +880,51 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     if pilot_symbols.shape[1:] != tx_grid.shape[4:6]:
         msg = "/waveform/srs_pilot_symbols must match [srs_port,ofdm_symbol,subcarrier]"
         raise SchemaValidationError(msg)
-    if port_index.shape != (tx_grid.shape[3],):
-        msg = "/waveform/srs_port_index must match [ul_tx_ant]"
+    num_ports = int(pilot_symbols.shape[0])
+    if re_symbols.ndim != 1 or re_indices.ndim != 1 or re_symbols.shape != re_indices.shape:
+        msg = "/waveform/srs_re_symbol_indices and srs_re_subcarrier_indices must match [srs_re]"
         raise SchemaValidationError(msg)
-    resource_subcarrier_count = int(np.asarray(resource_mask).any(axis=0).sum())
-    if re_indices.ndim != 1 or re_indices.shape[0] != resource_subcarrier_count:
-        msg = "/waveform/srs_re_subcarrier_indices must match resource mask subcarriers"
+    resource_re_count = int(np.asarray(resource_mask).sum())
+    if re_indices.shape[0] != resource_re_count:
+        msg = "/waveform/srs_re_* indices must match flattened resource mask RE count"
+        raise SchemaValidationError(msg)
+    re_symbol_values = np.asarray(re_symbols, dtype=np.int64)
+    re_subcarrier_values = np.asarray(re_indices, dtype=np.int64)
+    if (
+        np.any(re_symbol_values < 0)
+        or np.any(re_symbol_values >= resource_mask.shape[0])
+        or np.any(re_subcarrier_values < 0)
+        or np.any(re_subcarrier_values >= resource_mask.shape[1])
+    ):
+        msg = "/waveform/srs_re_* indices must be inside resource mask bounds"
+        raise SchemaValidationError(msg)
+    if not np.all(np.asarray(resource_mask)[re_symbol_values, re_subcarrier_values]):
+        msg = "/waveform/srs_re_* indices must point to active resource mask entries"
+        raise SchemaValidationError(msg)
+    srs_symbol_count = int(np.asarray(resource_mask).any(axis=1).sum())
+    if port_map.shape != (num_ports, srs_symbol_count):
+        msg = "/waveform/srs_port_tx_ant_map must match [srs_port,srs_symbol]"
+        raise SchemaValidationError(msg)
+    if prb_start.shape != (srs_symbol_count,) or prb_count.shape != (srs_symbol_count,):
+        msg = "/waveform/srs_prb_*_per_symbol must match [srs_symbol]"
+        raise SchemaValidationError(msg)
+    if cyclic_shifts.shape != (num_ports,):
+        msg = "/waveform/srs_cyclic_shift_indices must match [srs_port]"
+        raise SchemaValidationError(msg)
+    if tx_power.shape != (*tx_grid.shape[:2], num_ports):
+        msg = "/waveform/srs_tx_power_dbm must match [snapshot,tx,srs_port]"
+        raise SchemaValidationError(msg)
+    if power_scale.shape != (*tx_grid.shape[:2], num_ports):
+        msg = "/waveform/srs_power_scale_linear must match [snapshot,tx,srs_port]"
         raise SchemaValidationError(msg)
     expected_resource_shape = (
         *tx_grid.shape[:3],
         rx_grid.shape[3],
-        tx_grid.shape[3],
+        num_ports,
         re_indices.shape[0],
     )
     if cfr_resource.shape != expected_resource_shape:
-        msg = "/observation/cfr_est_resource must match [snapshot,tx,rx,rx_ant,tx_ant,srs_re]"
+        msg = "/observation/cfr_est_resource must match [snapshot,tx,rx,rx_ant,srs_port,srs_re]"
         raise SchemaValidationError(msg)
     expected_full_shape = (
         *tx_grid.shape[:3],
@@ -924,8 +966,14 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         "waveform/noise_variance",
         "waveform/srs_resource_mask",
         "waveform/srs_pilot_symbols",
-        "waveform/srs_port_index",
+        "waveform/srs_re_symbol_indices",
         "waveform/srs_re_subcarrier_indices",
+        "waveform/srs_port_tx_ant_map",
+        "waveform/srs_prb_start_per_symbol",
+        "waveform/srs_prb_count_per_symbol",
+        "waveform/srs_cyclic_shift_indices",
+        "waveform/srs_tx_power_dbm",
+        "waveform/srs_power_scale_linear",
         "observation/cfr_est_resource",
         "array/spatial_spectrum_srs",
     ):

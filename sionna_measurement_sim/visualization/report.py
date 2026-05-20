@@ -545,7 +545,7 @@ def _plot_spatial_spectrum(
         (
             "srs",
             "array/spatial_spectrum_srs",
-            "Bartlett spectrum from SRS-like CFR / spatial_spectrum_srs",
+            "Bartlett spectrum from NR SRS CFR / spatial_spectrum_srs",
         ),
     )
     generated: list[Path] = []
