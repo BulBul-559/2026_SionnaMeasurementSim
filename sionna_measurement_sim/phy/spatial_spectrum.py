@@ -98,10 +98,15 @@ def build_bartlett_spectrum(
     rx_num_cols: int,
     rx_spacing_lambda: tuple[float, float],
     config: ArraySpectrumConfig,
+    rx_orientation_rad: np.ndarray | None = None,
 ) -> np.ndarray:
     """Build Bartlett spatial spectra from receiver-array samples.
 
-    samples shape: [snapshot, ul_tx, ul_rx, rx_ant, ...].
+    samples shape: [snapshot, tx, rx, rx_ant, ...].
+
+    The angle grid is expressed in the scene/global frame. If
+    ``rx_orientation_rad`` is provided, the receiver array element positions are
+    rotated into that scene frame before building steering vectors.
     """
 
     array = np.asarray(samples, dtype=np.complex64)
@@ -115,12 +120,70 @@ def build_bartlett_spectrum(
         )
 
     angle_grid = build_angle_grid_rad(config)
+    orientations = _normalize_rx_orientation(
+        rx_orientation_rad,
+        snapshot_count=array.shape[0],
+        rx_count=array.shape[2],
+    )
+    if orientations is not None and not np.allclose(orientations, 0.0):
+        return _build_bartlett_spectrum_oriented(
+            array,
+            angle_grid,
+            rx_num_rows=rx_num_rows,
+            rx_num_cols=rx_num_cols,
+            rx_spacing_lambda=rx_spacing_lambda,
+            config=config,
+            rx_orientation_rad=orientations,
+        )
+
     steering = _steering_matrix(
         angle_grid,
         rx_num_rows=rx_num_rows,
         rx_num_cols=rx_num_cols,
         rx_spacing_lambda=rx_spacing_lambda,
     )
+    return _build_bartlett_spectrum_with_steering(array, angle_grid, steering, config)
+
+
+def _build_bartlett_spectrum_oriented(
+    array: np.ndarray,
+    angle_grid: np.ndarray,
+    *,
+    rx_num_rows: int,
+    rx_num_cols: int,
+    rx_spacing_lambda: tuple[float, float],
+    config: ArraySpectrumConfig,
+    rx_orientation_rad: np.ndarray,
+) -> np.ndarray:
+    output = np.zeros((*array.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
+    for snapshot_idx in range(array.shape[0]):
+        for rx_idx in range(array.shape[2]):
+            steering = _steering_matrix(
+                angle_grid,
+                rx_num_rows=rx_num_rows,
+                rx_num_cols=rx_num_cols,
+                rx_spacing_lambda=rx_spacing_lambda,
+                orientation_rad=rx_orientation_rad[snapshot_idx, rx_idx],
+            )
+            link_samples = array[snapshot_idx : snapshot_idx + 1, :, rx_idx : rx_idx + 1]
+            output[snapshot_idx : snapshot_idx + 1, :, rx_idx : rx_idx + 1] = (
+                _build_bartlett_spectrum_with_steering(
+                    link_samples,
+                    angle_grid,
+                    steering,
+                    config,
+                )
+            )
+    return output
+
+
+def _build_bartlett_spectrum_with_steering(
+    array: np.ndarray,
+    angle_grid: np.ndarray,
+    steering: np.ndarray,
+    config: ArraySpectrumConfig,
+) -> np.ndarray:
+    num_rx_ant = steering.shape[-1]
     flat_steering = steering.reshape(-1, num_rx_ant)
     output = np.zeros((*array.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
 
@@ -176,24 +239,104 @@ def _steering_matrix(
     rx_num_rows: int,
     rx_num_cols: int,
     rx_spacing_lambda: tuple[float, float],
+    orientation_rad: np.ndarray | None = None,
 ) -> np.ndarray:
+    element_positions = _planar_array_positions(
+        rx_num_rows,
+        rx_num_cols,
+        rx_spacing_lambda,
+    )
+    if orientation_rad is not None:
+        rotation = _rotation_matrix(np.asarray(orientation_rad, dtype=np.float32))
+        element_positions = element_positions @ rotation.T
+
+    zenith = angle_grid_rad[..., 0][..., np.newaxis]
+    azimuth = angle_grid_rad[..., 1][..., np.newaxis]
+    direction_x = np.sin(zenith) * np.cos(azimuth)
+    direction_y = np.sin(zenith) * np.sin(azimuth)
+    direction_z = np.cos(zenith)
+    phase = 2.0 * np.pi * (
+        element_positions[:, 0] * direction_x
+        + element_positions[:, 1] * direction_y
+        + element_positions[:, 2] * direction_z
+    )
+    steering = np.exp(1j * phase).astype(np.complex64)
+    return steering / np.sqrt(np.float32(rx_num_rows * rx_num_cols))
+
+
+def _planar_array_positions(
+    rx_num_rows: int,
+    rx_num_cols: int,
+    rx_spacing_lambda: tuple[float, float],
+) -> np.ndarray:
+    """Return Sionna PlanarArray element positions in local x-y-z order."""
+
     vertical_spacing, horizontal_spacing = rx_spacing_lambda
     col, row = np.meshgrid(
         np.arange(rx_num_cols, dtype=np.float32),
         np.arange(rx_num_rows, dtype=np.float32),
         indexing="ij",
     )
+    element_x = np.zeros((rx_num_rows * rx_num_cols,), dtype=np.float32)
     element_y = (
         col.reshape(-1) - np.float32((rx_num_cols - 1) / 2.0)
     ) * np.float32(horizontal_spacing)
     element_z = (
         np.float32((rx_num_rows - 1) / 2.0) - row.reshape(-1)
     ) * np.float32(vertical_spacing)
+    return np.stack((element_x, element_y, element_z), axis=-1)
 
-    zenith = angle_grid_rad[..., 0][..., np.newaxis]
-    azimuth = angle_grid_rad[..., 1][..., np.newaxis]
-    direction_y = np.sin(zenith) * np.sin(azimuth)
-    direction_z = np.cos(zenith)
-    phase = 2.0 * np.pi * (element_y * direction_y + element_z * direction_z)
-    steering = np.exp(1j * phase).astype(np.complex64)
-    return steering / np.sqrt(np.float32(rx_num_rows * rx_num_cols))
+
+def _rotation_matrix(orientation_rad: np.ndarray) -> np.ndarray:
+    """Numpy equivalent of Sionna RT's z-y-x orientation rotation matrix."""
+
+    if orientation_rad.shape != (3,):
+        raise ValueError(f"orientation_rad must have shape (3,), got {orientation_rad.shape}")
+    alpha, beta, gamma = [float(value) for value in orientation_rad]
+    sin_a, cos_a = np.sin(alpha), np.cos(alpha)
+    sin_b, cos_b = np.sin(beta), np.cos(beta)
+    sin_c, cos_c = np.sin(gamma), np.cos(gamma)
+    return np.asarray(
+        [
+            [
+                cos_a * cos_b,
+                cos_a * sin_b * sin_c - sin_a * cos_c,
+                cos_a * sin_b * cos_c + sin_a * sin_c,
+            ],
+            [
+                sin_a * cos_b,
+                sin_a * sin_b * sin_c + cos_a * cos_c,
+                sin_a * sin_b * cos_c - cos_a * sin_c,
+            ],
+            [-sin_b, cos_b * sin_c, cos_b * cos_c],
+        ],
+        dtype=np.float32,
+    )
+
+
+def _normalize_rx_orientation(
+    rx_orientation_rad: np.ndarray | None,
+    *,
+    snapshot_count: int,
+    rx_count: int,
+) -> np.ndarray | None:
+    if rx_orientation_rad is None:
+        return None
+    orientation = np.asarray(rx_orientation_rad, dtype=np.float32)
+    if orientation.ndim >= 2 and orientation.shape[-2:] == (3, 1):
+        orientation = np.squeeze(orientation, axis=-1)
+    if orientation.shape == (3,):
+        orientation = np.broadcast_to(orientation, (snapshot_count, rx_count, 3))
+    elif orientation.shape == (rx_count, 3):
+        orientation = np.broadcast_to(
+            orientation[np.newaxis, :, :],
+            (snapshot_count, rx_count, 3),
+        )
+    elif orientation.shape == (snapshot_count, rx_count, 3):
+        pass
+    else:
+        raise ValueError(
+            "rx_orientation_rad must have shape [3], [rx,3], or [snapshot,rx,3], "
+            f"got {orientation.shape}"
+        )
+    return np.asarray(orientation, dtype=np.float32)

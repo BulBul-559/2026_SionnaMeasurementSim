@@ -20,7 +20,9 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 - 从场景/label 生成 RT truth、CIR/CFR、路径真值、AoA、NLoS path truth。
 - 生成 PHY 观测数据，包括 NR PUSCH-DMRS CSI proxy 和 NR SRS standards-shaped v2 subset uplink sounding。
 - 可选生成 waveform-level ranging observation，从 `/observation/cfr_est` 估计 ToA/one-way range。
-- 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总。
+- 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总；
+  AoA label、angle grid 与 Bartlett 空间谱统一使用 scene/global 角度，空间谱会用
+  `/devices/rx_orientation_rad` 适配接收阵列旋转。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
 当前工作分支为 `codex/nr-srs-stage2-p1-p2`。`main` 已包含 NR PUSCH 与

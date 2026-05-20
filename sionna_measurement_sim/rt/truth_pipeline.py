@@ -367,11 +367,19 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
                 else None
             )
             _attach_phy_array_outputs(
-                phy_extra, derived, config, adapter_result.truth.cfr, cfr_est
+                phy_extra,
+                derived,
+                config,
+                adapter_result.truth.cfr,
+                cfr_est,
+                rx_orientation_rad=adapter_result.rx_orientation_rad,
             )
         elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
             phy_extra["array_outputs"] = _build_truth_array_outputs(
-                config, derived, adapter_result.truth.cfr
+                config,
+                derived,
+                adapter_result.truth.cfr,
+                rx_orientation_rad=adapter_result.rx_orientation_rad,
             )
     with tracer.span("ranging"):
         ranging_result = run_ranging_observation(
@@ -1171,6 +1179,8 @@ def _attach_phy_array_outputs(
     config,
     truth_cfr: np.ndarray,
     cfr_est: np.ndarray | None,
+    *,
+    rx_orientation_rad: np.ndarray | None = None,
 ) -> None:
     waveform_extras = phy_extra.get("waveform_extras") or {}
     rx_grid = waveform_extras.get("rx_grid")
@@ -1204,6 +1214,7 @@ def _attach_phy_array_outputs(
         rx_num_rows=resolved_antenna.rx_num_rows,
         rx_num_cols=resolved_antenna.rx_num_cols,
         rx_spacing_lambda=tuple(float(v) for v in resolved_antenna.rx_spacing_lambda),
+        rx_orientation_rad=rx_orientation_rad,
         truth_spectrum_samples=project_cfr_to_ul_receiver_samples(truth_cfr),
         cfr_est_spectrum_samples=(
             project_cfr_to_ul_receiver_samples(cfr_est) if cfr_est is not None else None
@@ -1216,7 +1227,13 @@ def _attach_phy_array_outputs(
     )
 
 
-def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
+def _build_truth_array_outputs(
+    config,
+    derived,
+    truth_cfr: np.ndarray,
+    *,
+    rx_orientation_rad: np.ndarray | None = None,
+) -> dict:
     from sionna_measurement_sim.phy.spatial_spectrum import (
         build_angle_grid_rad,
         build_aoa_heatmap_label,
@@ -1252,6 +1269,7 @@ def _build_truth_array_outputs(config, derived, truth_cfr: np.ndarray) -> dict:
         rx_num_rows=resolved_antenna.rx_num_rows,
         rx_num_cols=resolved_antenna.rx_num_cols,
         rx_spacing_lambda=tuple(float(v) for v in resolved_antenna.rx_spacing_lambda),
+        rx_orientation_rad=rx_orientation_rad,
         config=config.spectrum_config,
     )
     return outputs

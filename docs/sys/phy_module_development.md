@@ -63,8 +63,11 @@ dataset 设置 `unit` 和 `index_order`。标准专属 pilot、resource 或 DMRS
 继续放在 `/waveform` 下，例如 NR SRS 的 `/waveform/srs_resource_mask` 和
 `/waveform/srs_pilot_symbols`。
 
-`/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 PHY 接收侧到达方向；
-`/paths/nlos_truth` 中的 AoA/AoD 原始字段不改语义。
+`/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 scene/global 坐标中的 PHY
+接收侧到达方向；`/array/spatial_spectrum_*` 也必须在 scene/global 角度网格上输出。
+需要做阵列扫描时，先用 RX 阵列本地元素布局结合 `/devices/rx_orientation_rad`
+旋转到 scene 坐标，再构造 steering vector。`/paths/nlos_truth` 中的 AoA/AoD
+原始字段不改语义。
 
 Ranging observation 不应写在标准模块内部。新增标准只要输出统一的
 `/observation/cfr_est` 和频率网格，pipeline 级 `sionna_measurement_sim.ranging`

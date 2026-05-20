@@ -152,11 +152,13 @@ visualization: # 采样可视化
 | `aggregate_symbols` | str | `"mean"` | OFDM symbol 聚合口径 |
 | `link_chunk_size` | int | 512 | Bartlett 空间谱按 link chunk 向量化的 chunk 大小 |
 
-这里的“全向”指扫描角度范围覆盖完整方向域；天线方向图仍由
-`antenna.*.pattern` 控制，默认模板使用 `iso`。Bartlett steering vector 按 Sionna
-`PlanarArray` 的 y-z 平面布局生成：top-left 起、column-first 编号、第一行 z 为正；
-可视化读取时会根据 `/link/tx_role` 和 `/link/rx_role` 把 link-view 轴映射回
-BS/UE 语义。
+这里的“全向”指扫描角度范围覆盖 scene/global 方向域；天线方向图仍由
+`antenna.*.pattern` 控制，默认模板使用 `iso`。Bartlett steering vector 先按
+Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-first 编号、
+第一行 z 为正；随后用每个 RX 的 `/devices/rx_orientation_rad` 旋转到 scene
+坐标，因此 `/array/angle_grid_rad`、AoA label 和各类 `spatial_spectrum_*` 都统一
+以 scene/global zenith、azimuth 表示。可视化读取时会根据 `/link/tx_role` 和
+`/link/rx_role` 把 link-view 轴映射回 BS/UE 语义。
 
 #### `visualization` — 采样可视化
 
@@ -790,14 +792,14 @@ schema `1.4.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
 | `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH/SRS `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
-| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
+| `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` scene/global PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
-| `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
+| `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 在 scene/global 角度网格上扫描得到 |
 | `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
 | `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到；`srs_cfr_est` 仅是 spectrum source 名称兼容别名 |
-| `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
+| `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | scene/global 角度网格；默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
 默认即使 `array.spectrum.enabled=false`，NR PUSCH 仍写 `aoa_heatmap_label` /

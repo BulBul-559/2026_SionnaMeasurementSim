@@ -97,6 +97,47 @@ def test_bartlett_spectrum_peak_matches_synthetic_direction():
     assert spectrum[0, 0, 0, target_zenith_idx, target_azimuth_idx] == np.float32(1.0)
 
 
+def test_bartlett_spectrum_peak_uses_scene_angles_with_rotated_rx_array():
+    config = ArraySpectrumConfig(
+        enabled=True,
+        zenith_bins=9,
+        azimuth_bins=13,
+        zenith_min_rad=0.0,
+        zenith_max_rad=np.pi,
+        azimuth_min_rad=-np.pi,
+        azimuth_max_rad=np.pi,
+    )
+    angle_grid = build_angle_grid_rad(config)
+    target_zenith_idx = 4
+    target_azimuth_idx = 9
+    orientation = np.array([np.pi / 3.0, np.pi / 5.0, np.pi / 7.0], dtype=np.float32)
+
+    steering = _steering_matrix(
+        angle_grid,
+        rx_num_rows=3,
+        rx_num_cols=2,
+        rx_spacing_lambda=(0.5, 0.5),
+        orientation_rad=orientation,
+    )
+    samples = np.repeat(
+        steering[target_zenith_idx, target_azimuth_idx, :, np.newaxis],
+        8,
+        axis=1,
+    ).reshape(1, 1, 1, 6, 8)
+
+    spectrum = build_bartlett_spectrum(
+        samples,
+        rx_num_rows=3,
+        rx_num_cols=2,
+        rx_spacing_lambda=(0.5, 0.5),
+        rx_orientation_rad=orientation,
+        config=config,
+    )
+    peak = np.unravel_index(np.argmax(spectrum[0, 0, 0]), spectrum.shape[-2:])
+
+    assert peak == (target_zenith_idx, target_azimuth_idx)
+
+
 def test_bartlett_spectrum_matches_per_link_reference_across_chunks():
     rng = np.random.default_rng(20240514)
     samples = (

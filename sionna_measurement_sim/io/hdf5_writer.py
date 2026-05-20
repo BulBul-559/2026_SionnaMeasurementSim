@@ -568,69 +568,77 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             index_order="snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant",
         )
     if "aoa_label_rad" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "aoa_label_rad",
             outputs["aoa_label_rad"],
             unit="rad",
             index_order="snapshot,ul_tx,ul_rx,angle_component",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spatial_spectrum_label" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "spatial_spectrum_label",
             outputs["spatial_spectrum_label"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "aoa_heatmap_label" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "aoa_heatmap_label",
             outputs["aoa_heatmap_label"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spatial_spectrum_truth" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "spatial_spectrum_truth",
             outputs["spatial_spectrum_truth"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spatial_spectrum_cfr_est" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "spatial_spectrum_cfr_est",
             outputs["spatial_spectrum_cfr_est"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spatial_spectrum_observation" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "spatial_spectrum_observation",
             outputs["spatial_spectrum_observation"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spatial_spectrum_srs" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "spatial_spectrum_srs",
             outputs["spatial_spectrum_srs"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "angle_grid_rad" in outputs:
-        _write_dataset(
+        dataset = _write_dataset(
             group,
             "angle_grid_rad",
             outputs["angle_grid_rad"],
             unit="rad",
             index_order="zenith,azimuth,angle_component",
         )
+        dataset.attrs["coordinate_frame"] = "scene"
     if "spectrum_policy" in outputs:
         _write_scalar(group, "spectrum_policy", str(outputs["spectrum_policy"]))
 

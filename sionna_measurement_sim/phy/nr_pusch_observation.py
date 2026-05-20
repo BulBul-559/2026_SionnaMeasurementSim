@@ -1625,6 +1625,7 @@ def build_array_outputs_from_waveform(
     rx_num_rows: int = 1,
     rx_num_cols: int | None = None,
     rx_spacing_lambda: tuple[float, float] = (0.5, 0.5),
+    rx_orientation_rad: np.ndarray | None = None,
     truth_spectrum_samples: np.ndarray | None = None,
     cfr_est_spectrum_samples: np.ndarray | None = None,
     srs_cfr_est_spectrum_samples: np.ndarray | None = None,
@@ -1632,8 +1633,9 @@ def build_array_outputs_from_waveform(
     """Build deterministic first-version `/array` outputs from RX grids.
 
     `aoa_label_rad` is a forward-compatible hook for derived first-path AoA
-    labels with shape [snapshot, ul_tx, ul_rx, 2] = [zenith, azimuth].
-    Missing or non-finite labels keep the corresponding spectrum all zero.
+    labels with shape [snapshot, tx, rx, 2] = [zenith, azimuth] in the
+    scene/global frame. If `rx_orientation_rad` is provided, Bartlett spectra
+    are also scanned on that same scene/global angle grid.
     """
     config = spectrum_config or ArraySpectrumConfig()
     rx = np.asarray(rx_grid, dtype=np.complex64)
@@ -1664,6 +1666,7 @@ def build_array_outputs_from_waveform(
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
+            rx_orientation_rad=rx_orientation_rad,
             config=config,
         )
     if config.enabled and "truth_cfr" in config.sources and truth_spectrum_samples is not None:
@@ -1672,6 +1675,7 @@ def build_array_outputs_from_waveform(
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
+            rx_orientation_rad=rx_orientation_rad,
             config=config,
         )
     if config.enabled and "cfr_est" in config.sources and cfr_est_spectrum_samples is not None:
@@ -1680,6 +1684,7 @@ def build_array_outputs_from_waveform(
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
+            rx_orientation_rad=rx_orientation_rad,
             config=config,
         )
     if (
@@ -1692,6 +1697,7 @@ def build_array_outputs_from_waveform(
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
+            rx_orientation_rad=rx_orientation_rad,
             config=config,
         )
 
