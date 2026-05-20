@@ -13,7 +13,7 @@
 # Note:
 #   This template uses NR PUSCH/DMRS as a CSI proxy. For sounding-style positioning
 #   experiments, compare against nr_srs_indoor_positioning_fr1_100mhz.yaml, which
-#   implements full-band SRS-like uplink sounding (not yet complete 3GPP NR SRS).
+#   implements a standards-shaped NR SRS subset (not yet complete 3GPP NR SRS).
 
 runtime:
   seed: 42
@@ -165,6 +165,23 @@ phy:
   receiver_failure_policy: "mark_invalid"
   su_mimo_link_batch_size: 16
   tx_power_dbm: 0.0
+  srs:
+    slot_length_symbols: 14
+    start_symbol: 12
+    num_srs_symbols: 2
+    comb_size: 2
+    comb_offset: 0
+    bwp_start_prb: 0
+    bwp_num_prb: null
+    trigger_mode: "aperiodic"
+    periodicity_slots: 1
+    slot_offset: 0
+    slot_number: 0
+    sequence_type: "zc_like"
+    sequence_id: 0
+    group_hopping: "disabled"
+    sequence_hopping: "disabled"
+    cyclic_shift_indices: null
 
 impairments:
   awgn:

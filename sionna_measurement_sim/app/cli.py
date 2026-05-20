@@ -426,6 +426,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mimo_detector=cfg.phy.mimo_detector,
                 channel_estimator=cfg.phy.channel_estimator,
                 receiver_failure_policy=cfg.phy.receiver_failure_policy,
+                srs_config=cfg.phy.srs,
                 ranging_config=DomainRangingConfig(
                     enabled=cfg.ranging.enabled,
                     source=cfg.ranging.source,

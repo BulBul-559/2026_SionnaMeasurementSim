@@ -141,7 +141,7 @@ visualization: # 采样可视化
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以避免大规模输出膨胀 |
-| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid`；`srs_cfr_est` 是历史兼容别名，仍指向 SRS-like `/observation/cfr_est` |
+| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid`；`srs_cfr_est` 是历史兼容别名，仍指向 NR SRS `/observation/cfr_est` |
 | `method` | str | `"bartlett"` | 第一版仅支持 Bartlett 扫描 |
 | `zenith_bins` | int | 91 | zenith 方向网格数 |
 | `azimuth_bins` | int | 181 | azimuth 方向网格数 |
@@ -261,15 +261,16 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 | `receiver_failure_policy` | str | `"fail_fast"` | `"fail_fast"`\|`"mark_invalid"` |
 | `su_mimo_link_batch_size` | int | 1 | SU-MIMO 独立 link batching；NR PUSCH 模板设为 64 |
 
-**NR SRS-like 字段**：
+**NR SRS subset 字段**：
 
-`standard == "nr_srs"` 使用 full-band known-pilot sounding，复用
-`subcarrier_spacing_khz`、`num_ofdm_symbols`、`tx_power_dbm` 等字段。
-`num_ofdm_symbols` 会自动取不小于 UE 发射天线数的值，以便用正交 pilot code
-分离多天线。当前实现不是完整 3GPP NR SRS；标准 comb、sequence、cyclic shift、
-hopping 等见 `docs/sys/nr_srs_standard_todo.md`。
+`standard == "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_prb`、`tx_power_dbm`
+等字段，并通过 `phy.srs` 控制 resource。阶段一支持 full-slot time allocation、
+comb/BWP resource、ZC-like pilot、简化 cyclic shift metadata、resource LS 和
+full-band interpolation。当前实现不是完整 3GPP NR SRS；group/sequence hopping、
+同 symbol cyclic-shift port multiplexing、frequency hopping、ports/layers 和
+power control 仍见 `docs/sys/nr_srs_standard_todo.md`。
 
-NR PUSCH 和 NR SRS-like 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
+NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
 AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 link 的平均功率
 计算；仅当 PUSCH `ebno_db` 非空时使用 Sionna `ebnodb2no` 作为 override。
 
@@ -366,8 +367,8 @@ AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 lin
 | `config/defaults/measurement_mvp.yaml` | custom OFDM + 全 impairment + motion | `standard: "custom_ofdm"`, fft_size=64, num_subcarriers=64 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink | `standard: "nr_pusch"`, 4×4 天线, num_prb=4, num_subcarriers=48 |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like sounding 定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`, UE shard `shard_size=20`；空间谱/可视化默认关闭，按需显式开启 |
-| `config/perf/nr_srs_7x500_sharded.yaml` | 室内 FR1 100 MHz SRS-like shard 历史确认测试 | `7 BS x 500 UE`, `shard_size=25` 的历史实验配置，验证 `result_xxx.h5` 和 aggregate manifest；当前生产模板使用 `20` |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`, UE shard `shard_size=20`；空间谱/可视化默认关闭，按需显式开启 |
+| `config/perf/nr_srs_7x500_sharded.yaml` | 室内 FR1 100 MHz NR SRS shard 历史确认测试 | `7 BS x 500 UE`, `shard_size=25` 的历史实验配置，验证 `result_xxx.h5` 和 aggregate manifest；当前生产模板使用 `20` |
 
 ### 1.6 输入数据格式
 
@@ -499,7 +500,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.2.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.3.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -754,32 +755,39 @@ results.h5
 | `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域接收 grid |
 | `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
 
-**NR SRS-like 使用的统一 waveform 字段**（仅 `standard == "nr_srs"`）：
+**NR SRS subset 使用的统一 waveform 字段**（仅 `standard == "nr_srs"`）：
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | SRS-like 全带宽已知 pilot 发送 grid |
+| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | 完整 slot 发送 grid；非 SRS symbol/subcarrier 为 0 |
 | `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | clean channel + common impairment/AWGN 后的接收 grid |
 | `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
-| `pilot_code` | complex64 [ul_tx_ant, ofdm_symbol] | UE 多天线正交 pilot code |
+| `srs_resource_mask` | bool [ofdm_symbol, subcarrier] | SRS resource RE mask |
+| `srs_pilot_symbols` | complex64 [srs_port, ofdm_symbol, subcarrier] | 每个 SRS port 的 pilot 符号，非 SRS RE 为 0 |
+| `srs_port_index` | int32 [ul_tx_ant] | UE TX antenna 到 SRS port 的映射 |
+| `srs_re_subcarrier_indices` | int32 [srs_re] | compact SRS RE 的子载波索引 |
+| `srs_symbol_indices` | int32 [srs_symbol] | SRS symbol 索引 |
+| `srs_cyclic_shift_indices` | int32 [srs_port] | 阶段一 port-specific cyclic shift 配置 |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
-schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
+schema `1.3.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`
+或 `/observation/srs_cfr_est`。resource LS 写到 `/observation/cfr_est_resource`，
+full-band 插值结果仍写 `/observation/cfr_est`。
 
-大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS-like direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
+大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
 ### 2.18 `/array` — 阵列观测与标签
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
-| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH/SRS-like `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
+| `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH/SRS `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
 | `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
 | `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 扫描得到 |
 | `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
-| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS-like 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到；`srs_cfr_est` 仅是 spectrum source 名称兼容别名 |
+| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到；`srs_cfr_est` 仅是 spectrum source 名称兼容别名 |
 | `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | 默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
@@ -804,7 +812,7 @@ schema `1.1.0` 后 NR SRS-like 不再写 `/waveform/srs_*`。
 | `agc_gain_db` | [snap, rx] | float | dB | 接收侧 AGC 增益 |
 | `clipping_flag` | [snap, tx, rx] | bool | — | ADC 削波标志 |
 
-> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.1.0` 后 NR SRS-like 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`。
+> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.3.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS 另写 `/observation/cfr_est_resource`。
 
 ### 2.20 `/ranging` — 波形级 ToA/range 观测（可选）
 
@@ -850,7 +858,7 @@ schema 校验要求成功位置的 range/toa/error 为 finite，失败位置为 
 | `receiver_type` | string | 接收机类型 (`"pusch_receiver"` / `"srs_ls_receiver"` / `"generic"`) |
 | `estimator_type` | string | 估计器类型 |
 | `sync_method` | string | 同步方法 |
-| `mimo_detector` | string | MIMO 检测器 (`"lmmse"` / `"kbest"`；SRS-like 为 `"none"`) |
+| `mimo_detector` | string | MIMO 检测器 (`"lmmse"` / `"kbest"`；SRS 为 `"none"`) |
 | `input_domain` | string | 输入域 |
 | `interpolation_method` | string | 插值方法 |
 | `packet_detection_threshold` | float32 | 包检测阈值 |

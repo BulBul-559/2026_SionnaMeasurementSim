@@ -20,7 +20,7 @@ phy/
 ├── nr_mimo_channel.py        # CIR → CFR 桥接 + 维度转换
 ├── nr_channel_backend.py     # 可插拔信道后端
 ├── nr_pusch_observation.py   # NR PUSCH 主链路 (SU/MU-MIMO)
-└── nr_srs_observation.py     # NR SRS-like full-band sounding
+└── nr_srs_observation.py     # NR SRS standards-shaped subset
 ```
 
 ## 零、PHY Module Registry (`modules.py`)
@@ -37,7 +37,7 @@ PHY_REGISTRY = {
 
 模块接收 `PHYContext(config, adapter_result)`，返回 `PHYModuleResult`。其中
 `waveform`、`observation`、`receiver`、`evaluation` 等字段最终写入 HDF5；
-`waveform_extras` 用于写 NR PUSCH/SRS-like 的频域 grid 和专属元数据。
+`waveform_extras` 用于写 NR PUSCH/SRS 的频域 grid 和专属元数据。
 
 ## 一、通用 PHY link (`common_link.py`)
 
@@ -268,28 +268,32 @@ def run_nr_pusch_observation(
 16. 返回 dict
 ```
 
-## 七、NR SRS-like Sounding (`nr_srs_observation.py`)
+## 七、NR SRS Subset (`nr_srs_observation.py`)
 
-`nr_srs` 当前是 full-band SRS-like uplink sounding，不是完整 3GPP NR SRS：
+`nr_srs` 当前是 standards-shaped NR SRS subset，不是完整 3GPP NR SRS：
 
 1. 读取 resolved link-view truth CFR；uplink 下 shape 为 `[tx=ue, rx=bs, bs_ant, ue_ant, subcarrier]`
-2. 所有 active subcarrier 发送已知 pilot
-3. UE 多天线通过 OFDM symbol 维度的正交 DFT code 分离
-4. 通过 clean channel 得到 `y_clean`
-5. `ObservationImpairmentChain` 统一施加 impairment/AWGN 得到 `rx_grid`
-6. LS 估计 `H_hat = Y X^H / N_symbol`
-7. 按 resolved TX/RX link-view 写入 `/observation/cfr_est`
+2. 按 `phy.srs` 生成 full-slot 14-symbol `tx_grid`，非 SRS symbol 为 0
+3. comb/BWP resource 写入 `srs_resource_mask` 和 `srs_re_subcarrier_indices`
+4. 生成可复现 ZC-like pilot；阶段一 cyclic shift 只做 port-specific phase rotation
+5. 通过 clean channel 得到 `y_clean`
+6. `ObservationImpairmentChain` 统一施加 impairment/AWGN 得到 `rx_grid`
+7. receiver 从 SRS RE 提取 resource LS，写 `/observation/cfr_est_resource`
+8. 频域 linear interpolation 得到 full-band `/observation/cfr_est`
 
-SRS-like 不输出 BER/BLER，`evaluation` 只包含 NMSE、幅度/相位误差、correlation
-和 estimation success。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
-`/observation/cfr_est` 的 SRS LS 估计信道生成 `/array/spatial_spectrum_srs`。
+SRS 不输出 BER/BLER，`evaluation` 包含 full-band NMSE、幅度/相位误差、correlation、
+estimation success，以及 SRS resource NMSE / interpolation NMSE / resource SNR 等
+quality 指标。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
+`/observation/cfr_est` 生成 `/array/spatial_spectrum_srs`。
 
-SRS-like HDF5 waveform 使用统一字段：`/waveform/tx_grid`、
-`/waveform/rx_grid`、`/waveform/noise_variance` 和 SRS 专属
-`/waveform/pilot_code`。新 schema 不再写 `/waveform/srs_*` 或
+schema `1.3.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
+`noise_variance`，并写 SRS 专属 `/waveform/srs_resource_mask`、
+`/waveform/srs_pilot_symbols`、`/waveform/srs_port_index`、
+`/waveform/srs_re_subcarrier_indices`。不再写 `/waveform/pilot_code` 或
 `/observation/srs_cfr_est`。
 
-标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等尚未实现，详见
+完整 group/sequence hopping、同 symbol cyclic-shift port multiplexing、frequency
+hopping、ports/layers 和 power control 仍在后续阶段，详见
 `docs/sys/nr_srs_standard_todo.md`。
 
 ### SU-MIMO per-link 处理：`_process_su_mimo_per_link()`

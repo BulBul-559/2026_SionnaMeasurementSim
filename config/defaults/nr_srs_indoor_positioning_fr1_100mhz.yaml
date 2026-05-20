@@ -1,7 +1,7 @@
-# SionnaMeasurementSim - indoor FR1 NR SRS-like positioning template
-# This is a full-band SRS-like uplink sounding configuration, not a full 3GPP
-# NR SRS implementation. See docs/sys/nr_srs_standard_todo.md for the standard
-# details that still need to be added before calling it standards-complete SRS.
+# SionnaMeasurementSim - indoor FR1 NR SRS subset positioning template
+# This is a standards-shaped NR SRS subset, not a complete 3GPP NR SRS
+# implementation. See docs/sys/nr_srs_standard_todo.md for the remaining
+# details before calling it standards-complete SRS.
 
 runtime:
   seed: 42
@@ -133,7 +133,7 @@ phy:
   snr_db: 30.0
   ebno_db: null
   subcarrier_spacing_khz: 30
-  num_ofdm_symbols: 2
+  num_ofdm_symbols: 14
   num_prb: 273
   num_layers: 1
   num_antenna_ports: 2
@@ -148,6 +148,23 @@ phy:
   receiver_failure_policy: "mark_invalid"
   su_mimo_link_batch_size: 1
   tx_power_dbm: 0.0
+  srs:
+    slot_length_symbols: 14
+    start_symbol: 12
+    num_srs_symbols: 2
+    comb_size: 2
+    comb_offset: 0
+    bwp_start_prb: 0
+    bwp_num_prb: null
+    trigger_mode: "aperiodic"
+    periodicity_slots: 1
+    slot_offset: 0
+    slot_number: 0
+    sequence_type: "zc_like"
+    sequence_id: 0
+    group_hopping: "disabled"
+    sequence_hopping: "disabled"
+    cyclic_shift_indices: null
 
 impairments:
   awgn:

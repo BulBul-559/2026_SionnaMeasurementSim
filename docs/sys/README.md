@@ -11,7 +11,7 @@
 | 1 | `00_project_overview.md` | 项目定位、架构、数据流、核心维度 |
 | 2 | `01_app_and_config.md` | CLI、配置 schema、模板和 visualization 入口 |
 | 3 | `04_rt_pipeline.md` | pipeline 编排、BS/UE 到 TX/RX 的 role 解析、shard 执行 |
-| 4 | `05_phy_observation.md` | custom OFDM、NR PUSCH、NR SRS-like 三条 PHY 链路 |
+| 4 | `05_phy_observation.md` | custom OFDM、NR PUSCH、NR SRS 三条 PHY 链路 |
 | 5 | `07_config_and_h5_format.md` | 配置字段和 HDF5 输出契约 |
 | 6 | `06_io_and_testing.md` | HDF5 writer/validator/manifest 和测试质量门 |
 
@@ -20,7 +20,7 @@
 - `02_domain_models.md`：domain dataclass 结构和 shape 约束。
 - `03_adapters.md`：Sionna RT adapter。
 - `phy_module_development.md`：新增 PHY module 的最小开发规范。
-- `nr_srs_standard_todo.md`：当前 SRS-like 与完整 3GPP NR SRS 的差距。
+- `nr_srs_standard_todo.md`：当前 NR SRS subset 与完整 3GPP NR SRS 的差距。
 - `ranging_observation_todo.md`：waveform ranging、协议 RTT、clock/bias 和 NLoS 修正后续增强。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
 
@@ -34,12 +34,14 @@
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `1.2.0`；NR PUSCH/SRS-like 统一写 `/waveform/tx_grid`、
+- 当前 schema 版本是 `1.3.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
   `/waveform/rx_grid`、`/waveform/noise_variance`。
 - `/derived` 保留 truth 语义，`first_path_propagation_range_m` 表示最早路径传播距离；
   估计型 ToA/range 写在 `/ranging`。
-- NR PUSCH 与 NR SRS-like 已共享 `common_link.py` 的 clean channel →
+- NR PUSCH 与 NR SRS 已共享 `common_link.py` 的 clean channel →
   impairment/AWGN 链路；`custom_ofdm` 仍是 legacy 路径。
+- NR SRS 当前是 standards-shaped subset：full-slot resource grid、comb/BWP mask、
+  ZC-like pilot、resource LS 和 full-band interpolation；完整 3GPP SRS 细节仍见 TODO。
 
 ## 注意
 

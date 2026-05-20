@@ -818,7 +818,11 @@ NR_SRS_REQUIRED_FIELDS = (
     "waveform/tx_grid",
     "waveform/rx_grid",
     "waveform/noise_variance",
-    "waveform/pilot_code",
+    "waveform/srs_resource_mask",
+    "waveform/srs_pilot_symbols",
+    "waveform/srs_port_index",
+    "waveform/srs_re_subcarrier_indices",
+    "observation/cfr_est_resource",
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
     "array/aoa_heatmap_label",
@@ -829,7 +833,7 @@ NR_SRS_REQUIRED_FIELDS = (
 
 
 def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
-    """When waveform/standard == 'nr_srs', enforce SRS-like fields."""
+    """When waveform/standard == 'nr_srs', enforce stage-1 SRS subset fields."""
 
     if "waveform/standard" not in h5:
         return
@@ -839,11 +843,18 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     if std != "nr_srs":
         return
 
+    _require_absent(h5, "waveform/pilot_code")
+    _require_absent(h5, "waveform/srs_tx_grid")
+    _require_absent(h5, "observation/srs_cfr_est")
     _require_present(h5, NR_SRS_REQUIRED_FIELDS, kind=h5py.Dataset)
     tx_grid = h5["waveform/tx_grid"]
     rx_grid = h5["waveform/rx_grid"]
     noise_variance = h5["waveform/noise_variance"]
-    pilot_code = h5["waveform/pilot_code"]
+    resource_mask = h5["waveform/srs_resource_mask"]
+    pilot_symbols = h5["waveform/srs_pilot_symbols"]
+    port_index = h5["waveform/srs_port_index"]
+    re_indices = h5["waveform/srs_re_subcarrier_indices"]
+    cfr_resource = h5["observation/cfr_est_resource"]
     if tx_grid.ndim != 6:
         raise SchemaValidationError(f"/waveform/tx_grid must be rank 6, got {tx_grid.shape}")
     if rx_grid.ndim != 6:
@@ -851,11 +862,42 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     if noise_variance.shape != tx_grid.shape[:3]:
         msg = "/waveform/noise_variance must match [snapshot,ul_tx,ul_rx]"
         raise SchemaValidationError(msg)
-    if pilot_code.shape != tx_grid.shape[3:5]:
-        msg = "/waveform/pilot_code must match [ul_tx_ant,ofdm_symbol]"
+    if resource_mask.shape != tx_grid.shape[4:6]:
+        msg = "/waveform/srs_resource_mask must match [ofdm_symbol,subcarrier]"
+        raise SchemaValidationError(msg)
+    if pilot_symbols.shape[1:] != tx_grid.shape[4:6]:
+        msg = "/waveform/srs_pilot_symbols must match [srs_port,ofdm_symbol,subcarrier]"
+        raise SchemaValidationError(msg)
+    if port_index.shape != (tx_grid.shape[3],):
+        msg = "/waveform/srs_port_index must match [ul_tx_ant]"
+        raise SchemaValidationError(msg)
+    resource_subcarrier_count = int(np.asarray(resource_mask).any(axis=0).sum())
+    if re_indices.ndim != 1 or re_indices.shape[0] != resource_subcarrier_count:
+        msg = "/waveform/srs_re_subcarrier_indices must match resource mask subcarriers"
+        raise SchemaValidationError(msg)
+    expected_resource_shape = (
+        *tx_grid.shape[:3],
+        rx_grid.shape[3],
+        tx_grid.shape[3],
+        re_indices.shape[0],
+    )
+    if cfr_resource.shape != expected_resource_shape:
+        msg = "/observation/cfr_est_resource must match [snapshot,tx,rx,rx_ant,tx_ant,srs_re]"
+        raise SchemaValidationError(msg)
+    expected_full_shape = (
+        *tx_grid.shape[:3],
+        rx_grid.shape[3],
+        tx_grid.shape[3],
+        tx_grid.shape[5],
+    )
+    if h5["observation/cfr_est"].shape != expected_full_shape:
+        msg = "/observation/cfr_est must match full-band SRS link/antenna/subcarrier shape"
         raise SchemaValidationError(msg)
     if rx_grid.shape[:3] != tx_grid.shape[:3]:
         msg = "/waveform/tx_grid and /waveform/rx_grid link dimensions must match"
+        raise SchemaValidationError(msg)
+    if rx_grid.shape[4:6] != tx_grid.shape[4:6]:
+        msg = "/waveform/tx_grid and /waveform/rx_grid OFDM dimensions must match"
         raise SchemaValidationError(msg)
 
     link_shape = rx_grid.shape[:3]
@@ -880,7 +922,11 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         "waveform/tx_grid",
         "waveform/rx_grid",
         "waveform/noise_variance",
-        "waveform/pilot_code",
+        "waveform/srs_resource_mask",
+        "waveform/srs_pilot_symbols",
+        "waveform/srs_port_index",
+        "waveform/srs_re_subcarrier_indices",
+        "observation/cfr_est_resource",
         "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:

@@ -147,6 +147,7 @@ class RTTruthRunConfig:
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = 1
+    srs_config: Any | None = None
     ranging_config: RangingConfig = field(default_factory=RangingConfig)
     visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
 
@@ -1327,6 +1328,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
         "phy_standard": config.phy_standard,
+        "srs_config": _srs_config_snapshot(config.srs_config),
         "ranging": _ranging_config_snapshot(config.ranging_config),
         "link_config": {
             "duplex_mode": config.link_config.duplex_mode,
@@ -1441,6 +1443,32 @@ def _ranging_config_snapshot(config: RangingConfig) -> dict[str, object]:
             "min_mean_power": config.phase_slope.min_mean_power,
         },
     }
+
+
+def _srs_config_snapshot(config: Any | None) -> dict[str, object]:
+    if config is None:
+        return {}
+    if hasattr(config, "model_dump"):
+        return dict(config.model_dump())
+    fields = (
+        "slot_length_symbols",
+        "start_symbol",
+        "num_srs_symbols",
+        "comb_size",
+        "comb_offset",
+        "bwp_start_prb",
+        "bwp_num_prb",
+        "trigger_mode",
+        "periodicity_slots",
+        "slot_offset",
+        "slot_number",
+        "sequence_type",
+        "sequence_id",
+        "group_hopping",
+        "sequence_hopping",
+        "cyclic_shift_indices",
+    )
+    return {field: getattr(config, field) for field in fields if hasattr(config, field)}
 
 
 def _manifest_ranging_summary(ranging: object) -> dict[str, object]:

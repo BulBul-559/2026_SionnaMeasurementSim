@@ -13,7 +13,7 @@
 项目支持三种 PHY 标准：
 - **custom_ofdm**：简化 OFDM + LS 估计 + 完整 impairment 链
 - **nr_pusch**：5G NR PUSCH 上行链路，支持 4x4 SU-MIMO 和 MU-MIMO
-- **nr_srs**：SRS-like full-band uplink sounding，输出 LS CSI，不是完整 3GPP NR SRS
+- **nr_srs**：NR SRS standards-shaped subset，输出 resource LS 与 full-band interpolated CSI，不是完整 3GPP NR SRS
 
 新对话或新 agent 应先读 `docs/agent_handoff.md`，再按任务需要阅读本目录。
 
@@ -37,7 +37,7 @@
 - **app** 层只做编排，不直接访问 Sionna API
 - **domain** 层定义纯 Python 数据模型，零 Sionna 依赖
 - **adapters** 层封装所有 Sionna 调用，输出 domain 对象
-- **phy** 层实现 PHY module registry 和具体链路（OFDM、PUSCH、SRS-like、信道估计、MIMO 检测）
+- **phy** 层实现 PHY module registry 和具体链路（OFDM、PUSCH、SRS、信道估计、MIMO 检测）
 - **io** 层负责 HDF5 读写和 schema 校验
 
 ## 数据流
@@ -138,11 +138,11 @@ Derived:       [tx, rx]
 | RT 射线追踪 (LoS / 反射 / 折射 / 绕射) | ✅ |
 | 多快照运动与多普勒 | ✅ |
 | Custom OFDM + AWGN + LS 估计 (legacy) | ✅ |
-| PUSCH/SRS-like 通用 impairment/AWGN 链 | ✅ |
+| PUSCH/SRS 通用 impairment/AWGN 链 | ✅ |
 | NR PUSCH 4x4 SU-MIMO perfect CSI | ✅ |
 | NR PUSCH 4x4 SU-MIMO estimated CSI (需 num_layers == num_antenna_ports) | ✅ |
 | NR PUSCH MU-MIMO (多 UE 联合 PUSCH) | ✅ |
-| NR SRS-like full-band sounding | ✅ |
+| NR SRS subset resource sounding | ✅ |
 | PHY module registry | ✅ |
 | LMMSE / KBest MIMO 检测器 | ✅ |
 | `ApplyOFDMChannel` channel backend | ✅ |
@@ -152,7 +152,7 @@ Derived:       [tx, rx]
 | `scene_id` / `map_id` 对齐字段 | ✅ |
 | `/derived` 距离、ToA/RTT-like、AoA、LoS/NLoS 标签 | ✅ |
 | NR PUSCH 频域 tx/rx grid 与 `/array` 标签 | ✅ |
-| NR PUSCH/SRS-like 统一 `tx_grid/rx_grid/noise_variance` 与 `spatial_spectrum_srs` | ✅ |
+| NR PUSCH/SRS 统一 `tx_grid/rx_grid/noise_variance` 与 `spatial_spectrum_srs` | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
 | 多文件 shard 输出与 aggregate manifest | ✅ |

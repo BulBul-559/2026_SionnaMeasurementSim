@@ -1,6 +1,6 @@
 # PHY Module Development
 
-本项目的 PHY 观测链路通过 registry 接入，目标是让 PUSCH、SRS-like、后续
+本项目的 PHY 观测链路通过 registry 接入，目标是让 PUSCH、SRS、后续
 WiFi-like 或 6G waveform 都复用同一条 RT、HDF5、schema、visualization pipeline。
 
 ## 接口
@@ -31,7 +31,7 @@ CIR、path table 和 runtime versions。模块应返回领域模型，而不是 
 新的标准模块应优先拆成三段：waveform builder、clean channel apply、receiver/estimator。
 其中 clean `rx_grid` 后的 CFO/SFO/timing/phase/AGC/ADC/AWGN 必须复用
 `sionna_measurement_sim.phy.common_link.ObservationImpairmentChain`，避免每个标准
-重复实现损伤和 `/observation/*` metadata。现有 NR SRS-like 与 NR PUSCH 已按这个
+重复实现损伤和 `/observation/*` metadata。现有 NR SRS 与 NR PUSCH 已按这个
 口径接入；`custom_ofdm` 是 legacy 路径，保留测试用途，后续单独迁移或移除。
 
 ## 注册
@@ -55,12 +55,13 @@ PHY_REGISTRY["my_phy"] = MyPHYModule()
 `[snapshot, tx, rx, rx_ant, tx_ant, subcarrier]`。这里的 TX/RX 是
 `phy_link_direction` 解析后的 link-view：uplink 为 TX=UE、RX=BS，downlink
 为 TX=BS、RX=UE。模块内部可以使用自己的临时布局，但写盘前必须回到 resolved
-TX/RX 契约；现有 PUSCH/SRS-like 都遵守这一点。
+TX/RX 契约；现有 PUSCH/SRS 都遵守这一点。
 
 时域 waveform 默认不保存。需要保存频域观测时，优先使用统一字段
 `/waveform/tx_grid`、`/waveform/rx_grid`、`/waveform/noise_variance`，并为每个
-dataset 设置 `unit` 和 `index_order`。标准专属 pilot 或 DMRS 元数据可以继续放在
-`/waveform` 下，例如 SRS-like 的 `/waveform/pilot_code`。
+dataset 设置 `unit` 和 `index_order`。标准专属 pilot、resource 或 DMRS 元数据可以
+继续放在 `/waveform` 下，例如 NR SRS 的 `/waveform/srs_resource_mask` 和
+`/waveform/srs_pilot_symbols`。
 
 `/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 PHY 接收侧到达方向；
 `/paths/nlos_truth` 中的 AoA/AoD 原始字段不改语义。

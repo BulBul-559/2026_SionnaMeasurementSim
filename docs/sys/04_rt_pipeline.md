@@ -133,13 +133,13 @@ transpose 只作为内部测试/兼容路径存在。
 **PHY module 分支** (`phy/modules.py`):
 - `custom_ofdm` 适配现有 `run_awgn_ls_observation()`，作为 legacy 路径保留
 - `nr_pusch` 调用 `run_nr_pusch_observation()`，通过 common link 写统一 waveform grid、array 输出和 batching 统计
-- `nr_srs` 调用 `run_nr_srs_observation()`，通过 common link 写 SRS-like full-band sounding 的统一 waveform grid、`pilot_code` 和 LS CSI
+- `nr_srs` 调用 `run_nr_srs_observation()`，通过 common link 写 NR SRS subset 的统一 waveform grid、resource datasets、resource LS 和插值后的 full-band CSI
 - pipeline 在 derived labels 可用后统一补齐 `/array` AoA label 和空间谱
 
 ## 关键设计点
 
 1. **单配置对象**：`RTTruthRunConfig` 承载了从 RT 到 PHY 到 MIMO 的全部参数，避免多个配置对象同步问题
 2. **PHY 可选**：`observation_snr_db=None` 时跳过 PHY 链，仅输出 RT 真值
-3. **插件化 PHY**：`phy_standard` 通过 registry 选择 custom OFDM、NR PUSCH 或 NR SRS-like 模块
+3. **插件化 PHY**：`phy_standard` 通过 registry 选择 custom OFDM、NR PUSCH 或 NR SRS 模块
 4. **HDF5 schema 校验内置**：每次运行结束自动调用 `validate_hdf5_contract()`
 5. **Debug profiling 可选**：`debug.enabled=true` 时记录阶段耗时、GPU/CPU/RSS 采样和每 shard summary；默认关闭，不影响普通运行。

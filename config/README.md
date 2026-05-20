@@ -18,7 +18,7 @@ uv run python -m sionna_measurement_sim.app.cli \
     --phy-standard nr_pusch \
     --output-dir outputs/my_nr_pusch_run
 
-# 使用 NR SRS-like full-band sounding 配置
+# 使用 NR SRS standards-shaped subset 配置
 uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
     run-full \
@@ -33,13 +33,13 @@ uv run python -m sionna_measurement_sim.app.cli \
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR uplink 定位主实验模板 |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like full-band uplink sounding 模板 |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
-| `config/perf/nr_srs_7x500_sharded.yaml` | 7×500 NR SRS-like direct uplink shard 确认测试 |
-| `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | SRS-like 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
+| `config/perf/nr_srs_7x500_sharded.yaml` | 7×500 NR SRS direct uplink shard 历史确认测试 |
+| `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | NR SRS 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
-> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。SRS-like 模板当前默认
+> Bistro FR1 100 MHz 模板使用 3276 个 active subcarrier。NR SRS 模板当前默认
 > direct uplink、`rt.synthetic_array=false`、UE shard `shard_size: 20`，适合少量
 > BS、大量 UE 的生产数据生成。`max_ue: 2500` 是目标数据规模，不是提交前必跑验收；
 > 7×500 shard 确认测试见 `config/perf/nr_srs_7x500_sharded.yaml` 和
@@ -62,13 +62,13 @@ uv run python -m sionna_measurement_sim.app.cli \
 
 大规模 NR PUSCH 支持 SU-MIMO link batching 和 UE shard。生产运行建议使用 `config/perf/nr_pusch_6x8884_sharded.yaml` 这类模板，让多个进程分别绑定 GPU、分别写 `results/result_xxx.h5`，再由 `manifest/manifest.json` 汇总。
 
-SRS-like 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
+NR SRS 100 MHz 在 `rt.synthetic_array=false` 下会显著增加 Sionna RT 的底层显存需求。
 当前 pipeline 使用 `link.phy_link_direction` 直接解析 BS/UE 到 TX/RX：uplink 为
 `UE -> BS`，downlink 为 `BS -> UE`。在 `bistro_0000` 当前 RT 配置下，已验证
 `7 BS x 30 UE` 单 shard 可运行、`7 BS x 35 UE` 会在 `PathSolver` 阶段 OOM。
 在 `median_0000` 的 `label0p2` 全量 baseline 中，`shard_size: 25` 会在
 `paths.cfr()` 阶段触发 Dr.Jit 单数组 entry 数超过 `2^32` 的限制；`shard_size: 20`
-已完成 `7 BS x 2583 UE` 全量 SRS-like direct uplink。因此默认 SRS-like 模板使用
+已完成 `7 BS x 2583 UE` 全量 SRS direct uplink。因此默认 NR SRS 模板使用
 `shard_size: 20` 作为当前生产值。多个 shard 会分别写 `results/result_xxx.h5`，
 `manifest/manifest.json` 汇总全局 UE/BS 索引。
 
@@ -179,7 +179,7 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以控制 HDF5 体积 |
-| `sources` | list[str] | ["truth_cfr", "cfr_est", "rx_grid"] | `truth_cfr` 生成真值信道谱；`cfr_est` 生成估计信道谱；`rx_grid` 生成 NR PUSCH/SRS-like 接收信号谱；`srs_cfr_est` 是历史兼容别名，仍指向 NR SRS-like 的 `/observation/cfr_est` |
+| `sources` | list[str] | ["truth_cfr", "cfr_est", "rx_grid"] | `truth_cfr` 生成真值信道谱；`cfr_est` 生成估计信道谱；`rx_grid` 生成 NR PUSCH/SRS 接收信号谱；`srs_cfr_est` 是历史兼容别名，仍指向 NR SRS 的 `/observation/cfr_est` |
 | `method` | str | "bartlett" | 第一版仅支持 Bartlett |
 | `zenith_bins` | int | 91 | zenith 分辨率 |
 | `azimuth_bins` | int | 181 | azimuth 分辨率 |
@@ -278,7 +278,7 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 
 ### `phy` — 物理层观测
 
-#### 通用字段（custom OFDM、NR PUSCH 和 NR SRS-like 共享）
+#### 通用字段（custom OFDM、NR PUSCH 和 NR SRS 共享）
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -287,7 +287,7 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 | `snr_db` | float | 30.0 | 信噪比 dB |
 | `tx_power_dbm` | float | 0.0 | 发射功率 dBm |
 
-NR PUSCH 与 NR SRS-like 共享 `common_link.py` 的 clean channel → impairment/AWGN
+NR PUSCH 与 NR SRS 共享 `common_link.py` 的 clean channel → impairment/AWGN
 链路。`snr_db` 口径下 AWGN 方差按 clean `rx_grid` 每条 link 的平均功率计算；
 仅当 `phy.ebno_db` 非空时，PUSCH 使用 Sionna `ebnodb2no` 结果作为 receiver/noise
 override。`/observation/cfo_hz`、`sfo_ppm`、`timing_offset_samples`、
@@ -325,14 +325,36 @@ override。`/observation/cfo_hz`、`sfo_ppm`、`timing_offset_samples`、
 | `receiver_failure_policy` | str | "fail_fast" | 失败策略：`"fail_fast"` \| `"mark_invalid"` |
 | `su_mimo_link_batch_size` | int | 1 | SU-MIMO 独立 link batching 大小；NR PUSCH 模板和性能模板设为 64 |
 
-#### NR SRS-like 字段
+#### NR SRS subset 字段
 
-`standard: "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_ofdm_symbols`、
-`tx_power_dbm`、`receiver_failure_policy` 等通用/NR-family 字段。当前实现是
-full-band known-pilot sounding：每个 active subcarrier 都发送已知 pilot，UE 多天线
-通过 OFDM symbol 维度上的正交码分离，因此 `num_ofdm_symbols` 会自动取不小于 UE
-发射天线数的值。它不产生 BER/BLER，只输出 NMSE、幅度/相位误差、correlation 和
-estimation success。标准 NR SRS 的 comb、sequence、cyclic shift、hopping 等仍见
+`standard: "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_prb`、`tx_power_dbm`、
+`receiver_failure_policy` 等通用/NR-family 字段，并通过 `phy.srs` 控制 SRS resource。
+当前实现是 standards-shaped subset：完整 14-symbol slot 中只在 SRS symbols 填充
+comb/BWP resource，receiver 从 SRS RE 做 LS，再插值到 full-band
+`/observation/cfr_est`。它不产生 BER/BLER，只输出 NMSE、幅度/相位误差、
+correlation、estimation success 和 SRS resource quality 指标。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `srs.slot_length_symbols` | int | 14 | 当前单 slot 的 OFDM symbol 数 |
+| `srs.start_symbol` | int | 12 | SRS 起始 symbol |
+| `srs.num_srs_symbols` | int | 2 | SRS 占用 symbol 数；阶段一需不小于 SRS port/UE TX 天线数 |
+| `srs.comb_size` | int | 2 | SRS comb size，支持 1/2/4 |
+| `srs.comb_offset` | int | 0 | comb offset，需小于 comb size |
+| `srs.bwp_start_prb` | int | 0 | SRS BWP 起始 PRB |
+| `srs.bwp_num_prb` | int\|null | null | null 时使用 `phy.num_prb`，并按 carrier 子载波数裁剪 |
+| `srs.trigger_mode` | str | "aperiodic" | `"aperiodic"` \| `"periodic"` \| `"semipersistent"` |
+| `srs.periodicity_slots` | int | 1 | periodic/semipersistent 调度周期 |
+| `srs.slot_offset` | int | 0 | 调度 slot offset |
+| `srs.slot_number` | int | 0 | 当前单 slot 编号；若未被调度则 fail-fast |
+| `srs.sequence_type` | str | "zc_like" | 阶段一只支持可复现 ZC-like sequence |
+| `srs.sequence_id` | int | 0 | sequence seed/id |
+| `srs.group_hopping` | str | "disabled" | 阶段一必须 disabled |
+| `srs.sequence_hopping` | str | "disabled" | 阶段一必须 disabled |
+| `srs.cyclic_shift_indices` | list[int]\|null | null | null 时按 port 自动分配 0..N-1；阶段一仅做 phase rotation/metadata |
+
+阶段一仍不能称为完整 3GPP NR SRS；真实 group/sequence hopping、同 symbol cyclic-shift
+port multiplexing、frequency hopping、ports/layers 和 power control 仍见
 `docs/sys/nr_srs_standard_todo.md`。
 
 > **MIMO 配置提示：**
@@ -474,7 +496,7 @@ phy:
   num_antenna_ports: 2    # 2 antennas per UE
 ```
 
-### 1x2 UE NR SRS-like full-band sounding
+### 1x2 UE NR SRS subset sounding
 
 ```yaml
 array:

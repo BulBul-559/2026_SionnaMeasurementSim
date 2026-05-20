@@ -178,8 +178,9 @@ class NRSRSModule:
         waveform_extras = {
             "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
             "subcarrier_spacing_hz": config.subcarrier_spacing_khz * 1000.0,
+            "slot_number": getattr(getattr(config, "srs_config", None), "slot_number", 0),
             "cyclic_prefix": "normal",
-            "modulation": "known_full_band_pilot",
+            "modulation": "srs_zc_like_subset",
             **srs_result["waveform_grids"],
         }
         return PHYModuleResult(

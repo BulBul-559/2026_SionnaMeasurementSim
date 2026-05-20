@@ -413,7 +413,7 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                     unit="linear",
                     index_order="snapshot,ul_tx,ul_rx",
                 )
-            if "pilot_code" in extras:
+            if waveform.standard == "nr_pusch" and "pilot_code" in extras:
                 _write_dataset(
                     group,
                     "pilot_code",
@@ -421,6 +421,55 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                     unit="linear_complex",
                     index_order="ul_tx_ant,ofdm_symbol",
                 )
+            if waveform.standard == "nr_srs":
+                if "srs_resource_mask" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_resource_mask",
+                        extras["srs_resource_mask"],
+                        unit="bool",
+                        index_order="ofdm_symbol,subcarrier",
+                    )
+                if "srs_pilot_symbols" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_pilot_symbols",
+                        extras["srs_pilot_symbols"],
+                        unit="linear_complex",
+                        index_order="srs_port,ofdm_symbol,subcarrier",
+                    )
+                if "srs_port_index" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_port_index",
+                        extras["srs_port_index"],
+                        unit="index",
+                        index_order="ul_tx_ant",
+                    )
+                if "srs_re_subcarrier_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_re_subcarrier_indices",
+                        extras["srs_re_subcarrier_indices"],
+                        unit="index",
+                        index_order="srs_re",
+                    )
+                if "srs_symbol_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_symbol_indices",
+                        extras["srs_symbol_indices"],
+                        unit="index",
+                        index_order="srs_symbol",
+                    )
+                if "srs_cyclic_shift_indices" in extras:
+                    _write_dataset(
+                        group,
+                        "srs_cyclic_shift_indices",
+                        extras["srs_cyclic_shift_indices"],
+                        unit="index",
+                        index_order="srs_port",
+                    )
         # TODO: export custom OFDM tx_grid/rx_grid only after that path carries
         # real generated frequency-domain waveform tensors.
 
@@ -530,6 +579,15 @@ def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> No
     _write_dataset(group, "phase_offset_rad", observation.phase_offset_rad, unit="rad")
     _write_dataset(group, "agc_gain_db", observation.agc_gain_db, unit="dB")
     _write_dataset(group, "clipping_flag", observation.clipping_flag)
+    extras = result.waveform_extras or {}
+    if "cfr_est_resource" in extras:
+        _write_dataset(
+            group,
+            "cfr_est_resource",
+            extras["cfr_est_resource"],
+            unit="linear_complex",
+            index_order="snapshot,tx,rx,rx_ant,tx_ant,srs_re",
+        )
 
 
 def _write_ranging(h5: h5py.File, result: MeasurementSimulationResult) -> None:
@@ -648,6 +706,24 @@ def _write_evaluation(h5: h5py.File, result: MeasurementSimulationResult) -> Non
     _write_scalar(group, "num_bits", np.int64(evaluation.num_bits))
     _write_scalar(group, "num_block_errors", np.int64(evaluation.num_block_errors))
     _write_scalar(group, "num_blocks", np.int64(evaluation.num_blocks))
+    extras = result.waveform_extras or {}
+    if "srs_resource_nmse_db" in extras:
+        _write_dataset(group, "srs_resource_nmse_db", extras["srs_resource_nmse_db"], unit="dB")
+    if "srs_interpolation_nmse_db" in extras:
+        _write_dataset(
+            group,
+            "srs_interpolation_nmse_db",
+            extras["srs_interpolation_nmse_db"],
+            unit="dB",
+        )
+    if "srs_resource_snr_db" in extras:
+        _write_dataset(group, "srs_resource_snr_db", extras["srs_resource_snr_db"], unit="dB")
+    if "srs_num_resource_elements" in extras:
+        _write_scalar(
+            group,
+            "srs_num_resource_elements",
+            np.int32(extras["srs_num_resource_elements"]),
+        )
 
 
 def _write_calibration(h5: h5py.File, result: MeasurementSimulationResult) -> None:

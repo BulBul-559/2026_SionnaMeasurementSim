@@ -18,15 +18,16 @@
 SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成系统。当前重点是：
 
 - 从场景/label 生成 RT truth、CIR/CFR、路径真值、AoA、NLoS path truth。
-- 生成 PHY 观测数据，包括 NR PUSCH-DMRS CSI proxy 和 NR SRS-like full-band uplink sounding。
+- 生成 PHY 观测数据，包括 NR PUSCH-DMRS CSI proxy 和 NR SRS standards-shaped subset uplink sounding。
 - 可选生成 waveform-level ranging observation，从 `/observation/cfr_est` 估计 ToA/one-way range。
 - 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
-当前工作分支为 `codex/waveform-ranging-observation`。`main` 已包含 NR PUSCH 与
-NR SRS-like 的 clean channel、基带损伤、AWGN 和 observation metadata 统一链路；
-`custom_ofdm` 保留为 legacy 路径。本分支新增 `/ranging` group。
-当前 HDF5 schema 版本是 `1.2.0`。
+当前工作分支为 `codex/nr-srs-standard-subset`。`main` 已包含 NR PUSCH 与
+NR SRS 的 clean channel、基带损伤、AWGN 和 observation metadata 统一链路；
+`custom_ofdm` 保留为 legacy 路径。本分支将 NR SRS 从 full-band SRS-like 升级为
+standards-shaped subset。
+当前 HDF5 schema 版本是 `1.3.0`。
 
 ## 深读文档地图
 
@@ -95,21 +96,28 @@ tx_grid -> clean channel apply -> rx_grid_clean
 
 common chain 统一写 `/waveform/tx_grid`、`/waveform/rx_grid`、
 `/waveform/noise_variance` 以及 `/observation/cfo_hz` 等损伤观测字段。
-SRS-like 另写 `/waveform/pilot_code`。schema `1.1.0` 后不再写
-`/waveform/srs_*` 或 `/observation/srs_cfr_est`。
+NR SRS 另写 `/waveform/srs_resource_mask`、`/waveform/srs_pilot_symbols`、
+`/waveform/srs_port_index`、`/waveform/srs_re_subcarrier_indices` 和
+`/observation/cfr_est_resource`。schema `1.3.0` 后不再写 `/waveform/pilot_code`
+或 `/observation/srs_cfr_est`。
 
 schema `1.2.0` 后 `/derived/rtt_like_m` 和 `/derived/rtt_like_s` 已移除。
 truth range 写为 `/derived/first_path_propagation_range_m`。估计型 ToA/range 写到
 `/ranging/pdp_peak` 和 `/ranging/phase_slope`；其中 `rtt_equiv_s=2*toa_est_s`
 只是 two-way equivalent，不是完整协议 RTT。
 
-`nr_srs` 当前是 SRS-like full-band sounding，不是完整 3GPP NR SRS。它使用全带宽已知 pilot，经过信道后做 LS：
+`nr_srs` 当前是 standards-shaped subset，不是完整 3GPP NR SRS。它按 `phy.srs`
+生成 full-slot 14-symbol resource grid，SRS RE 上做 LS，然后插值到 full-band
+`/observation/cfr_est`：
 
 ```text
-H_hat = Y / X
+resource LS -> cfr_est_resource -> frequency interpolation -> cfr_est
 ```
 
-标准 SRS 的 comb、sequence、cyclic shift、hopping 等还在 TODO 中，见 `docs/sys/nr_srs_standard_todo.md`。
+阶段一已支持 comb/BWP resource、time allocation、ZC-like pilot 和简化 cyclic shift
+metadata；完整 group/sequence hopping、同 symbol cyclic-shift multiplexing、
+frequency hopping、ports/layers 和 power control 仍在 TODO 中，见
+`docs/sys/nr_srs_standard_todo.md`。
 
 ## 数据目录
 
@@ -207,8 +215,9 @@ outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 - `/link/tx_role = "ue"`。
 - `/link/rx_role = "bs"`。
 - 没有 `/waveform/tx_time` 或 `/waveform/rx_time`。
-- 使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
-  `/waveform/noise_variance` 和 `/waveform/pilot_code`。
+- schema `1.3.0` 后使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
+  `/waveform/noise_variance`，以及 NR SRS resource 字段 `srs_resource_mask`、
+  `srs_pilot_symbols`、`srs_port_index`、`srs_re_subcarrier_indices`。
 - `manifest/manifest.json` 已生成。
 
 ### `dense_0001 label0p4` PUSCH common-AWGN rerun
@@ -307,7 +316,7 @@ nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu,power.draw
 - 多文件 shard 是当前推荐输出方式，不建议为了训练强行合并成单个巨大 HDF5。
 - 空间谱和 visualization 默认关闭；它们适合小样本诊断，不适合默认全量生产。
 - HDF5 下游读取应通过 `manifest/manifest.json` 和其中记录的 `results/result_xxx.h5` shard 列表，不要假设只有 `results.h5`，也不要假设文件名连续；fallback 可能产生 `result_089_00.h5` 这类子 shard。
-- `nr_srs` 是 SRS-like，不要在论文或文档里称为 standards-complete 3GPP SRS。
+- `nr_srs` 是 standards-shaped subset，不要在论文或文档里称为 standards-complete 3GPP SRS。
 
 ## 新任务建议流程
 

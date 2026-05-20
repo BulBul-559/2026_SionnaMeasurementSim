@@ -121,7 +121,7 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz SRS-like sounding 定位模板；生产建议使用 `label0p2.json`、UE shard `20` |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 定位模板；生产建议使用 `label0p2.json`、UE shard `20` |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
 生产场景通常需要复制模板到 `outputs/local_configs/`，再把 `input.label_file`、
@@ -165,6 +165,6 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 可视化图像保持原始采样网格，不做显示插值。涉及子载波的热力图统一把
 subcarrier 放在纵轴；CFR lines 例外，使用 subcarrier 横轴。CFR 的
 lines、heatmap、error 都分别输出幅度和相位图。空间谱按来源分开输出
-label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett、SRS-like CFR Bartlett 五类矩形 PNG，
+label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett、SRS CFR Bartlett 五类矩形 PNG，
 并额外输出对应 polar PNG；polar 图中每个 link 左侧为上半球，右侧为下半球。
 空间谱矩形图和 polar 图使用同一个 UE 内的局部颜色尺度；polar 图不放 colorbar。

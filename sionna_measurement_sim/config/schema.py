@@ -223,6 +223,50 @@ class RTConfig(BaseModel):
 
 
 # ── phy ──────────────────────────────────────────────────────────────
+class SRSConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slot_length_symbols: int = Field(default=14, ge=1)
+    start_symbol: int = Field(default=12, ge=0)
+    num_srs_symbols: int = Field(default=2, ge=1)
+    comb_size: int = Field(default=2, ge=1)
+    comb_offset: int = Field(default=0, ge=0)
+    bwp_start_prb: int = Field(default=0, ge=0)
+    bwp_num_prb: int | None = Field(default=None, ge=1)
+    trigger_mode: str = Field(default="aperiodic")
+    periodicity_slots: int = Field(default=1, ge=1)
+    slot_offset: int = Field(default=0, ge=0)
+    slot_number: int = Field(default=0, ge=0)
+    sequence_type: str = Field(default="zc_like")
+    sequence_id: int = Field(default=0, ge=0)
+    group_hopping: str = Field(default="disabled")
+    sequence_hopping: str = Field(default="disabled")
+    cyclic_shift_indices: list[int] | None = None
+
+    @model_validator(mode="after")
+    def check_supported_values(self) -> SRSConfig:
+        if self.start_symbol + self.num_srs_symbols > self.slot_length_symbols:
+            raise ValueError("phy.srs SRS symbols must fit within the slot")
+        if self.comb_size not in (1, 2, 4):
+            raise ValueError("phy.srs.comb_size must be one of 1, 2, 4")
+        if self.comb_offset >= self.comb_size:
+            raise ValueError("phy.srs.comb_offset must be < comb_size")
+        if self.trigger_mode not in ("aperiodic", "periodic", "semipersistent"):
+            raise ValueError(
+                "phy.srs.trigger_mode must be aperiodic/periodic/semipersistent"
+            )
+        if self.sequence_type != "zc_like":
+            raise ValueError("phy.srs.sequence_type only supports zc_like in v1")
+        if self.group_hopping != "disabled":
+            raise ValueError("phy.srs.group_hopping must be disabled in v1")
+        if self.sequence_hopping != "disabled":
+            raise ValueError("phy.srs.sequence_hopping must be disabled in v1")
+        if self.cyclic_shift_indices is not None:
+            if any(int(value) < 0 or int(value) > 11 for value in self.cyclic_shift_indices):
+                raise ValueError("phy.srs.cyclic_shift_indices must be in [0, 11]")
+        return self
+
+
 class PHYConfig(BaseModel):
     enabled: bool = True
     standard: str = Field(default="custom_ofdm")
@@ -255,6 +299,7 @@ class PHYConfig(BaseModel):
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = Field(default=1, ge=1)
+    srs: SRSConfig = Field(default_factory=SRSConfig)
 
     @model_validator(mode="after")
     def check_fft_consistent(self) -> PHYConfig:

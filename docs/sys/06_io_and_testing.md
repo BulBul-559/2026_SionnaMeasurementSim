@@ -51,10 +51,11 @@ def validate_hdf5_contract(path: str | Path) -> None
 7. **NR PUSCH 专有字段**（当 `waveform/standard == "nr_pusch"`）：
    - `num_prb`、`num_layers`、`num_antenna_ports`、`mimo_detector` 等
    - `num_layers >= 1`、`num_antenna_ports >= num_layers`
-8. **NR SRS-like 专有字段**（当 `waveform/standard == "nr_srs"`）：
+8. **NR SRS 专有字段**（当 `waveform/standard == "nr_srs"`）：
    - 统一 waveform 字段 `tx_grid`、`rx_grid`、`noise_variance`
-   - SRS 专属 `pilot_code`
-   - schema `1.1.0` 后不再写 `/waveform/srs_*` 或 `/observation/srs_cfr_est`
+   - SRS 专属 `srs_resource_mask`、`srs_pilot_symbols`、`srs_port_index`、
+     `srs_re_subcarrier_indices`
+   - schema `1.3.0` 后不再写 `/waveform/pilot_code` 或 `/observation/srs_cfr_est`
 9. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
@@ -121,7 +122,7 @@ tests/
 │   ├── test_hdf5_schema.py               # 基础 HDF5 契约
 │   ├── test_rt_cir_schema.py             # CIR shape/dtype 校验
 │   ├── test_nr_pusch_schema.py           # NR PUSCH 字段 + BLER 契约
-│   └── test_nr_srs_schema.py             # NR SRS-like 字段 + schema 契约
+│   └── test_nr_srs_schema.py             # NR SRS resource 字段 + schema 契约
 ├── integration/
 │   ├── test_rt_truth_pipeline.py         # RT 最小闭环
 │   ├── test_rt_mimo_4x4_pipeline.py      # RT 4x4 MIMO CFR shape

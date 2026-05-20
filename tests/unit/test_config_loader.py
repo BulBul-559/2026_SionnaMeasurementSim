@@ -50,6 +50,10 @@ def test_load_default_mvp_config():
     assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
     assert cfg.ranging.enabled is False
     assert cfg.ranging.estimators == ["pdp_peak", "phase_slope"]
+    assert cfg.phy.srs.slot_length_symbols == 14
+    assert cfg.phy.srs.start_symbol == 12
+    assert cfg.phy.srs.num_srs_symbols == 2
+    assert cfg.phy.srs.comb_size == 2
 
 
 def test_old_tx_rx_config_fields_are_rejected(tmp_path: Path):
