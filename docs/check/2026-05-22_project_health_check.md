@@ -9,23 +9,23 @@
 
 ## 总结
 
-总分：`90.25 / 100`
+总分：`89.50 / 100`
 
-整体判断：项目结构健康度较高，当前已经形成清晰的 `app / config / domain / rt / phy / io / ranging / visualization` 分层，PUSCH/SRS 共享通用 clean channel + impairment/AWGN 链路，HDF5 schema 与测试体系也比较成熟。主要扣分集中在长期维护成本：若干核心模块过大、writer/schema validator 与协议字段耦合较强、多 shard 下游 reader 尚未产品化，以及 `custom_ofdm` legacy 路径仍需决策。
+整体判断：项目结构健康度较高，当前已经形成清晰的 `app / config / domain / rt / phy / io / ranging / visualization` 分层，PUSCH/SRS 共享通用 clean channel + impairment/AWGN 链路，HDF5 schema 与测试体系也比较成熟。主要扣分集中在长期维护成本：若干核心模块过大、writer/schema validator 与协议字段耦合较强、多 shard 下游 reader 尚未产品化、`ranging` 存在双配置模型，以及 `custom_ofdm` legacy 路径仍需决策。
 
 本次未发现需要立即处理的 P0/P1 风险。最高风险为 P2，属于结构性技术债，不会阻止当前生产运行，但会影响下一阶段协议扩展和下游训练/分析效率。
 
 | 模块 | 权重 | 得分 | 置信度 | 简要原因 |
 |---|---:|---:|---|---|
 | 架构分层与职责边界 | 18 | 13.50 | High | 分层和 domain 纯度好，但多个核心文件职责集中。 |
-| 协议与功能扩展性 | 14 | 10.50 | High | common link、registry、ranging runner 已成型；新增协议仍需改 CLI/config/writer/schema 多处。 |
+| 协议与功能扩展性 | 14 | 9.75 | High | common link、registry、ranging runner 已成型；新增协议仍需改 CLI/config/writer/schema 多处，且 ranging 双配置模型存在 drift 风险。 |
 | 数据契约与可复现性 | 14 | 12.25 | High | schema 1.4.0、TX/RX 语义、manifest 和大数据路径约束清晰。 |
 | 代码可维护性与复杂度 | 16 | 11.75 | Medium | 大文件、长函数和 writer/schema 重复校验是主要技术债。 |
 | 测试与验证体系 | 14 | 12.25 | High | 单元/schema/statistical/integration 测试覆盖强，完整 pytest 通过。 |
 | 文档与上手成本 | 10 | 9.00 | High | handoff/sys/config/todo/skills 较完整，少数历史/实验口径需持续清理。 |
 | 运行与实验工程 | 8 | 6.50 | Medium | shard、多 GPU、profiling 和 visualization 均具备，但性能 benchmark 入口仍在 TODO。 |
 | 变更治理 | 6 | 4.50 | Medium | 分支/提交/文档同步习惯较好；本地 untracked 分析脚本和未推送分支需继续留意。 |
-| **总计** | **100** | **90.25** |  |  |
+| **总计** | **100** | **89.50** |  |  |
 
 ## 证据清单
 
@@ -60,12 +60,12 @@
 | 条目 | 权重 | 等级 | 得分 | 证据 | 置信度 | 改进建议 |
 |---|---:|---|---:|---|---|---|
 | 共享抽象减少协议重复 | 3 | Good | 2.25 | PUSCH/SRS 共享 `ObservationImpairmentChain`；ranging 在 pipeline 级读取统一 `/observation/cfr_est`。 | High | 把 custom OFDM 后续命运收敛，避免第三套链路长期存在。 |
-| 配置扩展模型清晰且被校验 | 3 | Good | 2.25 | `config/schema.py` 使用 Pydantic；SRS 有嵌套 `phy.srs` 配置；旧字段会被拒绝。 | High | 配置 schema 文件已 609 行，可按子树拆分以降低演进成本。 |
+| 配置扩展模型清晰且被校验 | 3 | Partial | 1.50 | `config/schema.py` 使用 Pydantic；但 `config/schema.py` 与 `sionna_measurement_sim/ranging/config.py` 同时定义 `RangingConfig`、`PdpPeakRangingConfig`、`PhaseSlopeRangingConfig` 及相近校验逻辑，CLI 再做显式转换。 | High | 保留算法层轻量 config 的解耦思路，但需要明确单一事实源：例如由全局 schema 转换到 domain config 的 mapper 测试、或让 domain config 成为唯一 runtime contract。 |
 | 协议私有 waveform/receiver 逻辑隔离 | 3 | Good | 2.25 | SRS resource/sequence 在 `nr_srs_resources.py`，PUSCH 在 `nr_pusch_observation.py`；公共链路在 `common_link.py`。 | High | PUSCH 主文件还承担多路径处理、receiver、array output glue，建议继续拆分。 |
 | schema/迁移策略可承载新输出 | 3 | Good | 2.25 | `SCHEMA_VERSION = "1.4.0"`；schema tests 覆盖旧字段拒绝和新字段要求。 | High | writer/validator 仍是集中式条件逻辑，新增协议会持续增大复杂度。 |
 | defaults/feature flags 支持增量采用 | 2 | Good | 1.50 | `array.spectrum`、`visualization`、`ranging`、sharding/fallback、SRS feature 子项均可配置。 | Medium | 对重型功能补成本矩阵和推荐 preset。 |
 
-小结：`10.50 / 14`。扩展基础已具备，但新增协议仍会触发多处同步修改。
+小结：`9.75 / 14`。扩展基础已具备，但新增协议仍会触发多处同步修改；`ranging` 双配置模型是一个已经存在的配置 drift 风险。
 
 ### 3. 数据契约与可复现性 (14)
 
@@ -152,7 +152,8 @@
 | R-004 | P2 | 标准声明风险 | `docs/todo/feature.md` FEAT-SRS-001；当前 `nr_srs` 明确是 standards-shaped v2 subset，不是 3GPP-compliant。 | 若论文或对外文档误称标准完整，会影响实验可解释性和审稿可信度。 | Medium | 先做 38.211/38.213 reference validation，再决定是否提升声明级别。 | 对外写作或标准完整性实验前 | Open |
 | R-005 | P3 | writer/schema 耦合 | `hdf5_writer.py` 与 `schema_validator.py` 大文件集中处理多个协议字段。 | 新增 WiFi-like/6G-like 时需要同步修改集中式 writer/validator，容易遗漏 attrs/shape 校验。 | Medium | 引入协议扩展描述表或 per-protocol writer/schema hooks。 | 新增第四个 PHY module 时 | Open |
 | R-006 | P3 | 性能成本 | `docs/todo/performance.md` PERF-001/003/004/005/006/008；HDF5 write、空间谱、visualization 和多 GPU 调度仍待系统 benchmark。 | 大规模运行成本和尾部耗时可能不稳定，影响生产效率。 | Medium | 建立 RT-only、write-only、spectrum/visualization 开关矩阵 benchmark。 | 下一轮大规模全量实验前 | Open |
-| R-007 | P4 | 本地工作区卫生 | `git status` 显示 4 个未跟踪 `scripts/plot_cfr_similarity_*.py`。 | 不影响当前项目运行，但容易在提交时误纳入或长期遗忘。 | Low | 明确这些脚本是保留本地、纳入 repo、还是移动到 legacy/analysis 目录。 | 下次整理 scripts 或提交前 | Open |
+| R-007 | P3 | 配置单一事实源 | `sionna_measurement_sim/config/schema.py` 和 `sionna_measurement_sim/ranging/config.py` 分别定义同名 ranging 配置类与重复校验；`app/cli.py` 负责从全局配置显式构造 domain ranging config。 | 后续新增 ranging estimator 或字段时可能只改一边，导致 YAML schema、runtime estimator 和测试夹层发生 drift。 | Medium | 为 ranging 配置建立单一事实源或明确 adapter 边界：保留全局 Pydantic schema 作为输入 contract，新增集中 mapper 与 equivalence tests；或让 domain dataclass 成为算法层唯一 contract，禁止重复校验。 | 下一次扩展 ranging estimator/config 前 | Open |
+| R-008 | P4 | 本地工作区卫生 | `git status` 显示 4 个未跟踪 `scripts/plot_cfr_similarity_*.py`。 | 不影响当前项目运行，但容易在提交时误纳入或长期遗忘。 | Low | 明确这些脚本是保留本地、纳入 repo、还是移动到 legacy/analysis 目录。 | 下次整理 scripts 或提交前 | Open |
 
 当前没有确认中的 P0/P1 风险。
 
@@ -163,6 +164,7 @@
 | P2 | 数据读取 | 实现 shard-aware reader / dataset loader。 | 降低训练/分析侧重复代码和 shard/fallback 误读风险。 | fixture + 真实 manifest smoke；支持全局 UE/BS 索引。 |
 | P2 | 复杂度治理 | 拆分 `truth_pipeline.py`、`nr_pusch_observation.py`、`hdf5_writer.py`、`schema_validator.py`。 | 降低新增协议和字段迁移的修改面。 | 拆分后 ruff/pytest 全通过，外部 API 不变。 |
 | P2 | 标准声明 | 做 SRS reference validation。 | 支撑论文/文档中更稳妥的标准一致性描述。 | 38.211/38.213 reference cases + 文档声明矩阵。 |
+| P3 | 配置治理 | 整理 ranging 双配置模型，补全局 schema 到算法 config 的 mapper/equivalence tests。 | 降低 estimator/config 字段漂移风险，同时保持 ranging 算法包解耦。 | 新增测试覆盖默认值、非法值和 YAML→domain config 等价性。 |
 | P3 | 性能工程 | 建立 write-only / RT-only / spectrum-only benchmark 入口。 | 让性能优化不再依赖端到端大实验。 | 输出 JSON/CSV summary，纳入 docs/performance 或 docs/todo 结果更新。 |
 | P3 | Schema 扩展 | 设计 per-protocol writer/schema hook 或 declarative field spec。 | 减少新增 PHY module 时的重复字段逻辑。 | 新增一个 toy PHY/schema fixture 验证 hook。 |
 | P4 | 工作区整理 | 处理未跟踪 CFR similarity 脚本归属。 | 降低误提交和上下文噪音。 | git status 清晰或文档说明这些脚本为何保留本地。 |
