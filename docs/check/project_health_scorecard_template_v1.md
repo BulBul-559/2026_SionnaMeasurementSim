@@ -5,6 +5,10 @@ Branch / commit: `<branch> / <commit>`
 Reviewer: `<name or agent>`
 Scope: `<repo-wide / selected subsystems>`
 Template version: `v1`
+Report language: `中文`
+
+> 正式健康体检报告必须使用中文撰写，除非用户明确要求使用其他语言。文件路径、命令、
+> HDF5 dataset 名称、成熟度等级和 P0-P5 风险优先级可以保留英文原文。
 
 ## Summary
 

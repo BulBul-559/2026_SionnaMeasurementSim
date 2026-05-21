@@ -27,6 +27,10 @@ Every formal health-check report must include:
 5. Recommendations grouped by priority or workstream.
 6. Explicit exclusions and blind spots.
 
+Formal health-check reports must be written in Chinese unless the user explicitly asks for
+another language. Technical identifiers such as file paths, commands, dataset names, maturity
+levels, and P0-P5 risk priorities may stay in their original English form.
+
 ## Scoring Scale
 
 Each subitem is scored with one of these maturity levels, then multiplied by the subitem

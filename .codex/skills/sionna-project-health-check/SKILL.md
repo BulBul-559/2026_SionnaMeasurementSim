@@ -1,6 +1,6 @@
 ---
 name: sionna-project-health-check
-description: Use when evaluating SionnaMeasurementSim project structure, architecture health, long-term maintainability, protocol extensibility, responsibility boundaries, duplicated logic, technical debt, or P0-P5 engineering risks; creates or updates docs/check health-check reports using the project scorecard.
+description: Use when evaluating SionnaMeasurementSim project structure, architecture health, long-term maintainability, protocol extensibility, responsibility boundaries, duplicated logic, technical debt, or P0-P5 engineering risks; creates or updates Chinese docs/check health-check reports using the project scorecard.
 ---
 
 # Sionna Project Health Check
@@ -24,7 +24,10 @@ repository.
 4. If the user asks for a formal health check, create a dated report from
    `docs/check/project_health_scorecard_template_v1.md` named
    `docs/check/YYYY-MM-DD_project_health_check.md`.
-5. If the user only asks for analysis, explain findings without creating a report unless they
+5. Write formal health-check reports in Chinese unless the user explicitly asks for another
+   language. Keep file paths, commands, dataset names, maturity levels, and P0-P5 priorities in
+   their original form when clearer.
+6. If the user only asks for analysis, explain findings without creating a report unless they
    request persistence.
 
 ## Evidence To Collect
@@ -67,7 +70,7 @@ Each risk must include: `ID`, `Priority`, `Area`, `Evidence`, `Impact`, `Likelih
 ## Output Expectations
 
 - For a formal report, save the report under `docs/check/` and summarize the total score, strongest
-  areas, weakest areas, and highest-priority risks in the final response.
+  areas, weakest areas, and highest-priority risks in Chinese in the final response.
 - For a non-persistent analysis, still use the same rubric mentally and mention that no report was
   written.
 - Preserve unrelated local files, especially ignored or untracked analysis scripts.
