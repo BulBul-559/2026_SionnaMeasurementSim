@@ -20,14 +20,15 @@ repository.
    - `git status --short --branch`
    - `find sionna_measurement_sim tests docs/sys config .codex/skills -maxdepth ...`
    - `rg` for interfaces, TODOs, duplicated names, schema versions, registry entries, and role semantics.
-3. Do not recursively scan or operate on `data/` or `outputs/`.
-4. If the user asks for a formal health check, create a dated report from
+3. Run a concept ownership / single-source-of-truth pass before scoring.
+4. Do not recursively scan or operate on `data/` or `outputs/`.
+5. If the user asks for a formal health check, create a dated report from
    `docs/check/project_health_scorecard_template_v1.md` named
    `docs/check/YYYY-MM-DD_project_health_check.md`.
-5. Write formal health-check reports in Chinese unless the user explicitly asks for another
+6. Write formal health-check reports in Chinese unless the user explicitly asks for another
    language. Keep file paths, commands, dataset names, maturity levels, and P0-P5 priorities in
    their original form when clearer.
-6. If the user only asks for analysis, explain findings without creating a report unless they
+7. If the user only asks for analysis, explain findings without creating a report unless they
    request persistence.
 
 ## Evidence To Collect
@@ -40,6 +41,39 @@ repository.
 - Tests by category: unit, integration, schema, statistical, smoke, and failure-path tests.
 - Documentation freshness: handoff, sys docs, config README, TODO docs, and local skills.
 - Git state, untracked files, recent commits, and validation commands already available.
+
+## Concept Ownership Pass
+
+This pass is mandatory for formal reports. It catches structural drift that plain file-size,
+test-count, or layer checks miss.
+
+1. List core concepts likely to cross module boundaries:
+   - config models, schema version, HDF5 dataset paths, PHY standard names, registry keys,
+     BS/UE vs TX/RX semantics, ranging estimators, SRS/PUSCH resources, manifest shard identity,
+     array spectrum labels, and visualization source names.
+2. For each concept, identify:
+   - source of truth
+   - runtime representation
+   - mapper or adapter
+   - output contract
+   - validator
+   - docs
+   - tests
+3. Classify the concept:
+   - `Single source`: one owner; other code imports/references it.
+   - `Adapter boundary`: multiple representations are intentional and protected by a mapper plus
+     equivalence tests.
+   - `Duplicate definition`: fields/defaults/constants/validation are repeated without a clear
+     mapper/test.
+   - `Drift observed`: repeated definitions disagree or have caused behavior/output differences.
+4. If this pass is skipped, say so in blind spots and cap related scorecard items at `Partial`.
+
+Useful searches:
+
+```bash
+rg -n "class .*Config|SCHEMA_VERSION|PHY_REGISTRY|RangingConfig|/observation|/waveform" sionna_measurement_sim tests docs
+rg -n "\"nr_srs\"|\"nr_pusch\"|\"custom_ofdm\"|srs_|dmrs_|ranging" sionna_measurement_sim tests docs
+```
 
 ## Scoring Rules
 
