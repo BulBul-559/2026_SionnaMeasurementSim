@@ -11,7 +11,8 @@
 
 除非用户明确要求，不要递归扫描 `data/` 和 `outputs/`，它们是本地大数据路径，可能是 symlink。
 `docs/sys/` 是当前系统设计和接口说明的主参考；`docs/performance/` 是历史实验记录，
-其中的参数反映当时实验事实，不一定代表当前默认配置。
+其中的参数反映当时实验事实，不一定代表当前默认配置。`docs/legacy/` 用于放置已经过时、
+但暂时保留给人工复核的文档。
 
 ## 项目定位
 
@@ -25,9 +26,8 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
   `/devices/rx_orientation_rad` 适配接收阵列旋转。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
-当前工作分支为 `codex/nr-srs-stage2-p1-p2`。`main` 已包含 NR PUSCH 与
-NR SRS 的 clean channel、基带损伤、AWGN 和 observation metadata 统一链路；
-`custom_ofdm` 保留为 legacy 路径。本分支正在把 NR SRS 升级为
+当前 `main` 已包含 NR PUSCH 与 NR SRS 的 clean channel、基带损伤、AWGN 和
+observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。NR SRS 已升级为
 standards-shaped v2 subset。
 当前 HDF5 schema 版本是 `1.4.0`。
 
@@ -42,8 +42,10 @@ standards-shaped v2 subset。
 | 查 HDF5 字段、shape、manifest | `docs/sys/07_config_and_h5_format.md` |
 | 查 SRS baseline 和 shard size 依据 | `docs/sys/indoor_fr1_100mhz_validation.md` |
 | 新增 PHY module | `docs/sys/phy_module_development.md` |
-| 标准 NR SRS 后续工作 | `docs/sys/nr_srs_standard_todo.md` |
-| Ranging / 协议 RTT 后续增强 | `docs/sys/ranging_observation_todo.md` |
+| 当前 TODO 总入口 | `docs/todo/README.md` |
+| 功能 / 标准 / ranging 后续工作 | `docs/todo/feature.md` |
+| 性能和规模化后续工作 | `docs/todo/performance.md` |
+| 结构和数据契约后续工作 | `docs/todo/structure.md` |
 
 ## 核心语义
 
@@ -120,7 +122,7 @@ resource LS -> cfr_est_resource -> frequency interpolation -> cfr_est
 ```
 
 v2 仍不能称为 3GPP-compliant：38.211/38.213 reference 对齐、完整 antenna switching
-procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/sys/nr_srs_standard_todo.md`。
+procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/todo/feature.md`。
 
 ## 数据目录
 

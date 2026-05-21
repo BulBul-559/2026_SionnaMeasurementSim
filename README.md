@@ -126,7 +126,7 @@ impairment/AWGN 链路，写出统一 waveform 字段 `/waveform/tx_grid`、
 这一路径适合做室内定位 CSI 基线和 PUSCH-DMRS proxy 对比，但仍不能称为
 完整 3GPP NR SRS：本项目的 hopping/sequence/power control 是可解释的 v2 subset，
 尚未做 38.211/38.213 reference 对齐或认证级一致性测试，见
-[SRS TODO](docs/sys/nr_srs_standard_todo.md)。
+[Feature TODO](docs/todo/feature.md)。
 
 室内 100 MHz SRS 模板当前默认 `rt.synthetic_array=false`、direct uplink、
 UE shard `20`。已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` direct
@@ -252,6 +252,10 @@ SionnaMeasurementSim/
     integration/      RT truth / 4x4 SU-MIMO / MU-MIMO / batch / calibration
     statistical/      AWGN / impairments / motion / NR PUSCH MIMO metrics
   docs/               设计文档
+    sys/              当前系统事实和接口契约
+    todo/             当前 active TODO 与已完成 TODO history
+    performance/      历史性能实验记录
+    legacy/           过时文档临时归档，供人工复核
   outputs/            仿真输出（gitignore，可为本地 symlink）
 ```
 
@@ -268,8 +272,11 @@ SionnaMeasurementSim/
 | [06_io_and_testing](docs/sys/06_io_and_testing.md) | HDF5 I/O、schema 和测试 |
 | [07_config_and_h5_format](docs/sys/07_config_and_h5_format.md) | 配置与 HDF5 数据契约 |
 | [phy_module_development](docs/sys/phy_module_development.md) | 新 PHY module 接入指南 |
-| [nr_srs_standard_todo](docs/sys/nr_srs_standard_todo.md) | NR SRS subset 到完整标准 NR SRS 的 TODO |
-| [ranging_observation_todo](docs/sys/ranging_observation_todo.md) | Ranging / RTT observation 后续增强 TODO |
+| [todo](docs/todo/README.md) | 当前 active TODO 总入口 |
+| [todo/feature](docs/todo/feature.md) | 功能、标准完整性、算法增强和研究能力 TODO |
+| [todo/structure](docs/todo/structure.md) | 数据契约、reader、benchmark 入口和 legacy 模块 TODO |
+| [todo/performance](docs/todo/performance.md) | 大规模运行、写盘、RT、空间谱和 GPU 调度 TODO |
+| [todo/bug](docs/todo/bug.md) | 已确认缺陷和回归 TODO |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
 | [nr_srs_rt_variant_sweep_6x5](docs/performance/nr_srs_rt_variant_sweep_6x5.md) | SRS-like `synthetic_array=false` RT sweep、OOM 口径和 true/false 对照 |
 

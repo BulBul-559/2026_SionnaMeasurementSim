@@ -20,8 +20,10 @@
 - `02_domain_models.md`：domain dataclass 结构和 shape 约束。
 - `03_adapters.md`：Sionna RT adapter。
 - `phy_module_development.md`：新增 PHY module 的最小开发规范。
-- `nr_srs_standard_todo.md`：当前 NR SRS subset 与完整 3GPP NR SRS 的差距。
-- `ranging_observation_todo.md`：waveform ranging、协议 RTT、clock/bias 和 NLoS 修正后续增强。
+- `../todo/README.md`：当前 active TODO 总入口。
+- `../todo/feature.md`：NR SRS 标准完整性、ranging 和研究功能增强。
+- `../todo/structure.md`：reader、数据契约、benchmark 入口和 legacy 模块整理。
+- `../todo/performance.md`：写盘、RT、空间谱、GPU 调度和大规模运行优化。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
 
 ## 当前事实
@@ -49,3 +51,6 @@
 `docs/performance/` 是实验记录，里面的参数反映当时实验事实，不一定是当前默认配置。
 例如历史报告中的 `shard_size=25` 不是当前 SRS 生产建议；当前建议见本目录和
 `docs/agent_handoff.md`。
+
+`docs/todo/` 是 active TODO 的唯一入口；`docs/legacy/` 用于放置过时但暂时保留给人工
+复核的文档。

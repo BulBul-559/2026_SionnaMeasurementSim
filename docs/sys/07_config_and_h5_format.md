@@ -274,7 +274,7 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 comb/BWP/hopping resource、`zc_like`/`nr_zc` pilot、group/sequence hopping、
 同 symbol cyclic-shift port multiplexing、port/antenna switching 口径、简化
 SRS power scaling、resource LS/despread 和 full-band interpolation。当前实现仍不是
-完整 3GPP NR SRS，reference 对齐与闭环功控见 `docs/sys/nr_srs_standard_todo.md`。
+完整 3GPP NR SRS，reference 对齐与闭环功控见 `docs/todo/feature.md`。
 
 NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
 AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 link 的平均功率

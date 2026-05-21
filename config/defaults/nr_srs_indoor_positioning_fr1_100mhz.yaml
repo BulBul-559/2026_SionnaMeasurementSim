@@ -1,6 +1,6 @@
 # SionnaMeasurementSim - indoor FR1 NR SRS subset positioning template
 # This is a standards-shaped NR SRS subset, not a complete 3GPP NR SRS
-# implementation. See docs/sys/nr_srs_standard_todo.md for the remaining
+# implementation. See docs/todo/feature.md for the remaining
 # details before calling it standards-complete SRS.
 
 runtime:
