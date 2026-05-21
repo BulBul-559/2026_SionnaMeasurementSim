@@ -6,6 +6,8 @@
 
 ## 维护规则
 
+- 使用 Codex 维护 TODO 时，优先加载项目级 skill：
+  `.codex/skills/sionna-todo-docs/SKILL.md`。
 - 新增 TODO 时先选择分类文档：`feature`、`structure`、`performance`、`bug`。
 - 每个分类文档顶部都有按重要程度排序的简表；修改 TODO 时必须重新检查排序。
 - 每个 TODO 至少说明目的、涉及模块、期望效果、粗粒度验收标准和重点提醒。
