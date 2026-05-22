@@ -81,6 +81,22 @@ def write_manifest(path: str | Path, data: dict) -> Path
 同目录还会保存 `config_snapshot.json`；若发生自动 shard fallback，会额外写
 `shard_attempts.jsonl`。
 
+### `perf.py` 与 benchmark artifact
+
+`PerfTracer` 是 opt-in 性能追踪工具。开启 debug 或 benchmark 时，它会写：
+
+- `logs/perf_events*.jsonl`
+- `logs/hardware_samples*.csv`（可关闭）
+- `logs/perf_summary*.json`
+
+summary 在成功和失败运行中都会尽量写出，包含 `status`、`exception`、
+`stage_totals_s`、`hardware_summary` 和 `dataset_write_summary`。HDF5 writer 会对每个
+dataset 写入发出 `hdf5.dataset_write` event，因此 `benchmark write` 可以直接复用这套
+统计来比较 raw bytes、storage bytes、compression ratio 和最慢/最大 dataset。
+
+`benchmark rt/write/spectrum` 输出 `benchmark_summary.json`、`benchmark_rows.csv` 和
+`config_snapshot.json`；这些是性能 artifact，不属于正式 HDF5 schema。
+
 ### `label_parser.py`
 
 ```python
@@ -98,10 +114,10 @@ def load_role_topology_from_label(label_file: Path, max_bs: int, max_ue: int) ->
 
 | 目录 | 内容 | 示例 |
 |------|------|------|
-| `tests/unit/` | 单元测试 | domain 模型、config 加载、impairments、MIMO channel bridge、MIMO config/detector builder |
+| `tests/unit/` | 单元测试 | domain 模型、config 加载、impairments、MIMO channel bridge、MIMO config/detector builder、PerfTracer |
 | `tests/schema/` | HDF5 schema 测试 | truth schema、CIR schema、NR PUSCH/SRS schema |
 | `tests/adapter/` | Sionna adapter 测试 | RT shape contracts、CIR adapter、truth adapter |
-| `tests/integration/` | 集成测试 | RT truth pipeline、4x4 SU-MIMO、MU-MIMO、batch、calibration |
+| `tests/integration/` | 集成测试 | RT truth pipeline、4x4 SU-MIMO、MU-MIMO、batch、calibration、benchmark CLI |
 | `tests/statistical/` | 统计测试 | AWGN observation、impairments、motion、NR PUSCH link metrics、MIMO metrics |
 
 ### 关键测试文件

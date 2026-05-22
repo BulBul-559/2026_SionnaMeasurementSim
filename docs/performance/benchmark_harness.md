@@ -1,0 +1,143 @@
+# Benchmark Harness
+
+本文档说明当前稳定 benchmark 入口。它们用于隔离性能瓶颈，不生成正式仿真数据集；
+输出默认写到 ignored `outputs/`，不要提交生成结果。
+
+## 命令
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark rt ...
+uv run python -m sionna_measurement_sim.app.cli benchmark write ...
+uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
+```
+
+公共参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--output-dir` | benchmark 输出目录，默认在 `outputs/benchmark_*` |
+| `--seed` | deterministic synthetic/RT seed |
+| `--repeat` | 正式测量次数 |
+| `--warmup` | warmup 次数；写入 rows，但 aggregate 不统计 |
+| `--device` | 记录设备意图；RT/YAML 配置可进一步决定执行设备 |
+| `--debug-hardware-interval-s` | hardware sampler 间隔 |
+| `--write-hardware-samples` / `--no-write-hardware-samples` | 是否写 `hardware_samples*.csv` |
+| `--summary-name` | JSON summary 文件名 stem，默认 `benchmark_summary` |
+
+## 输出格式
+
+每次运行写：
+
+| 文件 | 内容 |
+|---|---|
+| `benchmark_summary.json` | 总入口，含参数、环境、iterations、aggregate、perf summary 和 artifact 路径 |
+| `benchmark_rows.csv` | 每次 iteration 一行，便于后续画图或聚合 |
+| `config_snapshot.json` | benchmark 参数快照 |
+| `logs/perf_events*.jsonl` | debug span/event 日志 |
+| `logs/perf_summary*.json` | status、stage totals、hardware summary、dataset write summary |
+| `logs/hardware_samples*.csv` | 可选硬件采样 |
+
+`benchmark_summary.json` 的顶层字段稳定为：
+
+```text
+benchmark_type
+status
+parameters
+environment
+iterations
+aggregate
+perf_summary
+artifacts
+```
+
+## RT-Only
+
+RT-only 复用现有 RT solve 能力，但不跑 PHY、ranging、visualization 或正式 HDF5 输出。
+它适合做 max_depth、LoS/NLoS、reflection/refraction/diffraction、subcarrier 数量和场景规模 sweep。
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark rt \
+  --output-dir outputs/benchmark_rt_smoke \
+  --label-file tests/fixtures/scenes/test/test5.json \
+  --scene-file tests/fixtures/scenes/test/scene.xml \
+  --max-bs 1 --max-ue 2 --num-subcarriers 8 --max-depth 1 \
+  --repeat 3 --warmup 1
+```
+
+主要指标：
+
+| 指标 | 说明 |
+|---|---|
+| `rt_solve_s` | RT solve span 耗时 |
+| `path_count` | 采样路径数量汇总 |
+| `los_rate` / `nlos_rate` | link-level LoS/NLoS 比例 |
+| `truth_cfr_shape` / `truth_cfr_bytes` | truth CFR 形状和内存量级 |
+
+`benchmark rt --config <yaml>` 会读取 YAML 的 input/carrier/rt/antenna/link 字段；
+显式 CLI 参数才覆盖 YAML。
+
+## Write-Only
+
+Write-only 构造 synthetic `MeasurementSimulationResult`，直接测 HDF5 writer、compression
+和 schema validate。它是后续 HDF5 写入深度优化的基础。
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark write \
+  --output-dir outputs/benchmark_write_smoke \
+  --tx-count 1 --rx-count 2 --rx-ant 2 --tx-ant 1 \
+  --subcarriers 16 --snapshots 1 \
+  --include-waveform --include-array --include-ranging \
+  --compression gzip --validate-schema
+```
+
+主要指标：
+
+| 指标 | 说明 |
+|---|---|
+| `writer_s` | `write_measurement_result()` 耗时 |
+| `schema_validate_s` | schema validation 耗时 |
+| `file_size_bytes` | 生成 HDF5 文件大小 |
+| `perf_summary.dataset_write_summary` | dataset raw/storage bytes、压缩比、最慢/最大 dataset |
+
+## Spectrum-Only
+
+Spectrum-only 直接调用 Bartlett 空间谱核心，不跑 RT/PHY。输入为 deterministic synthetic
+complex samples，角度网格和 array orientation 口径与正式 pipeline 一致。
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
+  --output-dir outputs/benchmark_spectrum_smoke \
+  --links 4 --rx-ant 4 --subcarriers 32 --ofdm-symbols 2 \
+  --zenith-bins 9 --azimuth-bins 13 \
+  --sources truth_cfr,cfr_est,rx_grid \
+  --link-chunk-size 512
+```
+
+主要指标：
+
+| 指标 | 说明 |
+|---|---|
+| `<source>_time_s` | 每个 source 的 Bartlett 计算耗时 |
+| `<source>_shape` | 输出 spectrum shape |
+| `output_bytes` | 所有 source 输出数组总字节数 |
+| `chunk_count` | link chunk 数 |
+| `finite_rate_min` | 输出 finite sanity |
+
+## Debug Summary
+
+`PerfTracer` 现在在成功和失败运行中都尽量写 `perf_summary*.json`。summary 包括：
+
+- `status` / `exception`
+- `stage_totals_s`
+- `hardware_summary`
+- `dataset_write_summary`
+- `logs`
+
+普通 pipeline 的 `link_log_interval` 当前不主动生成 link chunk；第一版 benchmark 和未来
+PHY link batching 可通过 `record_link_chunk()` 写 `link_chunks*.csv`。

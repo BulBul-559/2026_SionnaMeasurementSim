@@ -43,6 +43,7 @@ standards-shaped v2 subset。
 | 查 pipeline 编排和 BS/UE→TX/RX 映射 | `docs/sys/04_rt_pipeline.md` |
 | 查 PUSCH/SRS/custom OFDM 实现口径 | `docs/sys/05_phy_observation.md` |
 | 查 HDF5 字段、shape、manifest | `docs/sys/07_config_and_h5_format.md` |
+| 查性能 benchmark 入口 | `docs/performance/benchmark_harness.md` |
 | 查 SRS baseline 和 shard size 依据 | `docs/sys/indoor_fr1_100mhz_validation.md` |
 | 新增 PHY module | `docs/sys/phy_module_development.md` |
 | 当前 TODO 总入口 | `docs/todo/README.md` |
@@ -132,6 +133,17 @@ procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/todo
 配置层注意：`config/schema.py` 是 YAML/Pydantic validation model，ranging 算法使用
 `ranging/config.py` dataclass；两者通过 `config/mappers.py` 集中转换，不要在 CLI 或
 pipeline 里重新手写 ranging 字段拷贝。
+
+性能工程注意：debug profiling 在失败运行中也会尽量写 `logs/perf_summary*.json`，
+并汇总 hardware peak 与 HDF5 dataset 写入统计。隔离 benchmark 已进入主 CLI：
+
+```text
+benchmark rt       # RT-only，不跑 PHY/HDF5/可视化
+benchmark write    # synthetic MeasurementSimulationResult -> HDF5 writer/schema
+benchmark spectrum # synthetic array samples -> Bartlett spectrum core
+```
+
+benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 ## 数据目录
 

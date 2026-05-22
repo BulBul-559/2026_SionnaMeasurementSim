@@ -12,6 +12,7 @@
 | 当前 SRS 100 MHz baseline 与推荐 shard | `docs/sys/indoor_fr1_100mhz_validation.md` |
 | 当前配置字段和模板说明 | `config/README.md` |
 | 当前 HDF5/schema 契约 | `docs/sys/07_config_and_h5_format.md` |
+| 当前 benchmark harness | `docs/performance/benchmark_harness.md` |
 | active 性能优化事项 | `docs/todo/performance.md` |
 | active 结构优化事项 | `docs/todo/structure.md` |
 

@@ -270,7 +270,31 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     )
     tracer = PerfTracer(output_dir, config.debug_config, worker_id=worker_id)
     tracer.start()
+    try:
+        return _run_rt_truth_pipeline_single_impl(
+            config,
+            tracer,
+            start=start,
+            output_dir=output_dir,
+            logs_dir=logs_dir,
+        )
+    except Exception as exc:
+        tracer.finish(
+            {"output_dir": output_dir.as_posix()},
+            status="failed",
+            exception=exc,
+        )
+        raise
 
+
+def _run_rt_truth_pipeline_single_impl(
+    config: RTTruthRunConfig,
+    tracer: PerfTracer,
+    *,
+    start: float,
+    output_dir: Path,
+    logs_dir: Path,
+) -> Path:
     mapping = resolve_link_roles(config.link_config.phy_link_direction)
     link_config = replace(
         config.link_config,
@@ -520,6 +544,8 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
                 "perf_events", "perf_summary"
             ).replace(".jsonl", ".json"),
             "stage_totals_s": perf_summary.get("stage_totals_s", {}),
+            "hardware_summary": perf_summary.get("hardware_summary", {}),
+            "dataset_write_summary": perf_summary.get("dataset_write_summary", {}),
         }
         manifest_path = write_manifest(manifest_path, manifest_data)
 
@@ -1005,6 +1031,8 @@ def _aggregate_shard_performance(
                 "summary_path": summary_path.as_posix(),
                 "total_duration_s": summary.get("total_duration_s"),
                 "stage_totals_s": summary.get("stage_totals_s", {}),
+                "hardware_summary": summary.get("hardware_summary", {}),
+                "dataset_write_summary": summary.get("dataset_write_summary", {}),
             }
         )
         total_duration = summary.get("total_duration_s")
@@ -1012,13 +1040,93 @@ def _aggregate_shard_performance(
             total_durations.append(float(total_duration))
         for name, value in dict(summary.get("stage_totals_s", {})).items():
             stage_totals[str(name)] = stage_totals.get(str(name), 0.0) + float(value)
+    hardware = _aggregate_perf_hardware(summaries)
+    dataset_writes = _aggregate_perf_dataset_writes(summaries)
     return {
         "enabled": bool(summaries),
         "shard_summaries": summaries,
         "stage_totals_s": stage_totals,
         "max_shard_duration_s": max(total_durations) if total_durations else None,
         "sum_shard_duration_s": sum(total_durations) if total_durations else None,
+        "hardware_summary": hardware,
+        "dataset_write_summary": dataset_writes,
     }
+
+
+def _aggregate_perf_hardware(summaries: list[dict[str, object]]) -> dict[str, object]:
+    hardware_items = [
+        dict(item.get("hardware_summary", {}))
+        for item in summaries
+        if isinstance(item.get("hardware_summary"), dict)
+    ]
+    if not hardware_items:
+        return {}
+    return {
+        "sample_count": sum(int(item.get("sample_count", 0) or 0) for item in hardware_items),
+        "gpu_sample_count": sum(
+            int(item.get("gpu_sample_count", 0) or 0) for item in hardware_items
+        ),
+        "peak_rss_mb": _max_optional(item.get("peak_rss_mb") for item in hardware_items),
+        "peak_gpu_mem_used_mb": _max_optional(
+            item.get("peak_gpu_mem_used_mb") for item in hardware_items
+        ),
+        "max_gpu_util_percent": _max_optional(
+            item.get("max_gpu_util_percent") for item in hardware_items
+        ),
+        "mean_gpu_util_percent": _mean_optional(
+            item.get("mean_gpu_util_percent") for item in hardware_items
+        ),
+    }
+
+
+def _aggregate_perf_dataset_writes(
+    summaries: list[dict[str, object]],
+) -> dict[str, object]:
+    items = [
+        dict(item.get("dataset_write_summary", {}))
+        for item in summaries
+        if isinstance(item.get("dataset_write_summary"), dict)
+    ]
+    if not items:
+        return {}
+    total_raw = sum(int(item.get("total_raw_bytes", 0) or 0) for item in items)
+    storage_values = [
+        int(item.get("total_storage_bytes", 0) or 0)
+        for item in items
+        if item.get("total_storage_bytes") is not None
+    ]
+    total_storage = sum(storage_values)
+    return {
+        "dataset_count": sum(int(item.get("dataset_count", 0) or 0) for item in items),
+        "total_raw_bytes": total_raw,
+        "total_storage_bytes": total_storage if storage_values else None,
+        "storage_to_raw_ratio": (
+            float(total_storage) / float(total_raw)
+            if total_raw > 0 and storage_values
+            else None
+        ),
+        "raw_to_storage_ratio": (
+            float(total_raw) / float(total_storage)
+            if total_storage > 0 and storage_values
+            else None
+        ),
+    }
+
+
+def _max_optional(values: object) -> float | None:
+    finite: list[float] = []
+    for value in values:
+        if isinstance(value, (int, float)):
+            finite.append(float(value))
+    return max(finite) if finite else None
+
+
+def _mean_optional(values: object) -> float | None:
+    finite: list[float] = []
+    for value in values:
+        if isinstance(value, (int, float)):
+            finite.append(float(value))
+    return sum(finite) / len(finite) if finite else None
 
 
 def _build_shard_metadata(

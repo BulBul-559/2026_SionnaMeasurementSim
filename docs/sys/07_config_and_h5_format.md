@@ -73,6 +73,27 @@ visualization: # 采样可视化
 | `torch_synchronize` | bool | true | 阶段计时前后同步 CUDA |
 | `write_hardware_samples` | bool | true | 是否写硬件采样 CSV |
 
+`perf_summary*.json` 会在成功和失败运行中都尽量写出，字段包括：
+
+- `status` 与 `exception`：成功为 `success`，失败时记录 exception type/message。
+- `stage_totals_s`：已经完成的 span 汇总。
+- `hardware_summary`：RSS、GPU memory/util 等采样峰值和均值。
+- `dataset_write_summary`：HDF5 dataset 写入次数、raw bytes、storage bytes、压缩比、最慢/最大 dataset。
+
+`link_log_interval` 当前主要服务 chunk-aware benchmark 与未来 PHY link batching；普通 pipeline
+不会为了填这个字段伪造 link chunk。
+
+独立 benchmark 入口使用同一套 tracer，但输出为 JSON/CSV artifact，不属于 HDF5 schema：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark rt ...
+uv run python -m sionna_measurement_sim.app.cli benchmark write ...
+uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
+```
+
+每个 benchmark 输出 `benchmark_summary.json`、`benchmark_rows.csv`、`config_snapshot.json`
+以及可选 `logs/perf_events*.jsonl`、`logs/hardware_samples*.csv`、`logs/perf_summary*.json`。
+
 #### `input` — 输入数据
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |

@@ -24,6 +24,7 @@
 - `../todo/feature.md`：NR SRS 标准完整性、ranging 和研究功能增强。
 - `../todo/structure.md`：reader、数据契约、benchmark 入口和 legacy 模块整理。
 - `../todo/performance.md`：写盘、RT、空间谱、GPU 调度和大规模运行优化。
+- `../performance/benchmark_harness.md`：当前 `benchmark rt/write/spectrum` 入口和输出格式。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
 - `../performance/README.md`：历史性能实验记录索引和 legacy 审查状态。
 
@@ -40,6 +41,8 @@
 - 当前 schema 版本是 `1.5.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
   `/waveform/rx_grid`、`/waveform/noise_variance`；array 旧别名
   `/array/spatial_spectrum_label` 和 `/array/spatial_spectrum_srs` 已移除。
+- 当前 CLI 提供 `benchmark rt/write/spectrum`，分别隔离 RT solve、HDF5 writer/schema
+  validate 和 Bartlett 空间谱成本；输出为 ignored `outputs/` 下的 JSON/CSV/log artifact。
 - `/derived` 保留 truth 语义，`first_path_propagation_range_m` 表示最早路径传播距离；
   估计型 ToA/range 写在 `/ranging`。
 - NR PUSCH 与 NR SRS 已共享 `common_link.py` 的 clean channel →

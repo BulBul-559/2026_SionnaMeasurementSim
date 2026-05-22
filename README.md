@@ -17,7 +17,8 @@
 - BS/UE role-view 配置到 TX/RX link-view 仿真的显式映射
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
-- 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
+- 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
+- `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
 - HDF5 schema `1.5.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
@@ -51,6 +52,11 @@ uv run python -m sionna_measurement_sim.app.cli \
 
 # 查看所有参数
 uv run python -m sionna_measurement_sim.app.cli run-full --help
+
+# 运行最小 write-only benchmark（输出 JSON/CSV 到 ignored outputs/）
+uv run python -m sionna_measurement_sim.app.cli benchmark write \
+    --output-dir outputs/benchmark_write_smoke \
+    --tx-count 1 --rx-count 2 --rx-ant 2 --subcarriers 16
 ```
 
 项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
@@ -67,6 +73,9 @@ uv run python -m sionna_measurement_sim.app.cli run-full --help
 | `run-observation` | RT 真值 + PHY 观测（AWGN + LS 估计 + 损伤） |
 | `run-full` | 全功能端到端：RT + 路径 + 损伤 + 观测 + 运动 + 校准 + 诊断 |
 | `run-batch` | 批量实验（多 seed/SNR 分批） |
+| `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
+| `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression 和 schema validate |
+| `benchmark spectrum` | 合成 array samples，仅测 Bartlett 空间谱核心 |
 
 ## NR PUSCH MIMO 使用
 
@@ -239,6 +248,7 @@ SionnaMeasurementSim/
     adapters/sionna_rt/  Sionna RT API 适配
     rt/               RT 真值 pipeline
     phy/              PHY module registry + common link + 损伤 + NR PUSCH/SRS + backend
+    benchmark/        RT/write/spectrum 性能 benchmark harness
     io/               HDF5 读写、schema validator、manifest、label 解析
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图
@@ -277,6 +287,7 @@ SionnaMeasurementSim/
 | [todo/structure](docs/todo/structure.md) | 数据契约、reader、benchmark 入口和 legacy 模块 TODO |
 | [todo/performance](docs/todo/performance.md) | 大规模运行、写盘、RT、空间谱和 GPU 调度 TODO |
 | [todo/bug](docs/todo/bug.md) | 已确认缺陷和回归 TODO |
+| [benchmark_harness](docs/performance/benchmark_harness.md) | benchmark rt/write/spectrum 输出格式和推荐命令 |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
 | [performance](docs/performance/README.md) | 历史性能实验记录索引和 legacy 审查状态 |
 
