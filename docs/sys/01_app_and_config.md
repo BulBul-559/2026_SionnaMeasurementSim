@@ -63,6 +63,7 @@ class MeasurementConfig(BaseModel):
     link: LinkConfig              # duplex_mode, phy_link_direction
     phy: PHYConfig                # standard, snr_db, NR-family fields
     array: ArrayConfig            # AoA heatmap / Bartlett spectrum
+    ranging: RangingConfig        # waveform-level ToA/range observation
     impairments: ImpairmentsConfig # awgn, cfo, sfo, phase_noise, timing, agc_adc
     receiver: ReceiverConfig      # estimator_type, mimo_detector, failure_policy
     motion: MotionConfig          # mobility_mode, num_time_steps, velocity
@@ -113,6 +114,10 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 ```
 
 支持 `.yaml`、`.yml`、`.json` 格式。加载后返回完整校验过的 `MeasurementConfig` 对象。
+
+`config/schema.py` 是 YAML-facing validation model；`ranging/config.py` 是算法运行时
+dataclass。CLI 通过 `config/mappers.py::to_domain_ranging_config()` 做集中转换，避免在
+CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Pydantic。
 
 ## 配置模板
 

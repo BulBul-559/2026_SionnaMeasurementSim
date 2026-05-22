@@ -1628,7 +1628,6 @@ def build_array_outputs_from_waveform(
     rx_orientation_rad: np.ndarray | None = None,
     truth_spectrum_samples: np.ndarray | None = None,
     cfr_est_spectrum_samples: np.ndarray | None = None,
-    srs_cfr_est_spectrum_samples: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Build deterministic first-version `/array` outputs from RX grids.
 
@@ -1655,7 +1654,6 @@ def build_array_outputs_from_waveform(
         "rx_snapshot_matrix": snapshot_matrix,
         "aoa_label_rad": labels,
         "aoa_heatmap_label": spectrum,
-        "spatial_spectrum_label": spectrum,
         "angle_grid_rad": angle_grid,
         "spectrum_policy": config.policy,
     }
@@ -1687,20 +1685,6 @@ def build_array_outputs_from_waveform(
             rx_orientation_rad=rx_orientation_rad,
             config=config,
         )
-    if (
-        config.enabled
-        and "srs_cfr_est" in config.sources
-        and srs_cfr_est_spectrum_samples is not None
-    ):
-        outputs["spatial_spectrum_srs"] = build_bartlett_spectrum(
-            srs_cfr_est_spectrum_samples,
-            rx_num_rows=rx_num_rows,
-            rx_num_cols=rx_num_cols,
-            rx_spacing_lambda=rx_spacing_lambda,
-            rx_orientation_rad=rx_orientation_rad,
-            config=config,
-        )
-
     return outputs
 
 

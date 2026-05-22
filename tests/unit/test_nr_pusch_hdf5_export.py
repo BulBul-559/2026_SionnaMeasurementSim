@@ -102,9 +102,9 @@ def test_nr_pusch_hdf5_writes_waveform_grids_and_array_outputs(tmp_path):
         )
         assert h5["array/rx_snapshot_matrix"].shape == (1, 1, 1, 1, 1)
         assert h5["array/aoa_heatmap_label"].shape == (1, 1, 1, 91, 181)
-        assert h5["array/spatial_spectrum_label"].shape == (1, 1, 1, 91, 181)
+        assert "array/spatial_spectrum_label" not in h5
         assert h5["array/angle_grid_rad"].shape == (91, 181, 2)
         assert h5["array/aoa_label_rad"].attrs["coordinate_frame"] == "scene"
-        assert h5["array/spatial_spectrum_label"].attrs["coordinate_frame"] == "scene"
+        assert h5["array/aoa_heatmap_label"].attrs["coordinate_frame"] == "scene"
         assert h5["array/angle_grid_rad"].attrs["coordinate_frame"] == "scene"
         assert h5["array/spectrum_policy"][()].decode("utf-8").startswith("method=bartlett")

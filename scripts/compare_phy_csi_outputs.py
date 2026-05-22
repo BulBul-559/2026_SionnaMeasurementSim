@@ -68,7 +68,6 @@ def _summarize_hdf5(path: Path) -> dict[str, object]:
                 "spatial_spectrum_truth",
                 "spatial_spectrum_cfr_est",
                 "spatial_spectrum_observation",
-                "spatial_spectrum_srs",
             )
             if f"array/{name}" in h5
         ]

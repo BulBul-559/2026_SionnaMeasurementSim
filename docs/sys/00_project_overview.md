@@ -148,9 +148,9 @@ Derived:       [tx, rx]
 | TB/CRC 语义 BLER | ✅ |
 | TDD 互易性 | ✅ |
 | `scene_id` / `map_id` 对齐字段 | ✅ |
-| `/derived` 距离、ToA/RTT-like、AoA、LoS/NLoS 标签 | ✅ |
+| `/derived` 距离、first-path propagation range、AoA、LoS/NLoS truth 标签 | ✅ |
 | NR PUSCH 频域 tx/rx grid 与 `/array` 标签 | ✅ |
-| NR PUSCH/SRS 统一 `tx_grid/rx_grid/noise_variance` 与 `spatial_spectrum_srs` | ✅ |
+| NR PUSCH/SRS 统一 `tx_grid/rx_grid/noise_variance` 与 `spatial_spectrum_cfr_est` | ✅ |
 | HDF5 schema 强校验 | ✅ |
 | 批量实验 | ✅ |
 | 多文件 shard 输出与 aggregate manifest | ✅ |

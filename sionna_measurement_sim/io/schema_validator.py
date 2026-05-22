@@ -187,6 +187,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _require_absent(h5, "channel/cfr")
         _require_absent(h5, "derived/rtt_like_m")
         _require_absent(h5, "derived/rtt_like_s")
+        _require_absent(h5, "array/spatial_spectrum_label")
+        _require_absent(h5, "array/spatial_spectrum_srs")
         _require_present(h5, ("meta/schema_version",), kind=h5py.Dataset)
         _require_present(h5, REQUIRED_TRUTH_GROUPS, kind=h5py.Group)
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
@@ -667,7 +669,6 @@ NR_PUSCH_REQUIRED_FIELDS = (
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
     "array/aoa_heatmap_label",
-    "array/spatial_spectrum_label",
     "array/angle_grid_rad",
     "array/spectrum_policy",
     "receiver/mimo_detector",
@@ -759,7 +760,6 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
     snapshot_matrix = h5["array/rx_snapshot_matrix"]
     aoa = h5["array/aoa_label_rad"]
     heatmap = h5["array/aoa_heatmap_label"]
-    spectrum = h5["array/spatial_spectrum_label"]
     angle_grid = h5["array/angle_grid_rad"]
     link_shape = rx_grid.shape[:3]
     num_rx_ant = rx_grid.shape[3]
@@ -780,17 +780,10 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
     if heatmap.shape != spectrum_shape:
         msg = "/array/aoa_heatmap_label must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
         raise SchemaValidationError(msg)
-    if spectrum.shape != spectrum_shape:
-        msg = (
-            "/array/spatial_spectrum_label must match "
-            "[snapshot,ul_tx,ul_rx,zenith,azimuth]"
-        )
-        raise SchemaValidationError(msg)
     for optional_path in (
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
-        "array/spatial_spectrum_srs",
     ):
         if optional_path in h5 and h5[optional_path].shape != spectrum_shape:
             msg = f"/{optional_path} must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
@@ -799,11 +792,9 @@ def _validate_nr_pusch_array_shapes(h5: h5py.File) -> None:
         "array/rx_snapshot_matrix",
         "array/aoa_label_rad",
         "array/aoa_heatmap_label",
-        "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
-        "array/spatial_spectrum_srs",
         "array/angle_grid_rad",
     ):
         if dataset_path not in h5:
@@ -832,7 +823,6 @@ NR_SRS_REQUIRED_FIELDS = (
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
     "array/aoa_heatmap_label",
-    "array/spatial_spectrum_label",
     "array/angle_grid_rad",
     "array/spectrum_policy",
 )
@@ -947,18 +937,14 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     snapshot_matrix = h5["array/rx_snapshot_matrix"]
     aoa = h5["array/aoa_label_rad"]
     angle_grid = h5["array/angle_grid_rad"]
-    spectrum_shape = (*link_shape, *angle_grid.shape[:2])
     if snapshot_matrix.shape != (*link_shape, num_rx_ant, num_rx_ant):
         msg = "/array/rx_snapshot_matrix must match SRS RX grid receiver antennas"
         raise SchemaValidationError(msg)
     if aoa.shape != (*link_shape, 2):
         msg = "/array/aoa_label_rad must match SRS link dimensions"
         raise SchemaValidationError(msg)
-    if (
-        "array/spatial_spectrum_srs" in h5
-        and h5["array/spatial_spectrum_srs"].shape != spectrum_shape
-    ):
-        msg = "/array/spatial_spectrum_srs must match [snapshot,ul_tx,ul_rx,zenith,azimuth]"
+    if angle_grid.ndim != 3 or angle_grid.shape[-1] != 2:
+        msg = "/array/angle_grid_rad must have shape [zenith,azimuth,2]"
         raise SchemaValidationError(msg)
     for dataset_path in (
         "waveform/tx_grid",
@@ -975,7 +961,6 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         "waveform/srs_tx_power_dbm",
         "waveform/srs_power_scale_linear",
         "observation/cfr_est_resource",
-        "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:
             continue
@@ -1007,11 +992,9 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
 
     for dataset_path in (
         "array/aoa_heatmap_label",
-        "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
-        "array/spatial_spectrum_srs",
     ):
         if dataset_path not in h5:
             continue
@@ -1032,11 +1015,9 @@ def _validate_array_outputs_if_present(h5: h5py.File) -> None:
         "array/rx_snapshot_matrix",
         "array/aoa_label_rad",
         "array/aoa_heatmap_label",
-        "array/spatial_spectrum_label",
         "array/spatial_spectrum_truth",
         "array/spatial_spectrum_cfr_est",
         "array/spatial_spectrum_observation",
-        "array/spatial_spectrum_srs",
         "array/angle_grid_rad",
     ):
         if dataset_path not in h5:

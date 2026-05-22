@@ -285,8 +285,9 @@ def run_nr_pusch_observation(
 
 SRS 不输出 BER/BLER，`evaluation` 包含 full-band NMSE、幅度/相位误差、correlation、
 estimation success，以及 SRS resource NMSE / interpolation NMSE / resource SNR 等
-quality 指标。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
-`/observation/cfr_est` 生成 `/array/spatial_spectrum_srs`。
+quality 指标。若 `array.spectrum.sources` 包含 `cfr_est`，会从统一
+`/observation/cfr_est` 生成 `/array/spatial_spectrum_cfr_est`；schema 1.5.0 后不再接受
+历史 `srs_cfr_est` source，也不再写 `/array/spatial_spectrum_srs`。
 
 `/array/spatial_spectrum_*` 使用 scene/global 角度网格。实现时先按 Sionna
 `PlanarArray` 的本地 y-z 平面、top-left 起、column-first 编号、第一行 z 为正生成
@@ -295,12 +296,13 @@ quality 指标。若 `array.spectrum.sources` 包含 `srs_cfr_est`，会从
 `/link/rx_role` 将 link-view 轴映射回 BS/UE 标签，direct uplink 中
 `tx=UE, rx=BS` 不再按历史 `BS->UE` 假设取图。
 
-schema `1.4.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
+schema `1.5.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
 `noise_variance`，并写 SRS 专属 `/waveform/srs_resource_mask`、
 `/waveform/srs_pilot_symbols`、`/waveform/srs_re_symbol_indices`、
 `/waveform/srs_re_subcarrier_indices`、`/waveform/srs_port_tx_ant_map`、
 per-symbol PRB、cyclic shift、sequence 和 power-control metadata。不再写
-`/waveform/pilot_code`、`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`。
+`/waveform/pilot_code`、`/waveform/srs_port_index`、`/observation/srs_cfr_est`、
+`/array/spatial_spectrum_srs` 或 `/array/spatial_spectrum_label`。
 
 当前 v2 已覆盖 group/sequence hopping、同 symbol cyclic-shift port multiplexing、
 frequency/bandwidth hopping、port/antenna switching 口径和简化 power scaling；

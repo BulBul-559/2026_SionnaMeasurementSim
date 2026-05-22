@@ -1220,11 +1220,6 @@ def _attach_phy_array_outputs(
         cfr_est_spectrum_samples=(
             project_cfr_to_ul_receiver_samples(cfr_est) if cfr_est is not None else None
         ),
-        srs_cfr_est_spectrum_samples=(
-            project_cfr_to_ul_receiver_samples(cfr_est)
-            if cfr_est is not None and config.phy_standard == "nr_srs"
-            else None
-        ),
     )
 
 
@@ -1257,7 +1252,6 @@ def _build_truth_array_outputs(
     outputs: dict[str, object] = {
         "aoa_label_rad": labels,
         "aoa_heatmap_label": heatmap,
-        "spatial_spectrum_label": heatmap,
         "angle_grid_rad": angle_grid,
         "spectrum_policy": config.spectrum_config.policy,
     }

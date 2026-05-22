@@ -39,7 +39,7 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
 
     with h5py.File(output_path, "r") as h5:
         assert "channel/cfr" not in h5
-        assert h5["meta/schema_version"][()].decode("utf-8") == "1.4.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "1.5.0"
         assert h5["meta/contract_name"][()].decode("utf-8") == "sionna_measurement_sim_hdf5"
         assert h5["meta/index_order"][()].decode("utf-8") == "tx,rx,rx_ant,tx_ant,..."
         assert h5["meta/unit_convention"][()].decode("utf-8") == "si_mks"
@@ -120,7 +120,7 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     metadata = read_metadata(output_path)
     cfr = read_truth_cfr(output_path)
 
-    assert metadata["schema_version"] == "1.4.0"
+    assert metadata["schema_version"] == "1.5.0"
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")
@@ -150,6 +150,25 @@ def test_validator_rejects_legacy_rtt_like_fields(tmp_path: Path):
     write_measurement_result(output_path, create_phase1_minimal_result())
     with h5py.File(output_path, "a") as h5:
         h5["derived"].create_dataset("rtt_like_m", data=np.zeros((1, 1), dtype=np.float32))
+
+    with pytest.raises(SchemaValidationError, match="Forbidden dataset"):
+        validate_hdf5_contract(output_path)
+
+
+@pytest.mark.parametrize(
+    "dataset_path",
+    ("array/spatial_spectrum_label", "array/spatial_spectrum_srs"),
+)
+def test_validator_rejects_legacy_array_alias_fields(
+    tmp_path: Path,
+    dataset_path: str,
+):
+    output_path = tmp_path / "results.h5"
+    write_measurement_result(output_path, create_phase1_minimal_result())
+    with h5py.File(output_path, "a") as h5:
+        group_name, name = dataset_path.split("/", maxsplit=1)
+        group = h5.require_group(group_name)
+        group.create_dataset(name, data=np.zeros((1, 1, 1, 2, 2), dtype=np.float32))
 
     with pytest.raises(SchemaValidationError, match="Forbidden dataset"):
         validate_hdf5_contract(output_path)

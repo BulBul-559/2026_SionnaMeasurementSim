@@ -185,7 +185,7 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以控制 HDF5 体积 |
-| `sources` | list[str] | ["truth_cfr", "cfr_est", "rx_grid"] | `truth_cfr` 生成真值信道谱；`cfr_est` 生成估计信道谱；`rx_grid` 生成 NR PUSCH/SRS 接收信号谱；`srs_cfr_est` 是历史兼容别名，仍指向 NR SRS 的 `/observation/cfr_est` |
+| `sources` | list[str] | ["truth_cfr", "cfr_est", "rx_grid"] | `truth_cfr` 生成真值信道谱；`cfr_est` 生成估计信道谱；`rx_grid` 生成 NR PUSCH/SRS 接收信号谱；schema 1.5.0 后不再接受历史 `srs_cfr_est` source |
 | `method` | str | "bartlett" | 第一版仅支持 Bartlett |
 | `zenith_bins` | int | 91 | zenith 分辨率 |
 | `azimuth_bins` | int | 181 | azimuth 分辨率 |
@@ -229,9 +229,8 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 - `cfr_lines`、`cfr_heatmap`、`cfr_error` 都会输出幅度和相位两张图，文件名分别带
   `_magnitude` / `_phase` 后缀；其中 CFR error 的幅度图是估计幅度相对真值幅度的 dB 误差，相位图是 wrap 到 `[-pi, pi]` 的相位误差。
 - `spatial_spectrum` 会按数据来源分开输出：
-  `spatial_spectrum_label.png`、`spatial_spectrum_truth.png`、
-  `spatial_spectrum_cfr_est.png`、`spatial_spectrum_observation.png`、
-  `spatial_spectrum_srs.png`。
+  `spatial_spectrum_aoa_heatmap_label.png`、`spatial_spectrum_truth.png`、
+  `spatial_spectrum_cfr_est.png`、`spatial_spectrum_observation.png`。
   同时会额外输出对应的
   `*_polar.png`，每个 link 的 polar 图左右并排：左侧上半球半径为 zenith，
   右侧下半球半径为 `pi - zenith`，外圈都表示水平面。缺失的数据源会跳过，不会用其他谱混画。
@@ -409,7 +408,9 @@ reference 对齐、真实闭环功控或认证级一致性测试。
 
 `ranging` 是独立于 SRS/PUSCH 的 observation 后处理模块。开启后必须同时启用
 `phy.enabled=true`，并从 `/observation/cfr_est` 估计 ToA/one-way range；它不会改写
-`/derived` truth 字段。
+`/derived` truth 字段。YAML 侧配置由 `config/schema.py` 校验，运行时算法配置通过
+`config/mappers.py::to_domain_ranging_config()` 转成 `ranging/config.py` dataclass，
+保持算法包不依赖 Pydantic。
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -523,7 +524,7 @@ phy:
 array:
   spectrum:
     enabled: true
-    sources: ["truth_cfr", "cfr_est"]  # "srs_cfr_est" 仍是兼容别名
+    sources: ["truth_cfr", "cfr_est"]
 antenna:
   bs_array: { num_rows: 4, num_cols: 4 }  # BS receiver array in uplink
   ue_array: { num_rows: 1, num_cols: 2 }  # UE sounding antennas

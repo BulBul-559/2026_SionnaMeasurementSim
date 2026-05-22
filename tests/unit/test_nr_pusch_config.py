@@ -310,10 +310,9 @@ class TestRunNRPUSCHObservation:
         assert arrays["rx_snapshot_matrix"].shape == (1, 2, 3, 4, 4)
         assert arrays["aoa_label_rad"].shape == (1, 2, 3, 2)
         assert arrays["aoa_heatmap_label"].shape == (1, 2, 3, 91, 181)
-        assert arrays["spatial_spectrum_label"].shape == (1, 2, 3, 91, 181)
         assert arrays["angle_grid_rad"].shape == (91, 181, 2)
         assert "spatial_spectrum_observation" not in arrays
-        assert np.all(arrays["spatial_spectrum_label"] == 0.0)
+        assert np.all(arrays["aoa_heatmap_label"] == 0.0)
         np.testing.assert_allclose(arrays["angle_grid_rad"][0, 0], [0.0, -np.pi])
         np.testing.assert_allclose(arrays["angle_grid_rad"][-1, -1], [np.pi, np.pi])
 
@@ -323,7 +322,7 @@ class TestRunNRPUSCHObservation:
 
         arrays = build_array_outputs_from_waveform(rx_grid, aoa_label_rad=aoa)
 
-        spectrum = arrays["spatial_spectrum_label"]
+        spectrum = arrays["aoa_heatmap_label"]
         assert np.count_nonzero(spectrum) == 1
         assert spectrum[0, 0, 0, 45, 90] == 1.0
         np.testing.assert_allclose(arrays["aoa_label_rad"], aoa)
@@ -345,7 +344,7 @@ class TestRunNRPUSCHObservation:
         )
 
         assert arrays["angle_grid_rad"].shape == (7, 9, 2)
-        assert arrays["spatial_spectrum_label"].shape == (1, 1, 1, 7, 9)
+        assert arrays["aoa_heatmap_label"].shape == (1, 1, 1, 7, 9)
         assert arrays["spatial_spectrum_observation"].shape == (1, 1, 1, 7, 9)
         assert np.all(np.isfinite(arrays["spatial_spectrum_observation"]))
 

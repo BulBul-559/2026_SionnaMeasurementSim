@@ -139,7 +139,7 @@ def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):
     with h5py.File(results_path, "r") as h5:
         assert h5["array/angle_grid_rad"].shape == (5, 7, 2)
         assert h5["array/aoa_heatmap_label"].shape == (1, 1, 1, 5, 7)
-        assert h5["array/spatial_spectrum_label"].shape == (1, 1, 1, 5, 7)
+        assert "array/spatial_spectrum_label" not in h5
         assert h5["array/spatial_spectrum_truth"].shape == (1, 1, 1, 5, 7)
         assert "array/spatial_spectrum_observation" not in h5
         assert "array/rx_snapshot_matrix" not in h5

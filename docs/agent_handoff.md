@@ -30,7 +30,10 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。NR SRS 已升级为
 standards-shaped v2 subset。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
 `bs_points`/`ue_points` 口径。
-当前 HDF5 schema 版本是 `1.4.0`。
+当前 HDF5 schema 版本是 `1.5.0`。新输出不再写 array 兼容别名
+`/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`；AoA 监督 heatmap
+统一使用 `/array/aoa_heatmap_label`，SRS/估计 CFR 空间谱统一使用
+`/array/spatial_spectrum_cfr_est`。
 
 ## 深读文档地图
 
@@ -104,8 +107,9 @@ common chain 统一写 `/waveform/tx_grid`、`/waveform/rx_grid`、
 NR SRS 另写 `/waveform/srs_resource_mask`、`/waveform/srs_pilot_symbols`、
 `/waveform/srs_re_symbol_indices`、`/waveform/srs_re_subcarrier_indices`、
 `/waveform/srs_port_tx_ant_map`、per-symbol PRB/cyclic-shift/sequence/power metadata
-和 `/observation/cfr_est_resource`。schema `1.4.0` 后不再写 `/waveform/pilot_code`、
-`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`。
+和 `/observation/cfr_est_resource`。schema `1.5.0` 后不再写 `/waveform/pilot_code`、
+`/waveform/srs_port_index`、`/observation/srs_cfr_est`、`/array/spatial_spectrum_label`
+或 `/array/spatial_spectrum_srs`。
 
 schema `1.2.0` 后 `/derived/rtt_like_m` 和 `/derived/rtt_like_s` 已移除。
 truth range 写为 `/derived/first_path_propagation_range_m`。估计型 ToA/range 写到
@@ -124,6 +128,10 @@ resource LS -> cfr_est_resource -> frequency interpolation -> cfr_est
 
 v2 仍不能称为 3GPP-compliant：38.211/38.213 reference 对齐、完整 antenna switching
 procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/todo/feature.md`。
+
+配置层注意：`config/schema.py` 是 YAML/Pydantic validation model，ranging 算法使用
+`ranging/config.py` dataclass；两者通过 `config/mappers.py` 集中转换，不要在 CLI 或
+pipeline 里重新手写 ranging 字段拷贝。
 
 ## 数据目录
 
@@ -214,7 +222,7 @@ outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 - `/link/tx_role = "ue"`。
 - `/link/rx_role = "bs"`。
 - 没有 `/waveform/tx_time` 或 `/waveform/rx_time`。
-- schema `1.4.0` 后使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
+- schema `1.5.0` 后使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
   `/waveform/noise_variance`，以及 NR SRS resource 字段 `srs_resource_mask`、
   `srs_pilot_symbols`、`srs_re_symbol_indices`、`srs_re_subcarrier_indices`、
   `srs_port_tx_ant_map` 和 SRS power metadata。

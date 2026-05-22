@@ -141,7 +141,7 @@ visualization: # 采样可视化
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否生成 Bartlett 空间谱；默认关闭以避免大规模输出膨胀 |
-| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid`；`srs_cfr_est` 是历史兼容别名，仍指向 NR SRS `/observation/cfr_est` |
+| `sources` | list[str] | `["truth_cfr", "cfr_est", "rx_grid"]` | 可选 `truth_cfr`、`cfr_est`、`rx_grid`；schema 1.5.0 后不再接受历史 `srs_cfr_est` source |
 | `method` | str | `"bartlett"` | 第一版仅支持 Bartlett 扫描 |
 | `zenith_bins` | int | 91 | zenith 方向网格数 |
 | `azimuth_bins` | int | 181 | azimuth 方向网格数 |
@@ -191,7 +191,7 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 - `cfr_error` 输出 `cfr_error_magnitude.png` 和 `cfr_error_phase.png`；幅度误差为估计 CFR 幅度相对 truth CFR 幅度的 dB 差，相位误差为 wrap 到 `[-pi, pi]` 的相位差。
 - `waveform_grid` 输出 `waveform_rx_grid.png`，轴为 `[subcarrier, OFDM symbol]`，颜色为接收 grid 的天线聚合功率。
 - `path_samples` 只绘制当前采样选择中的第一个 UE-BS 链路，避免多个链路的路径几何叠到同一张 3D 图里；可通过多次指定不同 BS/UE 生成多链路对比。
-- `spatial_spectrum` 按数据源分开输出 `spatial_spectrum_label.png`、
+- `spatial_spectrum` 按数据源分开输出 `spatial_spectrum_aoa_heatmap_label.png`、
   `spatial_spectrum_truth.png`、`spatial_spectrum_cfr_est.png`、
   `spatial_spectrum_observation.png`，标题中标明 AoA heatmap label、truth CFR Bartlett、estimated CFR Bartlett 或 RX grid Bartlett。
 - `spatial_spectrum` 同时输出对应 `*_polar.png`：每个 link 的 polar 图左右并排，
@@ -516,7 +516,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.4.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.5.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -791,8 +791,9 @@ results.h5
 | `srs_power_scale_linear` | float32 [snap, ul_tx, srs_port] | 相对 `phy.tx_power_dbm` 的发射幅度缩放 |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
-schema `1.4.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`、
-`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`。resource LS/despread 写到
+schema `1.5.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`、
+`/waveform/srs_port_index`、`/observation/srs_cfr_est`、`/array/spatial_spectrum_srs`
+或 `/array/spatial_spectrum_label`。resource LS/despread 写到
 `/observation/cfr_est_resource [snapshot,tx,rx,rx_ant,srs_port,srs_re]`，full-band
 插值结果仍写 `/observation/cfr_est [snapshot,tx,rx,rx_ant,tx_ant,subcarrier]`。
 
@@ -805,16 +806,17 @@ schema `1.4.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 | `rx_snapshot_matrix` | [snap, ul_tx, ul_rx, ul_rx_ant, ul_rx_ant] | linear_complex | 由 NR PUSCH/SRS `rx_grid` 聚合的接收阵列协方差/快照矩阵 |
 | `aoa_label_rad` | [snap, ul_tx, ul_rx, 2] | rad | `[zenith, azimuth]` scene/global PHY 接收侧 AoA 标签；direct uplink 中 BS 是 RT receiver，因此使用 receiver-side AoA；只有 legacy reverse fallback 才会用原 RT AoD |
 | `aoa_heatmap_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 从真值 AoA 画出的监督 heatmap |
-| `spatial_spectrum_label` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | 兼容 alias，内容等同 `aoa_heatmap_label` |
 | `spatial_spectrum_truth` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `truth_cfr` 时写入，由 truth CFR Bartlett 在 scene/global 角度网格上扫描得到 |
 | `spatial_spectrum_cfr_est` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | `array.spectrum.enabled=true` 且 source 包含 `cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到 |
 | `spatial_spectrum_observation` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR PUSCH 且 source 包含 `rx_grid` 时写入，由实际接收 grid Bartlett 扫描得到 |
-| `spatial_spectrum_srs` | [snap, ul_tx, ul_rx, zenith_bins, azimuth_bins] | linear | NR SRS 且 source 包含 `srs_cfr_est` 时写入，由 `/observation/cfr_est` Bartlett 扫描得到；`srs_cfr_est` 仅是 spectrum source 名称兼容别名 |
 | `angle_grid_rad` | [zenith_bins, azimuth_bins, 2] | rad | scene/global 角度网格；默认 zenith `[0, pi]`，azimuth `[-pi, pi]`，可配置分辨率 |
 | `spectrum_policy` | scalar string | — | 记录 method、source、角度范围、归一化与聚合口径 |
 
-默认即使 `array.spectrum.enabled=false`，NR PUSCH 仍写 `aoa_heatmap_label` /
-`spatial_spectrum_label` 作为轻量监督标签；真实 Bartlett 谱只在显式开启时写入。
+默认即使 `array.spectrum.enabled=false`，NR PUSCH/SRS 仍写 `aoa_heatmap_label`
+作为轻量监督标签；真实 Bartlett 谱只在显式开启时写入。schema 1.5.0 的迁移：
+旧 `/array/spatial_spectrum_label` 改用 `/array/aoa_heatmap_label`；旧
+`array.spectrum.sources: ["srs_cfr_est"]` 和 `/array/spatial_spectrum_srs`
+改用 `cfr_est` source 与 `/array/spatial_spectrum_cfr_est`。
 
 ### 2.19 `/observation` — 观测结果（PHY 启用时）
 
@@ -834,7 +836,7 @@ schema `1.4.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 | `agc_gain_db` | [snap, rx] | float | dB | 接收侧 AGC 增益 |
 | `clipping_flag` | [snap, tx, rx] | bool | — | ADC 削波标志 |
 
-> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.4.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS/despread 另写 `/observation/cfr_est_resource`。
+> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.5.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS/despread 另写 `/observation/cfr_est_resource`。
 
 ### 2.20 `/ranging` — 波形级 ToA/range 观测（可选）
 

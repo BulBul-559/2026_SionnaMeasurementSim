@@ -14,6 +14,7 @@
 | 完成时间 | 描述 |
 |---|---|
 | 2026-05-18 | PUSCH/SRS 接入通用 clean channel → impairment/AWGN → receiver 链路，统一 waveform 字段和 impairment metadata。 |
+| 2026-05-22 | 清理 array label/source 兼容别名，新 schema 只写 `aoa_heatmap_label` 与 `spatial_spectrum_cfr_est`。 |
 
 ## Performance
 

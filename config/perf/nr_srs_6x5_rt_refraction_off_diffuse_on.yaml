@@ -63,7 +63,7 @@ antenna:
 array:
   spectrum:
     enabled: true
-    sources: ["truth_cfr", "srs_cfr_est"]
+    sources: ["truth_cfr", "cfr_est"]
     method: "bartlett"
     zenith_bins: 91
     azimuth_bins: 181
