@@ -5,6 +5,10 @@ Branch / commit: `<branch> / <commit>`
 Reviewer: `<name or agent>`
 Scope: `<repo-wide / selected subsystems>`
 Template version: `v1`
+Report language: `中文`
+
+> 正式健康体检报告必须使用中文撰写，除非用户明确要求使用其他语言。文件路径、命令、
+> HDF5 dataset 名称、成熟度等级和 P0-P5 风险优先级可以保留英文原文。
 
 ## Summary
 
@@ -43,9 +47,41 @@ Record the concrete inputs used for this report.
 | Git state | `git status --short --branch`, recent commits | TBD |
 | Architecture docs | `docs/agent_handoff.md`, `docs/sys/*.md` | TBD |
 | Code structure | targeted `find` / `rg`, key module reads | TBD |
+| Concept ownership | duplicate class/field/path scan, source-of-truth matrix | TBD |
 | Tests and validation | test tree, recent command output if run | TBD |
 | Config and schema | config templates, schema/writer/validator docs | TBD |
 | Known TODOs | `docs/sys/*todo*.md`, inline TODO search | TBD |
+
+## Concept Ownership / Single Source of Truth
+
+This section is mandatory for formal reports. It prevents one-off issue hunting by checking
+whether core concepts have an explicit owner and whether repeated representations are protected
+by a mapper or equivalence tests.
+
+Suggested discovery commands:
+
+```bash
+rg -n "class .*Config|SCHEMA_VERSION|PHY_REGISTRY|/observation|/waveform|RangingConfig|SRS|PUSCH" sionna_measurement_sim tests docs
+```
+
+Classify each concept as:
+
+| Status | Meaning |
+|---|---|
+| Single source | One owner defines the concept; other code imports or references it. |
+| Adapter boundary | Multiple representations are intentional and connected by an explicit mapper plus equivalence tests. |
+| Duplicate definition | Multiple owners repeat fields, defaults, constants, paths, or validation without a clear mapper/test. |
+| Drift observed | Repeated definitions already disagree or have caused behavior/output differences. |
+
+| Concept | Source of truth | Runtime representation | Mapper / adapter | Output contract | Validator | Docs | Tests | Status | Risk link |
+|---|---|---|---|---|---|---|---|---|---|
+| `<example: ranging config>` | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| `<example: HDF5 schema version>` | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| `<example: PHY standard registry>` | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+If this pass is skipped, record it in "Exclusions and Blind Spots" and cap these scorecard items
+at `Partial`: "Public contracts are stable and documented", "Config extension model is clear and
+validated", and "Repeated logic is extracted into appropriate helpers".
 
 ## Detailed Scorecard
 
@@ -57,7 +93,7 @@ Record the concrete inputs used for this report.
 | Domain models stay pure and free of external framework dependencies | 3 | TBD | TBD | TBD | TBD | TBD |
 | Modules follow single responsibility and cohesive ownership | 3 | TBD | TBD | TBD | TBD | TBD |
 | Registry/plugin boundaries isolate swappable implementations | 3 | TBD | TBD | TBD | TBD | TBD |
-| Public contracts are stable and documented | 3 | TBD | TBD | TBD | TBD | TBD |
+| Public contracts have explicit ownership and single-source-of-truth boundaries | 3 | TBD | TBD | TBD | TBD | TBD |
 | Directory layout is discoverable for new contributors | 3 | TBD | TBD | TBD | TBD | TBD |
 
 ### 2. Protocol and Feature Extensibility (14)
@@ -65,7 +101,7 @@ Record the concrete inputs used for this report.
 | Item | Weight | Level | Score | Evidence | Confidence | Improvement notes |
 |---|---:|---|---:|---|---|---|
 | Shared abstractions prevent protocol-specific duplication | 3 | TBD | TBD | TBD | TBD | TBD |
-| Config extension model is clear and validated | 3 | TBD | TBD | TBD | TBD | TBD |
+| Config extension model has one input contract and explicit runtime mappers | 3 | TBD | TBD | TBD | TBD | TBD |
 | Protocol-private waveform/receiver logic is isolated | 3 | TBD | TBD | TBD | TBD | TBD |
 | Schema and migration strategy can handle new outputs | 3 | TBD | TBD | TBD | TBD | TBD |
 | Defaults and feature flags support incremental adoption | 2 | TBD | TBD | TBD | TBD | TBD |

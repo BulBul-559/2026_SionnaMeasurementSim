@@ -37,6 +37,7 @@ Use this workflow for repository work that changes behavior, configuration, docu
 ## Documentation Contract
 
 - Update affected documentation before considering the task complete. Typical files are `README.md`, `config/README.md`, `docs/agent_handoff.md`, relevant `docs/sys/*.md`, TODO documents, and validation notes.
+- After substantial behavior, schema, config, pipeline, simulation-output, or architecture changes, use the project `sionna-doc-maintenance` skill to audit whether README, config docs/templates, sys docs, TODO docs, handoff, validation notes, or legacy docs need updates.
 - If defaults or config semantics change, update templates and config documentation together.
 - If HDF5 fields, schema versions, or output groups change, update `docs/sys/07_config_and_h5_format.md`, schema tests, and handoff.
 - If a feature remains partial, document exactly what is implemented, what is not, and the next-stage TODOs.

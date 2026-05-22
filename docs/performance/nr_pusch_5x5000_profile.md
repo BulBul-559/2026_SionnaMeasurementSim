@@ -6,7 +6,7 @@ Branch used for analysis: `perf/nr-pusch-5x5000-profile`
 
 Output directory: `outputs/perf_nrp5x5000_full_output`
 
-Status update: this is a historical single-GPU 5x5000 baseline report. CLI override fixes, NR PUSCH batching, native UE-sharded `run-full`, 4-GPU shard execution, and 6x8884 full-output validation were completed later. Current production behavior and remaining TODOs are documented in `docs/performance/nr_pusch_sharded_productionization.md` and `docs/performance/nr_pusch_performance_optimization_todo.md`. Current config naming is BS/UE (`max_bs/max_ue`); older `max_tx/max_rx` mentions below describe the historical run only.
+Status update: this is a historical single-GPU 5x5000 baseline report. CLI override fixes, NR PUSCH batching, native UE-sharded `run-full`, 4-GPU shard execution, and 6x8884 full-output validation were completed later. Current production behavior is documented in `docs/performance/nr_pusch_sharded_productionization.md`; remaining TODOs are tracked in `docs/todo/performance.md`. Current config naming is BS/UE (`max_bs/max_ue`); older `max_tx/max_rx` mentions below describe the historical run only.
 
 ## Run Setup
 

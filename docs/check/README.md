@@ -23,9 +23,14 @@ Every formal health-check report must include:
 1. Scope, date, branch/commit, and reviewer.
 2. Score summary with module scores and total score out of 100.
 3. Detailed score table with evidence, confidence, and improvement notes for each item.
-4. Risk list graded P0 through P5.
-5. Recommendations grouped by priority or workstream.
-6. Explicit exclusions and blind spots.
+4. Concept ownership / single-source-of-truth matrix.
+5. Risk list graded P0 through P5.
+6. Recommendations grouped by priority or workstream.
+7. Explicit exclusions and blind spots.
+
+Formal health-check reports must be written in Chinese unless the user explicitly asks for
+another language. Technical identifiers such as file paths, commands, dataset names, maturity
+levels, and P0-P5 risk priorities may stay in their original English form.
 
 ## Scoring Scale
 
@@ -61,5 +66,7 @@ Do not invent severe risks to fill the table. If no P0 or P1 risk exists, say so
 - Use current truth from `docs/agent_handoff.md` and `docs/sys/`.
 - Use targeted `rg`, `find`, `git status`, and focused file reads.
 - Do not recursively scan or operate on `data/` or `outputs/`.
+- Run a concept ownership pass: list important concepts, identify their source of truth,
+  runtime representation, mapper/adapter, output contract, validator, docs, and tests.
 - Keep facts and judgment separate: cite files, commands, or observed structure before scoring.
 - Record confidence as `High`, `Medium`, or `Low` for each module and risk.

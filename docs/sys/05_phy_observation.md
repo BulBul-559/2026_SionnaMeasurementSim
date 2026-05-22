@@ -305,7 +305,7 @@ per-symbol PRB、cyclic shift、sequence 和 power-control metadata。不再写
 当前 v2 已覆盖 group/sequence hopping、同 symbol cyclic-shift port multiplexing、
 frequency/bandwidth hopping、port/antenna switching 口径和简化 power scaling；
 仍未做 38.211/38.213 reference 对齐、完整 antenna switching procedure、闭环功控或
-3GPP-compliant 声明，详见 `docs/sys/nr_srs_standard_todo.md`。
+3GPP-compliant 声明，详见 `docs/todo/feature.md`。
 
 ### SU-MIMO per-link 处理：`_process_su_mimo_per_link()`
 
