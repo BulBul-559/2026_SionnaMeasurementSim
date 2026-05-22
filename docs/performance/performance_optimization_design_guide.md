@@ -4,13 +4,19 @@
 
 来源：性能优化实验。本文是可带回 `main` 的设计指南，描述推荐边界、接口语义和验收口径；不要求保留或检出实验分支代码。
 
+状态更新：本文是历史性能设计指南，不是当前 active TODO 列表。部分建议已经落地
+（PUSCH batching、UE shard、manifest、多 GPU shard、空间谱 chunk 等），剩余工作以
+`docs/todo/performance.md` 和 `docs/todo/structure.md` 为准。当前 SRS/PUSCH
+生产口径和 schema 见 `docs/sys/indoor_fr1_100mhz_validation.md` 与
+`docs/sys/07_config_and_h5_format.md`。
+
 ## 适用范围
 
 本文面向后续性能优化和新 PHY 模块设计，基于当前 3x3000、5x5000 性能报告和系统文档：
 
-- `docs/performance/nr_pusch_3x3000_light_baseline.md`
-- `docs/performance/nr_pusch_3x3000_split_benchmarks.md`
 - `docs/performance/nr_pusch_5x5000_profile_zh.md`
+- `docs/performance/nr_pusch_optimization_iteration_1.md`
+- `docs/performance/nr_pusch_sharded_productionization.md`
 - `docs/sys/04_rt_pipeline.md`
 - `docs/sys/05_phy_observation.md`
 - `docs/sys/07_config_and_h5_format.md`

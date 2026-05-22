@@ -49,6 +49,7 @@ standards-shaped v2 subset。
 | 功能 / 标准 / ranging 后续工作 | `docs/todo/feature.md` |
 | 性能和规模化后续工作 | `docs/todo/performance.md` |
 | 结构和数据契约后续工作 | `docs/todo/structure.md` |
+| 历史性能实验索引 | `docs/performance/README.md` |
 
 ## 核心语义
 

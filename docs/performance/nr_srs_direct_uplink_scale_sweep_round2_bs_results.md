@@ -4,6 +4,11 @@
 
 分支：`codex/uplink-scale-sweep`
 
+状态更新：本文是 direct-uplink BS sweep 的历史结果记录，保留用于解释 BS 维度扩大时
+RT、HDF5 写入和 `synthetic_array` 的历史行为。当前生产默认不从本文推导；SRS baseline
+和推荐 shard 参数见 `docs/sys/indoor_fr1_100mhz_validation.md`，active 优化项见
+`docs/todo/performance.md` 和 `docs/todo/structure.md`。
+
 本文记录第二轮 **固定 UE=20，扫描 BS 数量** 的真实 UE->BS uplink 规模测试。测试目标是回答：
 
 1. 在 direct uplink 语义下，BS 数量是否比 UE 数量更宽松。

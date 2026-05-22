@@ -4,6 +4,10 @@
 
 分支：`codex/uplink-scale-sweep`
 
+Legacy note：本文是已执行完毕的历史计划，已被
+`docs/performance/nr_srs_direct_uplink_scale_sweep_round2_bs_results.md` 取代。保留在
+`docs/legacy/performance/` 仅供人工复核当时的实验矩阵设计。
+
 本文定义第二轮 **固定 UE 数量、扫描 BS 数量** 的测试矩阵。第一轮已经证明在
 真实 UE→BS uplink 语义下，`synthetic_array=false` 的 `6 BS x 20 UE` 可以通过，
 `6 BS x 50 UE` 会在 Sionna RT/Dr.Jit 阶段失败。因此本轮暂不做 UE 二分，先固定：

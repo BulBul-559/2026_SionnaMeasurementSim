@@ -4,6 +4,11 @@
 
 分支：`codex/uplink-scale-sweep`
 
+状态更新：本文是 direct-uplink UE block 边界的历史 sweep 结果。文中的 `UE_block`
+边界用于解释当时 Bistro 场景和 100 MHz 模板下的风险，不等同于当前生产模板默认值；
+当前推荐 `shard_size=20` 和已完成 baseline 见
+`docs/sys/indoor_fr1_100mhz_validation.md`。
+
 本文记录第三轮 **生产 shard 粒度精细实验**。当前目标场景约为：
 
 ```text

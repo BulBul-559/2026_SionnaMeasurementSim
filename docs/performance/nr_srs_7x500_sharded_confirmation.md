@@ -4,6 +4,12 @@
 
 分支：`codex/srs-shard-confirmation`
 
+状态更新：本文是 2026-05-18 的历史确认测试，用于记录当时 `7 BS x 500 UE`、
+`shard_size=25`、SRS-like direct uplink 的 shard 可行性。当前 SRS 生产建议已改为
+`shard_size=20`，schema 已升级到 `1.5.0`，旧 array/SRS 兼容别名不再写入；当前默认口径见
+`docs/sys/indoor_fr1_100mhz_validation.md`、`docs/agent_handoff.md` 和
+`config/README.md`。
+
 本文记录 `nr_srs` direct uplink 的 UE shard 生产口径确认测试。目标是确认：
 
 1. shard runner 按新 BS/UE 语义切 UE，而不是旧 TX/RX 语义。
@@ -166,9 +172,13 @@ Aggregate stage totals across all shards:
 如果改用 4 GPU，按同一 shard 耗时粗估约为 `14-15 min`。如果打开空间谱、可视化或额外保存字段，
 需要重新测试，不能直接套用本估算。
 
-## 生产建议
+## 历史生产建议（已 superseded）
 
-当前 Bistro SRS-like direct uplink 推荐模板：
+下面是本次 2026-05-18 确认测试后形成的历史建议，后来已被
+`median_0000 label0p2` 全量 baseline 修正：当前推荐 `shard_size=20`，见
+`docs/sys/indoor_fr1_100mhz_validation.md`。
+
+当时 Bistro SRS-like direct uplink 推荐模板：
 
 ```yaml
 input:
@@ -190,5 +200,6 @@ visualization:
   enabled: false
 ```
 
-`shard_size=25` 是保守生产值。此前 scale sweep 已验证 `7x30` 单 shard 通过、`7x35`
-失败；如果后续场景复杂度或 RT 参数变化，应重新做 UE block sweep。
+`shard_size=25` 当时被认为是保守生产值；后续 `median_0000 label0p2` 全量 baseline
+发现后段 shard 会在 `paths.cfr()` 触发 Dr.Jit `2^32` entry 上限，因此当前模板改用
+`shard_size=20`。如果后续场景复杂度或 RT 参数变化，应重新做 UE block sweep。

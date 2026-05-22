@@ -25,6 +25,7 @@
 - `../todo/structure.md`：reader、数据契约、benchmark 入口和 legacy 模块整理。
 - `../todo/performance.md`：写盘、RT、空间谱、GPU 调度和大规模运行优化。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
+- `../performance/README.md`：历史性能实验记录索引和 legacy 审查状态。
 
 ## 当前事实
 

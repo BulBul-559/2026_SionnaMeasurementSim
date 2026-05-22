@@ -278,7 +278,7 @@ SionnaMeasurementSim/
 | [todo/performance](docs/todo/performance.md) | 大规模运行、写盘、RT、空间谱和 GPU 调度 TODO |
 | [todo/bug](docs/todo/bug.md) | 已确认缺陷和回归 TODO |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
-| [nr_srs_rt_variant_sweep_6x5](docs/performance/nr_srs_rt_variant_sweep_6x5.md) | SRS-like `synthetic_array=false` RT sweep、OOM 口径和 true/false 对照 |
+| [performance](docs/performance/README.md) | 历史性能实验记录索引和 legacy 审查状态 |
 
 ## 约束
 
