@@ -121,7 +121,7 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM（默认） |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
-| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 定位模板；生产建议使用 `label0p2.json`、UE shard `20` |
+| `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 定位模板；生产建议从标准 label `0.1.0` 中选择中等密度 UE 采样、UE shard `20` |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
 生产场景通常需要复制模板到 `outputs/local_configs/`，再把 `input.label_file`、
@@ -129,9 +129,10 @@ def load_config_or_exit(path) -> MeasurementConfig  # 失败则打印错误并 s
 
 ## 本地数据路径
 
-`data/` 与 `outputs/` 均为 ignored 本地运行路径，可以是 symlink。当前场景数据按
-`dense/median/sparse` 组织，场景目录中提供 `label0p1.json`、`label0p2.json`、
-`label0p4.json` 三种采样粒度。默认不要递归扫描这两个目录。
+`data/` 与 `outputs/` 均为 ignored 本地运行路径，可以是 symlink。标准场景目录应提供
+Mitsuba `scene.xml`、标准 label `0.1.0` JSON 和可选 floorplan 资源；label 路径通常位于
+场景目录的 `label/` 子目录下，具体采样策略和间隔由文件名表达。默认不要递归扫描
+`data/` 或 `outputs/`。
 
 ## 可视化入口
 

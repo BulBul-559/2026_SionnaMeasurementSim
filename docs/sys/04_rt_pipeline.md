@@ -130,6 +130,14 @@ link-view，并在 `/link/tx_role`、`/link/rx_role` 记录 TX/RX 分别对应 `
 `bs`。旧的 `rt_trace_direction`、`reciprocity_*` 用户配置口径已移除；低层 legacy
 transpose 只作为内部测试/兼容路径存在。
 
+**标准 label 口径：**
+
+`input.label_file` 当前按标准 label `0.1.0` 解析：顶层 `bs_points` 和 `ue_points`
+是全场景默认点集，`max_bs`、`max_ue`、`ue_start`、显式 index 和 shard 都作用在这两个
+顶层列表上。`groups` 只作为房间/区域/生成策略元数据保留，pipeline 暂不提供
+`label_group_policy`，也不会默认取第一个 group。点坐标支持 `position: [x, y, z]`
+或显式 `x/y/z`，单位均为米。
+
 **PHY module 分支** (`phy/modules.py`):
 - `custom_ofdm` 适配现有 `run_awgn_ls_observation()`，作为 legacy 路径保留
 - `nr_pusch` 调用 `run_nr_pusch_observation()`，通过 common link 写统一 waveform grid、array 输出和 batching 统计

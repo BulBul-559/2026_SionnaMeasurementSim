@@ -29,9 +29,11 @@
 - 配置和 label 层使用 `BS/UE`；仿真和 HDF5 层使用 resolved `TX/RX`。
 - `link.phy_link_direction="uplink"` 时，`TX=UE`、`RX=BS`。
 - 当前 SRS 生产基线使用 direct uplink、`rt.synthetic_array=false`。
-- 本地数据在 ignored `data/` 下，当前主要是 `dense/`、`median/`、`sparse/`。
-- 每个场景有 `label0p1.json`、`label0p2.json`、`label0p4.json` 三种 UE 采样粒度。
-- 当前推荐 baseline 粒度是 `label0p2.json`。
+- 本地数据在 ignored `data/` 下；场景目录应提供 `scene.xml`、标准 label `0.1.0`
+  JSON 和可选 floorplan 资源。
+- 标准 label 顶层 `bs_points`/`ue_points` 是全场景默认点集，`groups` 只是房间/区域等
+  子集元数据；当前 pipeline 不按 group 过滤。
+- 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
 - 当前 schema 版本是 `1.4.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、

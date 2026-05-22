@@ -50,6 +50,10 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
         assert h5["paths/nlos_truth/valid"].shape[:4] == h_true.shape[:4]
         assert h5["scene/scene_id"][()].decode("utf-8") == "fixture_scene"
         assert h5["scene/map_id"][()].decode("utf-8") == "fixture_map"
+        assert h5["input/input_schema"][()].decode("utf-8") == "standard_label_0.1.0"
+        assert h5["input/input_dataset_id"][()].decode("utf-8") == (
+            "tests/fixtures/scenes/test"
+        )
         assert h5["derived/geometric_distance_m"].shape == (1, 1)
         assert h5["derived/link_valid_mask"].shape == (1, 1)
         assert h5["derived/path_selection_policy"][()].decode("utf-8")

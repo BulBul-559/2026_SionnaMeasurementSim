@@ -382,30 +382,40 @@ AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 lin
 
 ```json
 {
-  "scene_file": "scene.obj",
+  "label_schema": "0.1.0",
+  "scene_file": "scene.xml",
+  "bs_points": [
+    {"position": [2.0, 4.0, 2.4], "label": "BS0"},
+    ...
+  ],
+  "ue_points": [
+    {"x": 2.0, "y": 4.0, "z": 1.6, "label": "UE0"},
+    ...
+  ],
   "groups": [
     {
-      "name": "默认分组",
-      "bs_points": [
-        {"x": 2.0, "y": 4.0, "z": 2.4, "label": "BS0"},
-        ...
-      ],
-      "ue_points": [
-        {"x": 2.0, "y": 4.0, "z": 1.0, "label": "UE0"},
-        ...
-      ]
+      "name": "room_or_region_name",
+      "bs_points": [...],
+      "ue_points": [...]
     }
   ]
 }
 ```
 
-当前真实数据通常位于 ignored `data/{dense,median,sparse}/<scene_id>/`。每个场景目录
-保留三种 UE 采样粒度：`label0p1.json`、`label0p2.json`、`label0p4.json`。
-推荐 baseline 使用 `label0p2.json`。
+当前标准 label 格式版本为 `0.1.0`。`label_schema`/`label_version` 目前只作为信息字段
+保留，pipeline 不做强校验；解析器直接读取顶层 `bs_points` 和 `ue_points` 作为全场景
+默认点集。`groups` 只表示房间、区域或生成策略等子集元数据，当前 pipeline 不根据
+`groups` 选择局部场景，也没有 `label_group_policy`。
 
-- 取第一个 `group` 的 `bs_points[:max_bs]` 和 `ue_points[:max_ue]`
+- 取顶层 `bs_points[:max_bs]` 和 `ue_points[:max_ue]`
+- BS/UE 点坐标可以写成 `position: [x, y, z]`，也可以写成显式 `x/y/z`
 - 坐标单位为米（场景本地坐标系）
 - 解析器：`sionna_measurement_sim/io/label_parser.py`
+
+标准 floorplan 文件名使用截断高度编码，例如 `floorplan_1p60.png` 表示
+`z=1.60 m` 的平面图。对应 `floorplan/meta.json` 应提供 `origin_xy_m`、
+`extent_xy_m`、`resolution_m_per_pixel`、`grid_shape` 和 `z_levels_m`，用于真实坐标
+与图像像素之间转换。
 
 #### Scene XML（`input.scene_file`）
 
@@ -543,8 +553,8 @@ results.h5
 |---------|------|------|
 | `label_file` | string | 标签文件路径 |
 | `scene_file` | string | 场景文件路径 |
-| `input_dataset_id` | string | 数据集标识 |
-| `input_schema` | string | 标签 schema 版本 |
+| `input_dataset_id` | string | 数据集标识；标准 `label/` 子目录布局下取场景目录路径 |
+| `input_schema` | string | 标签 schema 版本，当前写 `standard_label_0.1.0` |
 
 ### 2.6 `/topology` — 拓扑
 

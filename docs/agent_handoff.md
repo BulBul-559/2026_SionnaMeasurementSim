@@ -25,10 +25,10 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
   `/devices/rx_orientation_rad` 适配接收阵列旋转。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
-当前工作分支为 `codex/nr-srs-stage2-p1-p2`。`main` 已包含 NR PUSCH 与
+当前工作分支为 `codex/standard-label-format-0-1`。`main` 已包含 NR PUSCH 与
 NR SRS 的 clean channel、基带损伤、AWGN 和 observation metadata 统一链路；
-`custom_ofdm` 保留为 legacy 路径。本分支正在把 NR SRS 升级为
-standards-shaped v2 subset。
+`custom_ofdm` 保留为 legacy 路径。本分支正在把输入 label 解析切到标准 label
+`0.1.0` 的全场景顶层 `bs_points`/`ue_points` 口径。
 当前 HDF5 schema 版本是 `1.4.0`。
 
 ## 深读文档地图
@@ -126,29 +126,22 @@ procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/sys/
 
 `data/` 与 `outputs/` 都是 ignored 本地路径，可以是 symlink。
 
-当前本地 `data/` 下主要有：
+标准场景目录应提供 `scene.xml`、标准 label `0.1.0` JSON 和可选 floorplan 资源：
 
 ```text
-data/dense/
-data/median/
-data/sparse/
+data/<dataset>/<scene_id>/
+├── scene.xml
+├── label/
+│   └── <label_variant>.json
+└── floorplan/
+    ├── floorplan_1p60.png
+    └── meta.json
 ```
 
-每个场景目录已统一命名，例如：
-
-```text
-data/median/median_0000/
-```
-
-每个场景有三种 label：
-
-| 文件 | UE 采样间隔 | 当前 UE 数 |
-|---|---:|---:|
-| `label0p1.json` | 0.1 m | 10360 |
-| `label0p2.json` | 0.2 m | 2583 |
-| `label0p4.json` | 0.4 m | 654 |
-
-`label0p2.json` 是当前更适合作为 baseline 的默认规模。`label0p1.json` 成本很高，先不要默认跑全量。
+pipeline 只读取 label 顶层 `bs_points` 和 `ue_points` 作为全场景默认点集；`groups`
+保留为房间、区域或生成策略子集元数据，当前没有 `label_group_policy`。点坐标单位为米，
+支持 `position: [x, y, z]` 或显式 `x/y/z`。floorplan 命名中的 `1p60` 表示截断高度
+`1.60 m`，图像与真实坐标转换来自 `floorplan/meta.json`。
 
 ## 当前推荐 SRS 配置
 
@@ -313,7 +306,9 @@ nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu,power.draw
 
 ## 重要坑点
 
-- 不要默认跑 `label0p1.json` 全量，它是 10360 UE，成本约为 `label0p2` 的 4 倍。
+- 不要默认跑最高密度 label 全量；先用中等或稀疏采样做 smoke，再按 shard 扩大。
+- 标准 label 中不要再默认取第一个 `groups`；全场景点集必须来自顶层
+  `bs_points`/`ue_points`。
 - `data/` 和 `outputs/` 不进 git，里面的真实数据和仿真输出都应视为本地大文件。
 - 历史性能报告中的 `shard_size=25` 是历史记录；当前 SRS 生产模板推荐 `20`。
 - direct uplink 下 UE 是 source，UE block 大小比 BS 数更容易触发 RT/Dr.Jit 限制。

@@ -22,6 +22,7 @@ debug:
   write_hardware_samples: true
 
 input:
+  # Standard label 0.1.0: top-level bs_points/ue_points are the full-scene default.
   label_file: "tests/fixtures/scenes/test/test5.json"
   scene_file: "tests/fixtures/scenes/test/scene.xml"
   scene_id: "scene"

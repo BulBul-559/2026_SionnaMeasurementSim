@@ -51,6 +51,7 @@ from sionna_measurement_sim.domain.topology import (
 )
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.label_parser import (
+    STANDARD_LABEL_SCHEMA_VERSION,
     count_topology_points,
     load_role_topology_from_label,
 )
@@ -401,8 +402,8 @@ def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
         input_spec=InputSpec(
             label_file=config.label_file.as_posix(),
             scene_file=config.scene_file.as_posix(),
-            input_dataset_id=config.label_file.parent.as_posix(),
-            input_schema="test5_json",
+            input_dataset_id=_input_dataset_id(config.label_file),
+            input_schema=f"standard_label_{STANDARD_LABEL_SCHEMA_VERSION}",
         ),
         topology=topology,
         devices=_build_device_state(
@@ -1274,6 +1275,7 @@ def _build_truth_array_outputs(
     )
     return outputs
 
+
 def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
     return {
         "label_file": config.label_file.as_posix(),
@@ -1437,6 +1439,13 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             },
         },
     }
+
+
+def _input_dataset_id(label_file: Path) -> str:
+    label_dir = label_file.parent
+    if label_dir.name == "label":
+        return label_dir.parent.as_posix()
+    return label_dir.as_posix()
 
 
 def _ranging_config_snapshot(config: RangingConfig) -> dict[str, object]:

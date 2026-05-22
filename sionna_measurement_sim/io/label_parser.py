@@ -15,6 +15,8 @@ from sionna_measurement_sim.domain.topology import (
     resolve_role_topology,
 )
 
+STANDARD_LABEL_SCHEMA_VERSION = "0.1.0"
+
 
 def load_topology_from_label(
     label_file: str | Path,
@@ -73,15 +75,15 @@ def load_role_topology_from_label(
 
     label_path = Path(label_file)
     data = json.loads(label_path.read_text(encoding="utf-8"))
-    group = _select_group(data)
+    bs_source_points, ue_source_points = _standard_label_points(data, label_path)
     bs_points, selected_bs_indices = _select_points_with_indices(
-        group.get("bs_points", []),
+        bs_source_points,
         max_count=max_bs,
         indices=bs_indices,
         label="BS",
     )
     ue_points, selected_ue_indices = _select_points_with_indices(
-        group.get("ue_points", []),
+        ue_source_points,
         max_count=max_ue,
         start=ue_start,
         count=ue_count,
@@ -108,25 +110,33 @@ def count_topology_points(label_file: str | Path) -> tuple[int, int]:
 
     label_path = Path(label_file)
     data = json.loads(label_path.read_text(encoding="utf-8"))
-    group = _select_group(data)
-    tx_points = group.get("bs_points", [])
-    rx_points = group.get("ue_points", [])
-    if not isinstance(tx_points, list) or not isinstance(rx_points, list):
-        msg = "Label group bs_points and ue_points must be lists"
-        raise ValueError(msg)
+    tx_points, rx_points = _standard_label_points(data, label_path)
     return len(tx_points), len(rx_points)
 
 
-def _select_group(data: dict[str, Any]) -> dict[str, Any]:
-    groups = data.get("groups")
-    if not isinstance(groups, list) or not groups:
-        msg = "Label JSON must contain a non-empty groups list"
+def _standard_label_points(
+    data: dict[str, Any],
+    label_path: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return full-scene BS/UE point lists from the standard label format."""
+
+    bs_points = data.get("bs_points")
+    ue_points = data.get("ue_points")
+    if not isinstance(bs_points, list) or not isinstance(ue_points, list):
+        msg = (
+            "Standard label JSON must contain top-level bs_points and ue_points lists "
+            f"({label_path}). groups are metadata/subsets and are not used for default topology."
+        )
         raise ValueError(msg)
-    group = groups[0]
-    if not isinstance(group, dict):
-        msg = "Label group must be a mapping"
-        raise ValueError(msg)
-    return group
+    return _ensure_point_mappings(bs_points, "BS"), _ensure_point_mappings(ue_points, "UE")
+
+
+def _ensure_point_mappings(points: list[Any], label: str) -> list[dict[str, Any]]:
+    for index, point in enumerate(points):
+        if not isinstance(point, dict):
+            msg = f"{label} point {index} must be a mapping"
+            raise ValueError(msg)
+    return points
 
 
 def _select_points(
@@ -159,7 +169,7 @@ def _select_points_with_indices(
     indices: list[int] | tuple[int, ...] | None = None,
 ) -> tuple[list[dict[str, Any]], tuple[int, ...]]:
     if not isinstance(points, list):
-        msg = f"Label group {label} points must be a list"
+        msg = f"Label {label} points must be a list"
         raise ValueError(msg)
     if max_count < 1:
         msg = f"max {label} count must be positive"
@@ -201,7 +211,19 @@ def _validate_indices(indices: tuple[int, ...], point_count: int, label: str) ->
 
 
 def _points_to_positions(points: list[dict[str, Any]]) -> np.ndarray:
-    return np.asarray(
-        [[float(point["x"]), float(point["y"]), float(point["z"])] for point in points],
-        dtype=np.float32,
-    )
+    return np.asarray([_point_to_position(point) for point in points], dtype=np.float32)
+
+
+def _point_to_position(point: dict[str, Any]) -> tuple[float, float, float]:
+    position = point.get("position")
+    if isinstance(position, (list, tuple)):
+        if len(position) != 3:
+            msg = "Label point position must contain exactly three coordinates"
+            raise ValueError(msg)
+        return (float(position[0]), float(position[1]), float(position[2]))
+
+    try:
+        return (float(point["x"]), float(point["y"]), float(point["z"]))
+    except KeyError as exc:
+        msg = "Label point must define either position=[x, y, z] or explicit x/y/z fields"
+        raise ValueError(msg) from exc

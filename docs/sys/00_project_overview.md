@@ -74,25 +74,23 @@ Label JSON + Scene XML + Config YAML
 
 ## 当前本地数据约定
 
-`data/` 和 `outputs/` 都是 `.gitignore` 的本地运行路径，可以是 symlink。当前真实
-场景数据按采样密度分为：
+`data/` 和 `outputs/` 都是 `.gitignore` 的本地运行路径，可以是 symlink。标准场景目录
+提供 Mitsuba `scene.xml`、标准 label `0.1.0` JSON 和可选 floorplan 资源。不要递归扫描
+这两个目录；只针对明确给出的场景、label 或输出路径操作。
 
 ```text
-data/dense/
-data/median/
-data/sparse/
+data/<dataset>/<scene_id>/
+├── scene.xml
+├── label/
+│   └── <label_variant>.json
+└── floorplan/
+    ├── floorplan_1p60.png
+    └── meta.json
 ```
 
-每个场景目录使用对应前缀，例如 `data/median/median_0000/`。每个场景有三种 label：
-
-| 文件 | UE 采样间隔 | 当前 UE 数 |
-|---|---:|---:|
-| `label0p1.json` | 0.1 m | 10360 |
-| `label0p2.json` | 0.2 m | 2583 |
-| `label0p4.json` | 0.4 m | 654 |
-
-当前推荐 baseline 使用 `label0p2.json`。`label0p1.json` 成本约为 `label0p2.json`
-的 4 倍，不应作为默认全量实验。
+label 顶层 `bs_points`/`ue_points` 是全场景默认点集；`groups` 只保留房间、区域或生成
+策略等子集元数据。当前 pipeline 不做 `label_group_policy`。floorplan 命名中的
+`1p60` 表示截断高度 `1.60 m`，坐标与像素转换信息来自 `floorplan/meta.json`。
 
 ## 代码目录与文档映射
 

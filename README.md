@@ -57,6 +57,15 @@ uv run python -m sionna_measurement_sim.app.cli run-full --help
 
 > `--config` 参数会加载 YAML 配置文件；CLI 的 `--snr-db`、`--max-bs`、`--max-ue` 等参数可覆盖 YAML 中的对应值。
 
+## 输入数据约定
+
+`input.label_file` 使用标准 label `0.1.0` JSON。pipeline 读取顶层
+`bs_points` 和 `ue_points` 作为全场景 BS/UE 点集；`groups` 只作为房间、区域或生成策略
+元数据保留，当前不会默认选第一个 group，也不需要配置 `label_group_policy`。点坐标可以
+写成 `position: [x, y, z]` 或显式 `x/y/z`，单位为米。可选 floorplan 使用
+`floorplan_<height>.png` 命名，例如 `floorplan_1p60.png` 表示 `z=1.60 m` 截断高度，
+像素/真实尺寸转换由 `floorplan/meta.json` 提供。
+
 ## 命令行
 
 | 命令 | 说明 |

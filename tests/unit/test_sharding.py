@@ -265,22 +265,28 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
 
 def _write_label(tmp_path: Path) -> Path:
     label_path = tmp_path / "label.json"
+    bs_points = [
+        {"position": [0.0, 1.0, 2.0], "label": "BS0"},
+        {"position": [1.0, 2.0, 2.0], "label": "BS1"},
+        {"position": [2.0, 3.0, 2.0], "label": "BS2"},
+    ]
+    ue_points = [
+        {"x": 10.0, "y": 20.0, "z": 1.0, "label": "UE0"},
+        {"x": 11.0, "y": 21.0, "z": 1.0, "label": "UE1"},
+        {"x": 12.0, "y": 22.0, "z": 1.0, "label": "UE2"},
+        {"x": 13.0, "y": 23.0, "z": 1.0, "label": "UE3"},
+    ]
     label_path.write_text(
         json.dumps(
             {
+                "label_schema": "0.1.0",
+                "bs_points": bs_points,
+                "ue_points": ue_points,
                 "groups": [
                     {
-                        "bs_points": [
-                            {"x": 0.0, "y": 1.0, "z": 2.0, "label": "BS0"},
-                            {"x": 1.0, "y": 2.0, "z": 2.0, "label": "BS1"},
-                            {"x": 2.0, "y": 3.0, "z": 2.0, "label": "BS2"},
-                        ],
-                        "ue_points": [
-                            {"x": 10.0, "y": 20.0, "z": 1.0, "label": "UE0"},
-                            {"x": 11.0, "y": 21.0, "z": 1.0, "label": "UE1"},
-                            {"x": 12.0, "y": 22.0, "z": 1.0, "label": "UE2"},
-                            {"x": 13.0, "y": 23.0, "z": 1.0, "label": "UE3"},
-                        ],
+                        "name": "room_subset_metadata",
+                        "bs_points": bs_points[:1],
+                        "ue_points": ue_points[:1],
                     }
                 ]
             }
@@ -292,29 +298,33 @@ def _write_label(tmp_path: Path) -> Path:
 
 def _write_label_with_counts(tmp_path: Path, *, tx_count: int, rx_count: int) -> Path:
     label_path = tmp_path / f"label_{tx_count}_{rx_count}.json"
+    bs_points = [
+        {
+            "position": [float(index), float(index + 1), 2.0],
+            "label": f"BS{index}",
+        }
+        for index in range(tx_count)
+    ]
+    ue_points = [
+        {
+            "x": float(index),
+            "y": float(index + 10),
+            "z": 1.0,
+            "label": f"UE{index}",
+        }
+        for index in range(rx_count)
+    ]
     label_path.write_text(
         json.dumps(
             {
+                "label_schema": "0.1.0",
+                "bs_points": bs_points,
+                "ue_points": ue_points,
                 "groups": [
                     {
-                        "bs_points": [
-                            {
-                                "x": float(index),
-                                "y": float(index + 1),
-                                "z": 2.0,
-                                "label": f"BS{index}",
-                            }
-                            for index in range(tx_count)
-                        ],
-                        "ue_points": [
-                            {
-                                "x": float(index),
-                                "y": float(index + 10),
-                                "z": 1.0,
-                                "label": f"UE{index}",
-                            }
-                            for index in range(rx_count)
-                        ],
+                        "name": "metadata_subset",
+                        "bs_points": bs_points[:1],
+                        "ue_points": ue_points[:1],
                     }
                 ]
             }

@@ -78,7 +78,7 @@ class InputSpec:
     label_file: str
     scene_file: str
     input_dataset_id: str = "phase1_minimal"
-    input_schema: str = "manual_minimal_v1"
+    input_schema: str = "standard_label_0.1.0"
 
 
 @dataclass(frozen=True)

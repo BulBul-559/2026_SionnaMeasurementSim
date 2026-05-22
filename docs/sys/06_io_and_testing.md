@@ -87,8 +87,9 @@ def write_manifest(path: str | Path, data: dict) -> Path
 def load_role_topology_from_label(label_file: Path, max_bs: int, max_ue: int) -> RoleTopology
 ```
 
-解析标签 JSON，提取 BS/UE 位置。pipeline 随后根据 `link.phy_link_direction`
-解析为 TX/RX link-view topology。
+解析标准 label `0.1.0` JSON，提取顶层 `bs_points`/`ue_points` 作为全场景
+BS/UE 位置；`groups` 仅作为子集元数据，不参与默认 topology 选择。pipeline 随后根据
+`link.phy_link_direction` 解析为 TX/RX link-view topology。
 
 ## 测试体系
 
