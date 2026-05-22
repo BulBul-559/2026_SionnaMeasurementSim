@@ -46,7 +46,10 @@ class PerfTracer:
         self._stop_event = threading.Event()
         self._hardware_thread: threading.Thread | None = None
         self._stages: list[dict[str, Any]] = []
+        self._dataset_writes: list[dict[str, Any]] = []
+        self._hardware_samples: list[dict[str, str]] = []
         self._run_start = 0.0
+        self._finished = False
 
     def start(self) -> None:
         if not self.enabled:
@@ -107,6 +110,8 @@ class PerfTracer:
     def record_event(self, event: str, **payload: Any) -> None:
         if not self.enabled or self._events_file is None:
             return
+        if event == "hdf5.dataset_write":
+            self._dataset_writes.append(dict(payload))
         data = {
             "timestamp_s": time.time(),
             "offset_s": time.perf_counter() - self._run_start if self._run_start else 0.0,
@@ -129,11 +134,27 @@ class PerfTracer:
                 writer.writeheader()
             writer.writerow(payload)
 
-    def finish(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finish(
+        self,
+        extra: dict[str, Any] | None = None,
+        *,
+        status: str = "success",
+        exception: BaseException | None = None,
+    ) -> dict[str, Any]:
         if not self.enabled:
             return {}
+        if self._finished:
+            return {}
+        self._finished = True
         total_s = time.perf_counter() - self._run_start
-        self.record_event("run_end", total_duration_s=total_s)
+        if exception is not None:
+            self.record_event(
+                "run_failed",
+                total_duration_s=total_s,
+                exception_type=type(exception).__name__,
+                exception_message=str(exception),
+            )
+        self.record_event("run_end", total_duration_s=total_s, status=status)
         self._stop_event.set()
         if self._hardware_thread is not None:
             self._hardware_thread.join(timeout=max(self.hardware_interval_s * 2.0, 1.0))
@@ -145,9 +166,13 @@ class PerfTracer:
         summary = {
             "enabled": True,
             "worker_id": self.worker_id,
+            "status": status,
+            "exception": _exception_summary(exception),
             "total_duration_s": total_s,
             "stages": self._stages,
             "stage_totals_s": _stage_totals(self._stages),
+            "hardware_summary": _hardware_summary(self._hardware_samples),
+            "dataset_write_summary": _dataset_write_summary(self._dataset_writes),
             "logs": {
                 "events": self.events_path.as_posix(),
                 "hardware_samples": self.hardware_path.as_posix()
@@ -181,20 +206,22 @@ class PerfTracer:
         }
         gpu_rows = _gpu_samples()
         if not gpu_rows:
-            self._hardware_writer.writerow(
-                {
-                    **base,
-                    "gpu_index": "",
-                    "gpu_util_percent": "",
-                    "gpu_mem_used_mb": "",
-                    "gpu_mem_total_mb": "",
-                    "gpu_power_w": "",
-                    "gpu_temp_c": "",
-                }
-            )
+            row = {
+                **base,
+                "gpu_index": "",
+                "gpu_util_percent": "",
+                "gpu_mem_used_mb": "",
+                "gpu_mem_total_mb": "",
+                "gpu_power_w": "",
+                "gpu_temp_c": "",
+            }
+            self._hardware_samples.append(row)
+            self._hardware_writer.writerow(row)
         else:
             for row in gpu_rows:
-                self._hardware_writer.writerow({**base, **row})
+                sample = {**base, **row}
+                self._hardware_samples.append(sample)
+                self._hardware_writer.writerow(sample)
         self._hardware_file.flush()
 
     def _sync_torch(self) -> None:
@@ -215,6 +242,99 @@ def _stage_totals(stages: list[dict[str, Any]]) -> dict[str, float]:
         name = str(stage["name"])
         totals[name] = totals.get(name, 0.0) + float(stage["duration_s"])
     return totals
+
+
+def _exception_summary(exception: BaseException | None) -> dict[str, str] | None:
+    if exception is None:
+        return None
+    return {
+        "type": type(exception).__name__,
+        "message": str(exception),
+    }
+
+
+def _hardware_summary(samples: list[dict[str, str]]) -> dict[str, Any]:
+    rss_values = [_parse_float(row.get("rss_mb", "")) for row in samples]
+    cpu_values = [_parse_float(row.get("cpu_percent", "")) for row in samples]
+    thread_values = [_parse_float(row.get("thread_count", "")) for row in samples]
+    gpu_mem_values = [_parse_float(row.get("gpu_mem_used_mb", "")) for row in samples]
+    gpu_util_values = [_parse_float(row.get("gpu_util_percent", "")) for row in samples]
+    gpu_rows = [row for row in samples if str(row.get("gpu_index", "")).strip()]
+    return {
+        "sample_count": len(samples),
+        "gpu_sample_count": len(gpu_rows),
+        "peak_rss_mb": _max_or_none(rss_values),
+        "max_thread_count": _max_or_none(thread_values),
+        "max_cpu_percent": _max_or_none(cpu_values),
+        "peak_gpu_mem_used_mb": _max_or_none(gpu_mem_values),
+        "max_gpu_util_percent": _max_or_none(gpu_util_values),
+        "mean_gpu_util_percent": _mean_or_none(gpu_util_values),
+    }
+
+
+def _dataset_write_summary(events: list[dict[str, Any]], *, top_n: int = 10) -> dict[str, Any]:
+    total_raw = sum(int(event.get("raw_bytes", 0) or 0) for event in events)
+    storage_values = [int(event.get("storage_bytes", -1) or -1) for event in events]
+    positive_storage = [value for value in storage_values if value >= 0]
+    total_storage = sum(positive_storage)
+    top_by_duration = sorted(
+        events,
+        key=lambda event: float(event.get("duration_s", 0.0) or 0.0),
+        reverse=True,
+    )[:top_n]
+    top_by_raw = sorted(
+        events,
+        key=lambda event: int(event.get("raw_bytes", 0) or 0),
+        reverse=True,
+    )[:top_n]
+    return {
+        "dataset_count": len(events),
+        "total_raw_bytes": total_raw,
+        "total_storage_bytes": total_storage if positive_storage else None,
+        "storage_to_raw_ratio": (
+            float(total_storage) / float(total_raw)
+            if total_raw > 0 and positive_storage
+            else None
+        ),
+        "raw_to_storage_ratio": (
+            float(total_raw) / float(total_storage)
+            if total_storage > 0 and positive_storage
+            else None
+        ),
+        "top_by_duration": [_dataset_write_item(event) for event in top_by_duration],
+        "top_by_raw_bytes": [_dataset_write_item(event) for event in top_by_raw],
+    }
+
+
+def _dataset_write_item(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "path": str(event.get("path", "")),
+        "shape": list(event.get("shape", ())),
+        "dtype": str(event.get("dtype", "")),
+        "raw_bytes": int(event.get("raw_bytes", 0) or 0),
+        "storage_bytes": int(event.get("storage_bytes", -1) or -1),
+        "compression": str(event.get("compression", "")),
+        "duration_s": float(event.get("duration_s", 0.0) or 0.0),
+    }
+
+
+def _parse_float(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _max_or_none(values: list[float | None]) -> float | None:
+    finite = [value for value in values if value is not None]
+    return max(finite) if finite else None
+
+
+def _mean_or_none(values: list[float | None]) -> float | None:
+    finite = [value for value in values if value is not None]
+    return sum(finite) / len(finite) if finite else None
 
 
 def _process_sample() -> dict[str, str]:

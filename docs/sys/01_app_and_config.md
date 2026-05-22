@@ -4,7 +4,7 @@
 
 文件：`sionna_measurement_sim/app/cli.py`
 
-基于 `argparse` 的命令行入口，提供 6 个子命令：
+基于 `argparse` 的命令行入口，提供 7 类子命令：
 
 | 命令 | 功能 | 入口函数 |
 |------|------|----------|
@@ -14,6 +14,7 @@
 | `run-observation` | RT + PHY 观测 | `run_rt_truth_pipeline()` |
 | `run-full` | 全功能端到端 | `run_rt_truth_pipeline()` |
 | `run-batch` | 批量实验 | `run_batch_experiment()` |
+| `benchmark rt/write/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、Bartlett 空间谱成本 | `benchmark.runner` |
 
 核心流程：CLI 解析参数 → 构建 `RTTruthRunConfig` → 调用 `run_rt_truth_pipeline()` → 输出 HDF5 路径。
 
@@ -38,6 +39,23 @@ uv run python -m sionna_measurement_sim.app.cli \
 --snr-db N            信噪比
 --phy-standard NAME   custom_ofdm | nr_pusch | nr_srs
 --output-dir PATH     输出目录
+```
+
+`benchmark` 是性能工程入口，不生成正式仿真数据契约，默认只接受显式路径或合成参数，
+输出到 ignored `outputs/`。三种第一版模式：
+
+| 命令 | 输出 | 用途 |
+|------|------|------|
+| `benchmark rt` | `benchmark_summary.json`、`benchmark_rows.csv`、`logs/perf_summary*.json` | 复用 RT solve 能力，测 `rt_solve_s`、path_count、truth CFR shape/bytes 和硬件峰值 |
+| `benchmark write` | 合成 HDF5 + JSON/CSV summary | 测 writer wall time、schema validate time、文件大小、raw/storage bytes 和 compression ratio |
+| `benchmark spectrum` | JSON/CSV summary | 直接调用 Bartlett 空间谱核心，测 per-source time、输出 shape/bytes、chunk count 和 finite sanity |
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark write \
+  --output-dir outputs/benchmark_write_smoke \
+  --tx-count 1 --rx-count 2 --rx-ant 2 --subcarriers 16
 ```
 
 ## 批处理 (`app/batch_runner.py`)
@@ -171,6 +189,6 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 可视化图像保持原始采样网格，不做显示插值。涉及子载波的热力图统一把
 subcarrier 放在纵轴；CFR lines 例外，使用 subcarrier 横轴。CFR 的
 lines、heatmap、error 都分别输出幅度和相位图。空间谱按来源分开输出
-label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett、SRS CFR Bartlett 五类矩形 PNG，
+label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett 四类矩形 PNG，
 并额外输出对应 polar PNG；polar 图中每个 link 左侧为上半球，右侧为下半球。
 空间谱矩形图和 polar 图使用同一个 UE 内的局部颜色尺度；polar 图不放 colorbar。

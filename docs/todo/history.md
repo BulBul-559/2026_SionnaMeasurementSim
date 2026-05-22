@@ -28,6 +28,7 @@
 | 2026-05-14 | 增加空间谱 link chunk 生成，降低大规模空间谱内存压力。 |
 | 2026-05-14 | 打通 HDF5 compression 配置传递。 |
 | 2026-05-21 | `path_samples` 可视化默认限制为当前采样选择中的一条 UE-BS link，消除多链路路径长尾和混叠。 |
+| 2026-05-22 | 增加 `benchmark write` 第一版，从 synthetic result 隔离测 HDF5 writer、compression 和 schema validate 成本。 |
 
 ## Bug
 

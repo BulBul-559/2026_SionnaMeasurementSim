@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Sequence
 
 from sionna_measurement_sim import __version__
+from sionna_measurement_sim.benchmark.cli import add_benchmark_parser
 from sionna_measurement_sim.preflight.system import collect_basic_environment
 
 _DEFAULT_LABEL = "tests/fixtures/scenes/test/test5.json"
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default=None, help="YAML config file path")
 
     subparsers = parser.add_subparsers(dest="command")
+    add_benchmark_parser(subparsers)
     subparsers.add_parser(
         "preflight",
         help="Print basic local environment information.",
@@ -152,6 +154,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "preflight":
         for key, value in collect_basic_environment().items():
             print(f"{key}: {value}")
+        return 0
+
+    if args.command == "benchmark":
+        from sionna_measurement_sim.benchmark.cli import run_benchmark_from_args
+
+        summary_path = run_benchmark_from_args(args)
+        print(summary_path)
         return 0
 
     if args.command == "run-rt-truth":

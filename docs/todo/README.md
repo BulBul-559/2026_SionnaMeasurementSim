@@ -30,7 +30,7 @@
 |---|---:|
 | feature | 12 |
 | structure | 3 |
-| performance | 8 |
+| performance | 7 |
 | bug | 0 |
 
-合计：23 个 active TODO。
+合计：22 个 active TODO。

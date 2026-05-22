@@ -9,4 +9,6 @@
 - `docs/todo/` 代表当前 active TODO 和完成历史。
 - `docs/performance/` 是历史实验记录；只有明显误导当前事实、且不再适合作为实验记录保留的文档，
   才移动到本目录。
+- `docs/legacy/performance/` 存放从 `docs/performance/` 迁出的历史计划、过期中间文档或
+  已被结果报告取代的非实验记录。
 - 本目录内容由人工定期复核，决定保留、删除或重新整理。

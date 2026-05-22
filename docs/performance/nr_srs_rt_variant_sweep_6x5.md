@@ -1,5 +1,11 @@
 # NR SRS RT Variant Sweep 6x5
 
+状态更新：本文是 2026-05-18 的历史 RT 参数 sweep。文中的 `array.spectrum.sources:
+["truth_cfr", "srs_cfr_est"]` 使用的是历史 source alias；schema `1.5.0` 后不再接受
+`srs_cfr_est`，当前应使用 `cfr_est`，并且不再写 `/array/spatial_spectrum_srs`。
+本文仍保留在 performance 中，因为它记录了 refraction/diffuse/max_depth 对 RT 成本和
+CFR 差异的实验事实；当前默认配置见 `docs/sys/indoor_fr1_100mhz_validation.md`。
+
 本页记录 `bistro_0000` 上 SRS-like 100 MHz、`synthetic_array=false` 的四组 RT
 参数对比。测试日期：2026-05-18；分支：`codex/phy-module-nr-srs`。
 

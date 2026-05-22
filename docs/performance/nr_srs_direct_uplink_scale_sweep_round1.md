@@ -4,6 +4,11 @@
 
 分支：`codex/uplink-scale-sweep`
 
+状态更新：本文是 direct-uplink scale sweep 的历史 round 1 记录。它用于解释当时
+`synthetic_array=false` 和单 batch 上限的早期判断，不代表当前推荐 shard size 或当前
+schema 输出字段。当前 SRS 生产 baseline、`shard_size=20` 和 schema `1.5.0` 口径见
+`docs/sys/indoor_fr1_100mhz_validation.md`。
+
 本文记录 `bistro_0000` 室内 FR1 100 MHz SRS-like 链路在 **真实 UE→BS uplink**
 语义下的第一轮规模上限测试。该轮测试基于 BS/UE role-view 到 TX/RX link-view
 的语义重构：`phy_link_direction="uplink"` 时，HDF5 中 `/link/tx_role="ue"`、
