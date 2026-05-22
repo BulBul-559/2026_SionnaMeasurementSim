@@ -55,7 +55,7 @@ def validate_hdf5_contract(path: str | Path) -> None
    - 统一 waveform 字段 `tx_grid`、`rx_grid`、`noise_variance`
    - SRS 专属 `srs_resource_mask`、`srs_pilot_symbols`、`srs_re_symbol_indices`、
      `srs_re_subcarrier_indices`、`srs_port_tx_ant_map`、PRB/cyclic-shift/power metadata
-   - schema `1.4.0` 后不再写 `/waveform/pilot_code`、`/waveform/srs_port_index` 或 `/observation/srs_cfr_est`
+   - schema `1.5.0` 后不再写 `/waveform/pilot_code`、`/waveform/srs_port_index`、`/observation/srs_cfr_est`、`/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`
 9. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`

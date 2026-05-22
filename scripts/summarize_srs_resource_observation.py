@@ -124,7 +124,7 @@ def _summarize_one(path: Path) -> dict[str, object]:
             "tx_power_dbm_max": _finite_max(tx_power),
             "ranging_pdp_finite_rate": _ranging_finite_rate(h5, "pdp_peak"),
             "ranging_phase_finite_rate": _ranging_finite_rate(h5, "phase_slope"),
-            "has_spatial_spectrum_srs": "array/spatial_spectrum_srs" in h5,
+            "has_spatial_spectrum_cfr_est": "array/spatial_spectrum_cfr_est" in h5,
         }
 
 
@@ -146,8 +146,8 @@ def _aggregate(records: list[dict[str, object]]) -> dict[str, object]:
             and bool(record["phase_nonzero"])
             for record in records
         ),
-        "all_spatial_spectrum_srs_present": all(
-            bool(record["has_spatial_spectrum_srs"]) for record in records
+        "all_spatial_spectrum_cfr_est_present": all(
+            bool(record["has_spatial_spectrum_cfr_est"]) for record in records
         ),
     }
     for key in keys:

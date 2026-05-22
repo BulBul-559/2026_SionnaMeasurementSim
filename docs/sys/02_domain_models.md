@@ -141,8 +141,8 @@ class NLoSPathTruth:
 
 空间谱输出配置。默认关闭 Bartlett 空间谱，角度网格默认覆盖 zenith `[0, pi]`、
 azimuth `[-pi, pi]`；开启后可分别从 truth CFR、估计 CFR、NR PUSCH/SRS
-`rx_grid` 生成谱。NR SRS 仍接受历史兼容别名 `srs_cfr_est`，但它指向的也是
-统一 `/observation/cfr_est`。
+`rx_grid` 生成谱。schema 1.5.0 后只接受 `truth_cfr`、`cfr_est`、`rx_grid`，
+NR SRS 的估计 CFR 空间谱也使用统一 `cfr_est` source。
 
 ### `ObservationResult` (`observation.py`)
 

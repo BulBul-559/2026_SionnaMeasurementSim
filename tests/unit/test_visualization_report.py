@@ -141,8 +141,8 @@ def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
         "cfr_heatmap_phase.png",
         "cfr_error_magnitude.png",
         "cfr_error_phase.png",
-        "spatial_spectrum_label.png",
-        "spatial_spectrum_label_polar.png",
+        "spatial_spectrum_aoa_heatmap_label.png",
+        "spatial_spectrum_aoa_heatmap_label_polar.png",
         "spatial_spectrum_truth.png",
         "spatial_spectrum_truth_polar.png",
         "spatial_spectrum_cfr_est.png",
@@ -318,7 +318,7 @@ def _write_visualization_fixture(path: Path) -> Path:
         angle_grid[..., 1] = azimuth[None, :]
         h5.create_dataset("array/angle_grid_rad", data=angle_grid)
         h5.create_dataset(
-            "array/spatial_spectrum_label",
+            "array/aoa_heatmap_label",
             data=rng.random((1, 2, 4, 5, 7), dtype=np.float32),
         )
         h5.create_dataset(

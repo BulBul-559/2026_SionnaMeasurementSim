@@ -36,8 +36,9 @@
 - 当前推荐 baseline 粒度是 `label0p2.json`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `1.4.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
-  `/waveform/rx_grid`、`/waveform/noise_variance`。
+- 当前 schema 版本是 `1.5.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
+  `/waveform/rx_grid`、`/waveform/noise_variance`；array 旧别名
+  `/array/spatial_spectrum_label` 和 `/array/spatial_spectrum_srs` 已移除。
 - `/derived` 保留 truth 语义，`first_path_propagation_range_m` 表示最早路径传播距离；
   估计型 ToA/range 写在 `/ranging`。
 - NR PUSCH 与 NR SRS 已共享 `common_link.py` 的 clean channel →

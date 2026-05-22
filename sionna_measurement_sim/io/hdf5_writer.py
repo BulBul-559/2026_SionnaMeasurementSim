@@ -576,15 +576,6 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             index_order="snapshot,ul_tx,ul_rx,angle_component",
         )
         dataset.attrs["coordinate_frame"] = "scene"
-    if "spatial_spectrum_label" in outputs:
-        dataset = _write_dataset(
-            group,
-            "spatial_spectrum_label",
-            outputs["spatial_spectrum_label"],
-            unit="linear",
-            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
-        )
-        dataset.attrs["coordinate_frame"] = "scene"
     if "aoa_heatmap_label" in outputs:
         dataset = _write_dataset(
             group,
@@ -617,15 +608,6 @@ def _write_array(h5: h5py.File, result: MeasurementSimulationResult) -> None:
             group,
             "spatial_spectrum_observation",
             outputs["spatial_spectrum_observation"],
-            unit="linear",
-            index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
-        )
-        dataset.attrs["coordinate_frame"] = "scene"
-    if "spatial_spectrum_srs" in outputs:
-        dataset = _write_dataset(
-            group,
-            "spatial_spectrum_srs",
-            outputs["spatial_spectrum_srs"],
             unit="linear",
             index_order="snapshot,ul_tx,ul_rx,zenith,azimuth",
         )

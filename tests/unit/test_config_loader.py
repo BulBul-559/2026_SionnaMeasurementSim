@@ -127,7 +127,7 @@ array:
     assert cfg.array.spectrum.sources == ["truth_cfr", "cfr_est", "rx_grid"]
 
 
-def test_spectrum_config_accepts_srs_cfr_est_source(tmp_path: Path):
+def test_spectrum_config_rejects_srs_cfr_est_source(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -138,9 +138,8 @@ array:
         encoding="utf-8",
     )
 
-    cfg = load_config(config_path)
-
-    assert cfg.array.spectrum.sources == ["truth_cfr", "srs_cfr_est"]
+    with pytest.raises((ValueError, SystemExit)):
+        load_config(config_path)
 
 
 def test_spectrum_config_rejects_unknown_source(tmp_path: Path):

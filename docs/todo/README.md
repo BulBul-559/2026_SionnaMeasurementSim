@@ -29,8 +29,8 @@
 | 分类 | Active TODO 数 |
 |---|---:|
 | feature | 12 |
-| structure | 4 |
+| structure | 3 |
 | performance | 8 |
 | bug | 0 |
 
-合计：24 个 active TODO。
+合计：23 个 active TODO。

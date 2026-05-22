@@ -51,7 +51,7 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
             ),
             spectrum_config=ArraySpectrumConfig(
                 enabled=True,
-                sources=("truth_cfr", "srs_cfr_est"),
+                sources=("truth_cfr", "cfr_est"),
                 zenith_bins=5,
                 azimuth_bins=7,
             ),
@@ -83,7 +83,9 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
         assert "waveform/pilot_code" not in h5
         assert "observation/srs_cfr_est" not in h5
         assert "waveform/srs_tx_grid" not in h5
-        assert h5["array/spatial_spectrum_srs"].shape == (1, 1, 1, 5, 7)
+        assert h5["array/spatial_spectrum_cfr_est"].shape == (1, 1, 1, 5, 7)
+        assert "array/spatial_spectrum_srs" not in h5
+        assert "array/spatial_spectrum_label" not in h5
         assert "waveform/tx_time" not in h5
         assert "waveform/rx_time" not in h5
         assert h5["derived/first_path_propagation_range_m"].shape == (1, 1)

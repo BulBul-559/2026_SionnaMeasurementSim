@@ -696,9 +696,9 @@ def _plot_spatial_spectrum(
     angle_grid = np.asarray(h5["array/angle_grid_rad"][()])
     candidates = (
         (
-            "label",
-            "array/spatial_spectrum_label",
-            "AoA heatmap label / spatial_spectrum_label",
+            "aoa_heatmap_label",
+            "array/aoa_heatmap_label",
+            "AoA heatmap label / aoa_heatmap_label",
         ),
         (
             "truth",
@@ -714,11 +714,6 @@ def _plot_spatial_spectrum(
             "observation",
             "array/spatial_spectrum_observation",
             "Bartlett spectrum from RX grid / spatial_spectrum_observation",
-        ),
-        (
-            "srs",
-            "array/spatial_spectrum_srs",
-            "Bartlett spectrum from NR SRS CFR / spatial_spectrum_srs",
         ),
     )
     generated: list[Path] = []

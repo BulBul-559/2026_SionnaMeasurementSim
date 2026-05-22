@@ -97,7 +97,6 @@ class TestNRPUSCHSchema:
                 "array/rx_snapshot_matrix",
                 "array/aoa_label_rad",
                 "array/aoa_heatmap_label",
-                "array/spatial_spectrum_label",
                 "array/angle_grid_rad",
                 "array/spectrum_policy",
                 "receiver/mimo_detector",
@@ -137,18 +136,16 @@ class TestNRPUSCHSchema:
             snapshot_matrix = h5["array/rx_snapshot_matrix"]
             aoa = h5["array/aoa_label_rad"]
             heatmap = h5["array/aoa_heatmap_label"]
-            spectrum = h5["array/spatial_spectrum_label"]
             angle_grid = h5["array/angle_grid_rad"]
             assert snapshot_matrix.shape == (*rx_grid.shape[:3], rx_grid.shape[3], rx_grid.shape[3])
             assert aoa.shape == (*rx_grid.shape[:3], 2)
             assert angle_grid.shape == (91, 181, 2)
             assert heatmap.shape == (*rx_grid.shape[:3], *angle_grid.shape[:2])
-            assert spectrum.shape == (*rx_grid.shape[:3], *angle_grid.shape[:2])
+            assert "array/spatial_spectrum_label" not in h5
             assert snapshot_matrix.attrs["index_order"] == (
                 "snapshot,ul_tx,ul_rx,ul_rx_ant,ul_rx_ant"
             )
             assert heatmap.attrs["index_order"] == "snapshot,ul_tx,ul_rx,zenith,azimuth"
-            assert spectrum.attrs["index_order"] == "snapshot,ul_tx,ul_rx,zenith,azimuth"
             assert angle_grid.attrs["index_order"] == "zenith,azimuth,angle_component"
             np.testing.assert_allclose(angle_grid[0, 0], [0.0, -np.pi])
             np.testing.assert_allclose(angle_grid[-1, -1], [np.pi, np.pi])

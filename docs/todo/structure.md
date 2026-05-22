@@ -10,7 +10,6 @@
 | 1 | STR-001 | shard-aware reader / dataset loader | 为多 `result_xxx.h5` 输出提供统一训练/分析入口，支持 manifest 和全局 UE/BS 索引。 |
 | 2 | STR-002 | 通用 benchmark 入口 | 建立 RT-only、PHY-only、write-only 等稳定 CLI/API，避免端到端耗时掩盖模块瓶颈。 |
 | 3 | STR-003 | custom OFDM legacy 处理 | 决定 custom OFDM 是迁移到通用链路、导出真实 waveform grid，还是作为 legacy 移除。 |
-| 4 | STR-004 | array label alias 精简 | 处理 `aoa_heatmap_label` / `spatial_spectrum_label` 的兼容 alias 和字段冗余。 |
 
 ## Details
 
@@ -49,15 +48,3 @@
 或正式标记/移除 legacy path，清理 schema 和文档中的模糊承诺。
 
 重点提醒：不要写 fake waveform grid；如果没有真实频域 waveform tensor，就不要导出统一字段。
-
-### STR-004: array label alias 精简
-
-目的：`aoa_heatmap_label` 和 `spatial_spectrum_label` 当前语义上是兼容 alias，后续需要减少
-字段冗余和 HDF5 体积。
-
-涉及模块：array output builder、HDF5 writer/schema validator、visualization、docs、旧数据兼容说明。
-
-验收标准：明确保留哪个物理 dataset；另一个如需兼容，应通过 attrs/manifest 或 reader alias 处理；
-新 schema 和 visualization 测试通过。
-
-重点提醒：这会影响已有分析脚本，执行前需要先扫引用并提供迁移说明。

@@ -18,7 +18,7 @@
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、每 shard summary）
-- HDF5 schema `1.4.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform 字段，ranging 与 truth range 语义拆开）
+- HDF5 schema `1.5.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -120,7 +120,7 @@ impairment/AWGN 链路，写出统一 waveform 字段 `/waveform/tx_grid`、
 `/waveform/rx_grid`、`/waveform/noise_variance`，以及 SRS 专属
 `/waveform/srs_resource_mask`、`/waveform/srs_pilot_symbols`、
 `/waveform/srs_re_symbol_indices`、`/waveform/srs_re_subcarrier_indices`、
-`/waveform/srs_port_tx_ant_map` 和 SRS power metadata。schema `1.4.0`
+`/waveform/srs_port_tx_ant_map` 和 SRS power metadata。schema `1.5.0`
 后不再写 `/waveform/pilot_code` 或 `/waveform/srs_port_index`。
 
 这一路径适合做室内定位 CSI 基线和 PUSCH-DMRS proxy 对比，但仍不能称为
@@ -184,7 +184,7 @@ outputs/<run_dir>/
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
 | `/waveform` | OFDM/NR 波形；NR PUSCH/SRS 统一保存 `tx_grid/rx_grid/noise_variance`，NR SRS 另写 resource/sequence/port datasets |
-| `/array` | 阵列 snapshot、AoA 标签、空间谱标签；NR SRS 可写 `spatial_spectrum_srs` |
+| `/array` | 阵列 snapshot、`aoa_heatmap_label`、truth/estimated/RX-grid Bartlett 空间谱；旧 `spatial_spectrum_label` 和 `spatial_spectrum_srs` 不再写入 |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/ranging` | 从受损后 `cfr_est` 估计的 ToA/range observation；含 `pdp_peak` 与 `phase_slope` |
 | `/receiver` | 估计器类型、MIMO 检测器 |
