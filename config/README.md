@@ -172,7 +172,11 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 | `fallback.retry_errors` | list[str] | `["cuda_oom", "drjit_array_limit"]` | 允许自动回退的错误类型 |
 | `fallback.failure_policy` | str | `fail_run` | 到最小 shard 仍失败时终止运行 |
 
-shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `result_xxx.h5`，`manifest/manifest.json` 汇总所有 result 文件。每个 HDF5 内有 `/shard` group，记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大 HDF5。`manifest/config_snapshot.json` 会保存 resolved 运行配置，保证数据目录自包含。
+shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `result_xxx.h5`，
+`manifest/manifest.json` 汇总所有 result 文件。每个 HDF5 内有 `/shard` group，
+记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大
+HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
+`manifest/config_snapshot.json` 还会保存 resolved 运行配置，保证数据目录自包含。
 
 ### `carrier` — 载波与频率
 
@@ -239,6 +243,9 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 | `dpi` | int | 140 | PNG 分辨率 |
 | `format` | str | "png" | 第一版仅支持 PNG |
 | `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图 |
+| `radio_map_mode` | str | "interpolated" | `plots` 含 `radio_map` 时的 RSS radio map 输出；可选 `interpolated`、`samples`、`both` |
+| `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样间距推断 |
+| `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
 
 `sample_policy` 含义：
 
@@ -262,6 +269,10 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
   右侧下半球半径为 `pi - zenith`，外圈都表示水平面。缺失的数据源会跳过，不会用其他谱混画。
 - 空间谱矩形图和 polar 图都按“同一个 UE 内的选中 BS”做局部颜色尺度归一；
   polar 图不额外放 colorbar，避免多 link 图中互相遮挡。
+- `radio_map` 从 `/observation/rssi_dbm` 读取每条 UE-BS 链路 RSS，把 UE 位置视作
+  radio-map 采样点，每个 BS 输出一张图到 `figures/heatmaps/`，并用红色星标标记
+  当前图对应的 BS 位置；shard 模式下会在 aggregate manifest 写完后按全量 shard
+  聚合生成。默认只写插值图，`radio_map_mode: "both"` 会额外写不插值的采样点图。
 
 嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
 

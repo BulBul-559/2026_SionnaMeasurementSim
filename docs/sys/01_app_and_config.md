@@ -147,8 +147,11 @@ CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Py
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 定位模板；生产建议从标准 label `0.1.0` 中选择中等密度 UE 采样、UE shard `20` |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
-生产场景通常需要复制模板到 `outputs/local_configs/`，再把 `input.label_file`、
-`input.scene_file`、`scene_id`、`output.root_dir` 和 GPU/shard 参数改成目标场景。
+生产场景通常先按目标输出目录准备一份 `run_config.yaml`，例如
+`outputs/<run_name>/run_config.yaml`，再把 `input.label_file`、`input.scene_file`、
+`scene_id`、`output.root_dir` 和 GPU/shard 参数改成目标场景。运行 `run-full` 时，
+CLI 会把 YAML 加载和命令行覆盖后的最终配置再写回输出目录根部的 `run_config.yaml`，
+让结果目录自包含。
 
 ## 本地数据路径
 

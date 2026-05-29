@@ -97,6 +97,9 @@ visualization:
   max_ue: 5
   dpi: 140
   format: "png"
+  radio_map_mode: "interpolated"
+  radio_map_grid_resolution_m: null
+  radio_map_show_samples: false
   plots:
     - "topology"
     - "link_overview"
@@ -109,6 +112,7 @@ visualization:
     - "spatial_spectrum"
     - "nmse_snr"
     - "path_samples"
+    - "radio_map"
 
 rt:
   max_depth: 4

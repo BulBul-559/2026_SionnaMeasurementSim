@@ -17,6 +17,10 @@ def test_cli_preflight_returns_zero(capsys):
 
 
 def test_run_full_cli_values_override_yaml(tmp_path, monkeypatch, capsys):
+    import yaml
+
+    from sionna_measurement_sim.config.loader import load_config
+
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
@@ -80,4 +84,37 @@ def test_run_full_cli_values_override_yaml(tmp_path, monkeypatch, capsys):
     assert run_config.impairment_config.cfo_hz == 123.0
     assert run_config.num_time_steps == 5
     assert run_config.sampling_frequency_hz == 250.0
+    output_config_path = tmp_path / "from_cli" / "run_config.yaml"
+    written_config = yaml.safe_load(output_config_path.read_text())
+    assert written_config["runtime"]["seed"] == 99
+    assert written_config["input"]["max_bs"] == 6
+    assert written_config["input"]["max_ue"] == 8
+    assert written_config["output"]["root_dir"] == str(tmp_path / "from_cli")
+    assert written_config["motion"]["enabled"] is True
+    assert written_config["motion"]["num_time_steps"] == 5
+    assert written_config["motion"]["sampling_frequency_hz"] == 250.0
+    assert written_config["impairments"]["cfo"]["enabled"] is True
+    assert written_config["impairments"]["cfo"]["cfo_hz"] == 123.0
+    reloaded_config = load_config(output_config_path)
+    assert reloaded_config.runtime.seed == 99
+    assert reloaded_config.output.root_dir == str(tmp_path / "from_cli")
     assert str(tmp_path / "out" / "results.h5") in capsys.readouterr().out
+
+
+def test_run_full_without_yaml_writes_run_config(tmp_path, monkeypatch):
+    from sionna_measurement_sim.config.loader import load_config
+
+    def _fake_run(config):
+        return config.output_dir / "results.h5"
+
+    import sionna_measurement_sim.rt.truth_pipeline as truth_pipeline
+
+    monkeypatch.setattr(truth_pipeline, "run_rt_truth_pipeline", _fake_run)
+
+    output_dir = tmp_path / "default_cli"
+    assert main(["run-full", "--output-dir", str(output_dir), "--max-ue", "2"]) == 0
+
+    written_config = load_config(output_dir / "run_config.yaml")
+    assert written_config.output.root_dir == str(output_dir)
+    assert written_config.input.max_ue == 2
+    assert written_config.phy.standard == "custom_ofdm"

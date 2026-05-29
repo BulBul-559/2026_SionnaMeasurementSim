@@ -64,6 +64,10 @@ from sionna_measurement_sim.preflight.system import collect_basic_environment
 from sionna_measurement_sim.ranging.config import RangingConfig
 from sionna_measurement_sim.ranging.runner import run_ranging_observation
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
+from sionna_measurement_sim.visualization.radio_map import (
+    RadioMapRenderConfig,
+    generate_radio_map_heatmaps,
+)
 from sionna_measurement_sim.visualization.report import generate_visualization_report
 
 
@@ -254,6 +258,7 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         "performance": _aggregate_shard_performance(output_dir, shard_results),
     }
     write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
+    _generate_sharded_radio_maps_if_requested(config, output_dir)
     return output_dir
 
 
@@ -687,11 +692,44 @@ def _shard_visualization_config(
     vis = config.visualization_config
     if mode == "none":
         return replace(vis, enabled=False)
+    vis = _without_aggregate_visualization_plots(vis)
     if mode == "first_shard" and spec.shard_index != 0:
         return replace(vis, enabled=False)
     if mode == "all_shards":
         return replace(vis, output_dir=f"{vis.output_dir}_{spec.shard_index:03d}")
     return vis
+
+
+def _without_aggregate_visualization_plots(
+    config: VisualizationRunConfig,
+) -> VisualizationRunConfig:
+    """Remove plots that are generated once from the aggregate manifest."""
+
+    plots = tuple(plot for plot in config.plots if plot != "radio_map")
+    if plots == config.plots:
+        return config
+    if not plots:
+        return replace(config, enabled=False, plots=plots)
+    return replace(config, plots=plots)
+
+
+def _generate_sharded_radio_maps_if_requested(
+    config: RTTruthRunConfig,
+    output_dir: Path,
+) -> None:
+    vis = config.visualization_config
+    if not vis.enabled or "radio_map" not in vis.plots:
+        return
+    generate_radio_map_heatmaps(
+        output_dir,
+        output_dir / vis.output_dir / "heatmaps",
+        config=RadioMapRenderConfig(
+            render_mode=vis.radio_map_mode,
+            grid_resolution_m=vis.radio_map_grid_resolution_m,
+            dpi=vis.dpi,
+            show_samples_on_interpolated=vis.radio_map_show_samples,
+        ),
+    )
 
 
 def _run_shard_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
@@ -1415,6 +1453,11 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             "dpi": config.visualization_config.dpi,
             "format": config.visualization_config.format,
             "plots": list(config.visualization_config.plots),
+            "radio_map_mode": config.visualization_config.radio_map_mode,
+            "radio_map_grid_resolution_m": (
+                config.visualization_config.radio_map_grid_resolution_m
+            ),
+            "radio_map_show_samples": config.visualization_config.radio_map_show_samples,
         },
         "spectrum_config": {
             "enabled": config.spectrum_config.enabled,

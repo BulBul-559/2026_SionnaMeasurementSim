@@ -55,8 +55,9 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 - `output.sharding.axis: "ue"`
 - `output.sharding.shard_size: 20`
 
-使用真实场景时，建议复制模板到 `outputs/local_configs/`，再修改
+使用真实场景时，建议复制模板到目标输出目录的 `run_config.yaml`，再修改
 `input.label_file`、`input.scene_file`、`input.scene_id`、`output.root_dir` 和 GPU 配置。
+运行 `run-full` 时，CLI 会把 YAML 加载和命令行覆盖后的最终配置写回输出目录根部。
 
 ## 已完成 baseline
 

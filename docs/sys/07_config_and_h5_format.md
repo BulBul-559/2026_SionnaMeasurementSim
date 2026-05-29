@@ -121,7 +121,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 
 `compression` 可选 `gzip`、`lzf`、`none`。大规模性能排查时可用 `none` 或 `lzf` 分离写盘压缩成本。
 
-`output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`results_dir`、`manifest_dir`、`parallel_workers`、`gpu_ids`、`visualization_mode` 和 `fallback`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件写到 `results/result_000.h5`，aggregate manifest 和 config snapshot 写到 `manifest/`。
+`output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`results_dir`、`manifest_dir`、`parallel_workers`、`gpu_ids`、`visualization_mode` 和 `fallback`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件写到 `results/result_000.h5`。CLI 会把最终 YAML 写到输出根目录 `run_config.yaml`；aggregate manifest 和 JSON config snapshot 写到 `manifest/`。
 
 `fallback` 默认开启，针对 CUDA OOM 与 Dr.Jit 单数组 2^32 上限自动把失败 shard 按 UE 二分重试。比如计划 shard `089` 覆盖 20 个 UE 时失败，会落成 `results/result_089_00.h5` 与 `results/result_089_01.h5`；下游只需要读取 `manifest/manifest.json`，不应假设文件名连续或每个计划 shard 只对应一个 HDF5。
 
@@ -195,6 +195,9 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 | `dpi` | int | 140 | PNG DPI |
 | `format` | str | `"png"` | 第一版仅支持 PNG |
 | `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图 |
+| `radio_map_mode` | str | `"interpolated"` | `plots` 含 `radio_map` 时的 RSS radio map 输出模式：`interpolated`、`samples` 或 `both` |
+| `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样点间距推断 |
+| `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
 
 `sample_policy` 说明：
 
@@ -220,6 +223,12 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
   zenith `90°` 的水平面；原始矩形图仍保留。
 - 空间谱矩形图和 polar 图共享“同一个 UE 内的选中 BS”局部颜色尺度；polar 图不放
   colorbar，避免在多 UE/BS 采样图中遮挡子图。
+- `radio_map` 以 `/observation/rssi_dbm` 为数值来源。虽然 SRS/PUSCH direct uplink
+  的物理链路是 UE 发射、BS 接收，可视化按“BS 在 UE 位置的 RSS 代表值”解释，每个
+  BS 生成一张覆盖 floorplan 的 radio map，并用红色星标标记当前图对应的 BS 位置。
+  shard 模式下该图在 aggregate manifest 写完后聚合所有 shard 输出到
+  `figures/heatmaps/`；`interpolated` 使用规则网格 IDW 插值，`samples` 只绘制原始
+  UE 采样点。
 
 pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
 全量聚合统计，不逐 link 生成海量细节图。
@@ -566,7 +575,7 @@ results.h5
 | `global_rx_indices` | [local_rx] int64 | 本文件局部 RX 对应的全局角色索引；配合 `/link/rx_role` 解释 |
 | `global_tx_indices` | [local_tx] int64 | 本文件局部 TX 对应的全局角色索引；配合 `/link/tx_role` 解释 |
 
-`manifest/manifest.json` 会汇总每个 shard 的文件路径、全局索引覆盖范围、可视化摘要和性能日志路径。`manifest/config_snapshot.json` 保存 resolved 运行配置，便于数据目录脱离外部临时 YAML 后仍可复现。发生 fallback 时，`manifest/shard_attempts.jsonl` 保存失败原因与拆分链路。
+`manifest/manifest.json` 会汇总每个 shard 的文件路径、全局索引覆盖范围、可视化摘要和性能日志路径。输出根目录的 `run_config.yaml` 保存 YAML 加载和 CLI 覆盖后的最终配置，便于直接复跑；`manifest/config_snapshot.json` 保存 resolved 运行配置快照，便于程序化审计。发生 fallback 时，`manifest/shard_attempts.jsonl` 保存失败原因与拆分链路。
 
 ### 2.5 `/input` — 输入引用
 

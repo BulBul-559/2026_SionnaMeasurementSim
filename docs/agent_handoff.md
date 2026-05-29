@@ -21,6 +21,7 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 - 从场景/label 生成 RT truth、CIR/CFR、路径真值、AoA、NLoS path truth。
 - 生成 PHY 观测数据，包括 NR PUSCH-DMRS CSI proxy 和 NR SRS standards-shaped v2 subset uplink sounding。
 - 可选生成 waveform-level ranging observation，从 `/observation/cfr_est` 估计 ToA/one-way range。
+- 可选生成 RSS radio map 可视化，从 `/observation/rssi_dbm` 按 BS 聚合并覆盖到 floorplan。
 - 支持频域 waveform grid、array/空间谱、HDF5 多文件 shard 输出和 manifest 汇总；
   AoA label、angle grid 与 Bartlett 空间谱统一使用 scene/global 角度，空间谱会用
   `/devices/rx_orientation_rad` 适配接收阵列旋转。
@@ -146,6 +147,11 @@ benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
+可视化注意：`visualization.plots` 可加入 `radio_map`。该图把 uplink 中 UE 发射、BS 接收的
+`/observation/rssi_dbm` 解释为“每个 BS 在 UE 位置的 RSS 代表值”，每个 BS 输出一张图到
+`figures/heatmaps/`。`visualization.radio_map_mode` 默认 `interpolated`，可设为
+`samples` 或 `both`；shard 模式下 radio map 在 aggregate manifest 写完后聚合所有 shard 生成。
+
 ## 数据目录
 
 `data/` 与 `outputs/` 都是 ignored 本地路径，可以是 symlink。
@@ -194,7 +200,9 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 - `output.sharding.shard_size: 20`
 
 模板里的 `input.label_file`、`input.scene_file`、`scene_id` 和 `output.root_dir`
-需要按目标场景复制后修改。推荐把临时运行配置放在 ignored `outputs/local_configs/` 下。
+需要按目标场景复制后修改。推荐把运行配置放在目标输出目录的 `run_config.yaml`；
+运行 `run-full` 时，CLI 会把 YAML 加载和命令行覆盖后的最终配置写回输出目录根部的
+`run_config.yaml`，使每个结果目录自包含。
 
 `shard_size=20` 是当前生产建议。历史报告里出现的 `25` 是旧实验记录，不再作为默认生产值。
 
@@ -307,7 +315,9 @@ outputs/nr_srs_median_0000_label0p2_full_baseline
 uv run python -m sionna_measurement_sim.app.cli --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml run-full --help
 ```
 
-运行 SRS 全流程时，建议复制模板到 `outputs/local_configs/`，再改 label/output/gpu，避免把本地绝对路径提交进 git。
+运行 SRS 全流程时，建议复制模板到目标输出目录的 `run_config.yaml`，再改
+label/output/gpu。也可以用临时 YAML 启动；`run-full` 会把最终有效配置写入输出目录的
+`run_config.yaml`，避免后续复现实验时再去追散落的临时配置文件。
 
 基础检查：
 

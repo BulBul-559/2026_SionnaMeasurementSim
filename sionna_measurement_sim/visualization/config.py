@@ -21,6 +21,7 @@ DEFAULT_VISUALIZATION_PLOTS: tuple[str, ...] = (
 ALLOWED_VISUALIZATION_PLOTS = DEFAULT_VISUALIZATION_PLOTS + (
     "dataset_preview",
     "full_summary",
+    "radio_map",
 )
 
 
@@ -38,6 +39,9 @@ class VisualizationRunConfig:
     dpi: int = 140
     format: str = "png"
     plots: tuple[str, ...] = DEFAULT_VISUALIZATION_PLOTS
+    radio_map_mode: str = "interpolated"
+    radio_map_grid_resolution_m: float | None = None
+    radio_map_show_samples: bool = False
 
     def __post_init__(self) -> None:
         allowed_policies = ("valid_links_first", "spatially_spread_valid_links", "random", "first")
@@ -49,6 +53,15 @@ class VisualizationRunConfig:
             raise ValueError("visualization dpi must be >= 50")
         if self.format != "png":
             raise ValueError("Only visualization format='png' is supported")
+        if self.radio_map_mode not in ("interpolated", "samples", "both"):
+            raise ValueError(
+                "visualization.radio_map_mode must be interpolated/samples/both"
+            )
+        if (
+            self.radio_map_grid_resolution_m is not None
+            and self.radio_map_grid_resolution_m <= 0.0
+        ):
+            raise ValueError("visualization.radio_map_grid_resolution_m must be positive")
         plots = tuple(str(plot) for plot in self.plots)
         unknown = set(plots) - set(ALLOWED_VISUALIZATION_PLOTS)
         if unknown:

@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
+from sionna_measurement_sim.visualization.radio_map import (
+    RadioMapRenderConfig,
+    generate_radio_map_heatmaps,
+)
 
 _EPS = 1e-30
 
@@ -353,6 +357,7 @@ def _dispatch_plot(
         "spatial_spectrum": _plot_spatial_spectrum,
         "nmse_snr": _plot_nmse_snr,
         "path_samples": _plot_path_samples,
+        "radio_map": _plot_radio_map,
         "full_summary": _plot_full_summary,
         "dataset_preview": _plot_dataset_preview,
     }
@@ -366,6 +371,30 @@ def _dispatch_plot(
         dataset_path=dataset_path,
         plot_type=plot_type,
     )
+
+
+def _plot_radio_map(
+    h5: h5py.File,
+    output_dir: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+    *,
+    dataset_path: str | None,
+    plot_type: str,
+) -> list[Path]:
+    _ = selection, plot_type
+    summary = generate_radio_map_heatmaps(
+        h5.filename,
+        output_dir / "heatmaps",
+        config=RadioMapRenderConfig(
+            render_mode=config.radio_map_mode,
+            value_dataset=dataset_path or "/observation/rssi_dbm",
+            grid_resolution_m=config.radio_map_grid_resolution_m,
+            dpi=config.dpi,
+            show_samples_on_interpolated=config.radio_map_show_samples,
+        ),
+    )
+    return [Path(path) for path in summary["generated_files"]]
 
 
 def _plot_topology(

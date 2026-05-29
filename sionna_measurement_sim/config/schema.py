@@ -548,6 +548,9 @@ class VisualizationConfig(BaseModel):
     dpi: int = Field(default=140, ge=50)
     format: str = Field(default="png")
     plots: list[str] = Field(default_factory=lambda: list(DEFAULT_VISUALIZATION_PLOTS))
+    radio_map_mode: str = Field(default="interpolated")
+    radio_map_grid_resolution_m: float | None = Field(default=None, gt=0)
+    radio_map_show_samples: bool = Field(default=False)
 
     @model_validator(mode="after")
     def check_visualization_values(self) -> VisualizationConfig:
@@ -563,6 +566,10 @@ class VisualizationConfig(BaseModel):
             )
         if self.format != "png":
             raise ValueError("Only visualization.format='png' is supported")
+        if self.radio_map_mode not in ("interpolated", "samples", "both"):
+            raise ValueError(
+                "visualization.radio_map_mode must be interpolated/samples/both"
+            )
         unknown_plots = set(self.plots) - set(ALLOWED_VISUALIZATION_PLOTS)
         if unknown_plots:
             raise ValueError(f"Unsupported visualization plots: {sorted(unknown_plots)}")

@@ -18,6 +18,7 @@
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
+- RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
 - HDF5 schema `1.5.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
@@ -180,13 +181,16 @@ uv run python scripts/compare_phy_csi_outputs.py \
 
 ```text
 outputs/<run_dir>/
+  run_config.yaml       # run-full 写入的最终 YAML 配置
   results/              # result_xxx.h5，自包含 HDF5 shard
   manifest/             # aggregate manifest、per-shard manifest、config snapshot
   logs/                 # debug/perf 日志
   figures/              # 可选采样可视化
 ```
 
-`manifest/manifest.json` 是 shard 数据集入口，记录全局 UE 覆盖范围、resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json` 路径。
+`run_config.yaml` 保存 YAML 加载和 CLI 覆盖后的最终运行配置，便于把单个输出目录作为
+可复现实验单元。`manifest/manifest.json` 是 shard 数据集入口，记录全局 UE 覆盖范围、
+resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json` 路径。
 
 | Group | 内容 |
 |-------|------|

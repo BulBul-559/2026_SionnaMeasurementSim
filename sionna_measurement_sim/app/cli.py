@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
+
+import yaml
 
 from sionna_measurement_sim import __version__
 from sionna_measurement_sim.benchmark.cli import add_benchmark_parser
@@ -14,6 +17,23 @@ _DEFAULT_SCENE = "tests/fixtures/scenes/test/scene.xml"
 _SEED_OFFSET_IMPAIRMENT = 100
 _SEED_OFFSET_OBSERVATION = 200
 _SEED_OFFSET_BATCH = 1000
+_OUTPUT_RUN_CONFIG_NAME = "run_config.yaml"
+
+
+def _write_output_run_config(config: object, output_dir: Path) -> Path:
+    """Write the effective YAML config next to the run outputs."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / _OUTPUT_RUN_CONFIG_NAME
+    if hasattr(config, "model_dump"):
+        payload = config.model_dump(mode="json")
+    else:
+        payload = config
+    path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -142,6 +162,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--plot-type",
         default="auto",
         choices=["auto", "line", "heatmap", "hist"],
+    )
+    visualize.add_argument(
+        "--radio-map-mode",
+        default="interpolated",
+        choices=["interpolated", "samples", "both"],
+        help="Radio-map rendering mode when --plots includes radio_map.",
+    )
+    visualize.add_argument(
+        "--radio-map-grid-resolution-m",
+        type=float,
+        default=None,
+        help="Optional radio-map interpolation grid spacing in meters.",
+    )
+    visualize.add_argument(
+        "--radio-map-show-samples",
+        action="store_true",
+        help="Overlay UE samples on interpolated radio maps.",
     )
 
     return parser
@@ -304,6 +341,46 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or args.sampling_frequency_hz is not None
             )
             motion_enabled = mot.enabled or motion_cli_override
+            _num_time_steps = (
+                args.num_time_steps
+                if args.num_time_steps is not None
+                else mot.num_time_steps if motion_enabled else 1
+            )
+            _sampling_frequency_hz = (
+                args.sampling_frequency_hz
+                if args.sampling_frequency_hz is not None
+                else mot.sampling_frequency_hz if motion_enabled else 0.0
+            )
+
+            cfg.input.max_bs = _max_bs
+            cfg.input.max_ue = _max_ue
+            cfg.runtime.seed = _seed
+            cfg.carrier.num_subcarriers = _nsub
+            cfg.carrier.subcarrier_spacing_hz = cfg.carrier.bandwidth_hz / _nsub
+            cfg.output.root_dir = str(_outdir)
+            cfg.phy.snr_db = _snr
+            cfg.phy.standard = _phy_standard
+            cfg.motion.enabled = motion_enabled
+            cfg.motion.num_time_steps = _num_time_steps
+            cfg.motion.sampling_frequency_hz = _sampling_frequency_hz
+            if args.cfo_hz is not None:
+                cfg.impairments.cfo.enabled = True
+                cfg.impairments.cfo.cfo_hz = args.cfo_hz
+            if args.sfo_ppm is not None:
+                cfg.impairments.sfo.enabled = True
+                cfg.impairments.sfo.sfo_ppm = args.sfo_ppm
+            if args.phase_offset_rad is not None:
+                cfg.impairments.phase_noise.enabled = True
+                cfg.impairments.phase_noise.phase_offset_rad = args.phase_offset_rad
+            if args.timing_offset_samples is not None:
+                cfg.impairments.timing_offset.enabled = True
+                cfg.impairments.timing_offset.timing_offset_samples = (
+                    args.timing_offset_samples
+                )
+            if args.clipping_threshold is not None:
+                cfg.impairments.agc_adc.enabled = True
+                cfg.impairments.agc_adc.clipping_threshold = args.clipping_threshold
+
             run_config = RTTruthRunConfig(
                 label_file=Path(cfg.input.label_file),
                 scene_file=Path(cfg.input.scene_file),
@@ -343,16 +420,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 su_mimo_link_batch_size=cfg.phy.su_mimo_link_batch_size,
                 num_ofdm_symbols=cfg.phy.num_ofdm_symbols,
                 cp_length=cfg.phy.cp_length,
-                num_time_steps=(
-                    args.num_time_steps
-                    if args.num_time_steps is not None
-                    else mot.num_time_steps if motion_enabled else 1
-                ),
-                sampling_frequency_hz=(
-                    args.sampling_frequency_hz
-                    if args.sampling_frequency_hz is not None
-                    else mot.sampling_frequency_hz if motion_enabled else 0.0
-                ),
+                num_time_steps=_num_time_steps,
+                sampling_frequency_hz=_sampling_frequency_hz,
                 max_bs=_max_bs,
                 max_ue=_max_ue,
                 bs_num_rows=cfg.antenna.bs_array.num_rows,
@@ -396,6 +465,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     dpi=cfg.visualization.dpi,
                     format=cfg.visualization.format,
                     plots=tuple(cfg.visualization.plots),
+                    radio_map_mode=cfg.visualization.radio_map_mode,
+                    radio_map_grid_resolution_m=(
+                        cfg.visualization.radio_map_grid_resolution_m
+                    ),
+                    radio_map_show_samples=cfg.visualization.radio_map_show_samples,
                 ),
                 spectrum_config=ArraySpectrumConfig(
                     enabled=cfg.array.spectrum.enabled,
@@ -430,7 +504,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 srs_config=cfg.phy.srs,
                 ranging_config=to_domain_ranging_config(cfg.ranging),
             )
+            _write_output_run_config(cfg, Path(_outdir))
         else:
+            from sionna_measurement_sim.config.schema import MeasurementConfig
+
             seed = args.seed if args.seed is not None else 42
             impairment = ImpairmentConfig(
                 random_seed=seed + _SEED_OFFSET_IMPAIRMENT,
@@ -452,10 +529,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     else 3.0
                 ),
             )
+            output_dir = Path(args.output_dir or "outputs/e2e_full")
             run_config = RTTruthRunConfig(
                 label_file=Path(args.label_file),
                 scene_file=Path(args.scene_file),
-                output_dir=Path(args.output_dir or "outputs/e2e_full"),
+                output_dir=output_dir,
                 num_subcarriers=args.num_subcarriers or 64,
                 seed=seed,
                 max_depth=1,
@@ -473,6 +551,39 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_bs=args.max_bs if args.max_bs is not None else 6,
                 max_ue=args.max_ue if args.max_ue is not None else 30,
             )
+            cfg = MeasurementConfig()
+            cfg.runtime.seed = seed
+            cfg.input.label_file = str(run_config.label_file)
+            cfg.input.scene_file = str(run_config.scene_file)
+            cfg.input.scene_id = run_config.scene_id or run_config.scene_file.stem
+            cfg.input.max_bs = run_config.max_bs
+            cfg.input.max_ue = run_config.max_ue
+            cfg.output.root_dir = str(output_dir)
+            cfg.carrier.num_subcarriers = run_config.num_subcarriers
+            cfg.carrier.subcarrier_spacing_hz = (
+                cfg.carrier.bandwidth_hz / run_config.num_subcarriers
+            )
+            cfg.rt.max_depth = run_config.max_depth
+            cfg.rt.specular_reflection = run_config.specular_reflection
+            cfg.phy.standard = run_config.phy_standard
+            cfg.phy.snr_db = float(run_config.observation_snr_db)
+            cfg.motion.enabled = True
+            cfg.motion.num_time_steps = run_config.num_time_steps
+            cfg.motion.sampling_frequency_hz = run_config.sampling_frequency_hz
+            cfg.impairments.impairment_seed = impairment.random_seed
+            cfg.impairments.cfo.enabled = True
+            cfg.impairments.cfo.cfo_hz = impairment.cfo_hz
+            cfg.impairments.sfo.enabled = True
+            cfg.impairments.sfo.sfo_ppm = impairment.sfo_ppm
+            cfg.impairments.phase_noise.enabled = True
+            cfg.impairments.phase_noise.phase_offset_rad = impairment.phase_offset_rad
+            cfg.impairments.timing_offset.enabled = True
+            cfg.impairments.timing_offset.timing_offset_samples = (
+                impairment.timing_offset_samples
+            )
+            cfg.impairments.agc_adc.enabled = True
+            cfg.impairments.agc_adc.clipping_threshold = impairment.clipping_threshold
+            _write_output_run_config(cfg, output_dir)
         output_path = run_rt_truth_pipeline(run_config)
         print(output_path)
         return 0
@@ -492,6 +603,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_bs=args.max_bs,
                 sample_ue_count=args.sample_ue_count,
                 max_ue=args.max_ue,
+                radio_map_mode=args.radio_map_mode,
+                radio_map_grid_resolution_m=args.radio_map_grid_resolution_m,
+                radio_map_show_samples=args.radio_map_show_samples,
             ),
             mode=args.mode,
             bs_indices=_parse_csv_ints(args.bs_indices),
