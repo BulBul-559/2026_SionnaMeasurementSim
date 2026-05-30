@@ -113,6 +113,33 @@ skipped task=7 scene=front3d_0002 density=0p2 reason=stalled shard_016 under GPU
 No data was deleted. The incomplete `front3d_0002 0p2` directory remains for
 later recovery or inspection.
 
+## Recurrence After Resume
+
+The same queue-stall pattern recurred after resuming from task 8/14:
+
+- Task: `front3d_0002`, density `0p5`.
+- Output directory:
+  `outputs/front3d_20_front3d_0002_panel0p5_srs_64prb_direct_array_shard10`
+- At `2026-05-30 10:46 CST`, the directory contained 29 `result*.h5` files
+  and 29 per-shard manifests, matching the expected shard10 scale for 282 UEs.
+- Latest result timestamps were around `2026-05-30 01:29 CST`.
+- No aggregate manifest, heatmap, or summary had been written.
+- The task's worker processes were still alive after about 9 hours, but nearly
+  idle, with no new output during the inspection window.
+
+This strengthens the interpretation that the failure mode is a queue-level
+tail stall after most shard outputs have completed, not normal slow GPU
+progress. The immediate operational response was repeated:
+
+1. Preserve the incomplete `front3d_0002 0p5` output.
+2. Stop the affected runner process group.
+3. Start a second resume script from task 9/14:
+   `outputs/local_runs/front3d_remaining_panel_density_queue/run_queue_resume_from_009.sh`
+4. Continue with `front3d_0003 0p2`.
+
+Both skipped `front3d_0002` density runs (`0p2` and `0p5`) should be treated
+as incomplete until explicitly recovered.
+
 ## Recommended Response Policy
 
 For long multi-scene queues:
@@ -133,9 +160,12 @@ For long multi-scene queues:
    - or a quiet GPU window if available.
 
 For `front3d_0002 0p2`, first recovery target should be the missing
-`shard_016` range. If recovery tooling cannot cleanly patch the aggregate
-manifest from partial outputs, rerun the full `front3d_0002 0p2` task with a
-more conservative configuration after the current queue completes.
+`shard_016` range. For `front3d_0002 0p5`, the partial shard outputs appear
+near-complete but should still be recovered through aggregate manifest
+reconstruction or a clean rerun. If recovery tooling cannot cleanly patch the
+aggregate manifest from partial outputs, rerun the affected `front3d_0002`
+density tasks with a more conservative configuration after the current queue
+completes.
 
 ## Engineering Follow-ups
 
