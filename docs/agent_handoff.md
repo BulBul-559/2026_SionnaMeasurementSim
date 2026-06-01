@@ -203,6 +203,9 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 需要按目标场景复制后修改。推荐把运行配置放在目标输出目录的 `run_config.yaml`；
 运行 `run-full` 时，CLI 会把 YAML 加载和命令行覆盖后的最终配置写回输出目录根部的
 `run_config.yaml`，使每个结果目录自包含。
+本地 tmux 队列、验收统计和 heatmap 包装脚本的输出也必须放回对应 run 目录：
+`logs/run.log`、`logs/heatmap.log` 和 `summary.json`。不要再在 `outputs/` 根目录写
+`<run_name>.run.log`、`<run_name>.heatmap.log` 或 `<run_name>_summary.json`。
 
 `shard_size=20` 是当前生产建议。历史报告里出现的 `25` 是旧实验记录，不再作为默认生产值。
 
@@ -318,6 +321,8 @@ uv run python -m sionna_measurement_sim.app.cli --config config/defaults/nr_srs_
 运行 SRS 全流程时，建议复制模板到目标输出目录的 `run_config.yaml`，再改
 label/output/gpu。也可以用临时 YAML 启动；`run-full` 会把最终有效配置写入输出目录的
 `run_config.yaml`，避免后续复现实验时再去追散落的临时配置文件。
+如果脚本还会跑 radio-map heatmap 或 schema/验收汇总，附加 artifact 也写在该输出目录下：
+`logs/heatmap.log`、`summary.json`。
 
 基础检查：
 

@@ -177,6 +177,10 @@ shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `resul
 记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大
 HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
 `manifest/config_snapshot.json` 还会保存 resolved 运行配置，保证数据目录自包含。
+本地队列和验收包装脚本的附加产物也应保持 output-local：运行日志写
+`logs/run.log`，heatmap 日志写 `logs/heatmap.log`，任务级汇总写
+`summary.json`，不要在 `outputs/` 根目录旁路生成 `<run_name>.run.log` 或
+`<run_name>_summary.json`。
 
 ### `carrier` — 载波与频率
 

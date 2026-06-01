@@ -98,7 +98,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 普通模式返回输出 HDF5 文件路径。CLI 会把最终有效 YAML 写到输出根目录
 `run_config.yaml`。启用 `output.sharding.enabled=true` 时返回输出目录路径，目录下包含
 `run_config.yaml`、`results/result_xxx.h5`、`manifest/manifest.json`、
-`manifest/config_snapshot.json` 和可选 debug logs。
+`manifest/config_snapshot.json` 和可选 `logs/`。外层队列或 heatmap wrapper 的
+`run.log`、`heatmap.log`、`summary.json` 也应写在该输出目录内。
 
 **内部流程：**
 

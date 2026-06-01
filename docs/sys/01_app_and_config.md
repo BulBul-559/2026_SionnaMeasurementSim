@@ -151,7 +151,8 @@ CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Py
 `outputs/<run_name>/run_config.yaml`，再把 `input.label_file`、`input.scene_file`、
 `scene_id`、`output.root_dir` 和 GPU/shard 参数改成目标场景。运行 `run-full` 时，
 CLI 会把 YAML 加载和命令行覆盖后的最终配置再写回输出目录根部的 `run_config.yaml`，
-让结果目录自包含。
+让结果目录自包含。tmux 队列、heatmap 后处理和验收脚本的附加日志/汇总也应写回同一目录，
+常用布局是 `logs/run.log`、`logs/heatmap.log`、`summary.json`。
 
 ## 本地数据路径
 

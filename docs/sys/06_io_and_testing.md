@@ -80,6 +80,10 @@ def write_manifest(path: str | Path, data: dict) -> Path
 `results/result_xxx.h5` 的全局 BS/UE 索引、resolved TX/RX 索引、schema/debug 信息和性能摘要。
 `manifest/` 同目录还会保存 `config_snapshot.json`；CLI 运行时，输出根目录会保存最终 YAML
 `run_config.yaml`；若发生自动 shard fallback，会额外写 `shard_attempts.jsonl`。
+队列、验收、可视化后处理等 wrapper 产生的运行级 artifact 必须继续写在同一个 run
+目录内：`logs/run.log`、`logs/heatmap.log` 和 `summary.json` 是推荐位置。不要把
+`<run_name>.run.log`、`<run_name>.heatmap.log` 或 `<run_name>_summary.json` 写到
+`outputs/` 根目录。
 
 ### `perf.py` 与 benchmark artifact
 

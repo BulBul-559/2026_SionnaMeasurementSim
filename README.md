@@ -182,15 +182,19 @@ uv run python scripts/compare_phy_csi_outputs.py \
 ```text
 outputs/<run_dir>/
   run_config.yaml       # run-full 写入的最终 YAML 配置
+  summary.json          # 可选队列/验收脚本汇总，不属于 HDF5 schema
   results/              # result_xxx.h5，自包含 HDF5 shard
   manifest/             # aggregate manifest、per-shard manifest、config snapshot
-  logs/                 # debug/perf 日志
+  logs/                 # run.log、heatmap.log、debug/perf 日志
   figures/              # 可选采样可视化
 ```
 
 `run_config.yaml` 保存 YAML 加载和 CLI 覆盖后的最终运行配置，便于把单个输出目录作为
 可复现实验单元。`manifest/manifest.json` 是 shard 数据集入口，记录全局 UE 覆盖范围、
 resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json` 路径。
+本地队列、验收和 heatmap 包装脚本也应把运行日志、heatmap 日志和汇总 JSON 放回同一个
+run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避免在
+`outputs/` 根目录生成 sidecar 文件。
 
 | Group | 内容 |
 |-------|------|

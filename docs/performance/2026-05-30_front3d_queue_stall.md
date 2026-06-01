@@ -3,6 +3,11 @@
 > 历史运行记录。本文记录 Front3D 生产队列中的两次卡住现象、当时的处置方式、
 > 以及后续应对策略。它不改变当前默认配置；当前系统事实仍以
 > `docs/agent_handoff.md`、`docs/sys/` 和 `config/README.md` 为准。
+>
+> 2026-06-01 补充：后续本地队列脚本的运行级 artifact 已统一改为 output-local
+> 布局，即 `outputs/<run_name>/logs/run.log`、`logs/heatmap.log` 和 `summary.json`。
+> 不再建议在 `outputs/` 根目录写 `<run_name>.run.log` 或 `<run_name>_summary.json`
+> sidecar。
 
 ## 范围
 
