@@ -9,7 +9,8 @@
 - SRS/PUSCH 共享的通用 clean channel → impairment/AWGN → receiver 链路
 - NR PUSCH 4x4 SU-MIMO（perfect CSI + DMRS LS 估计，LMMSE/KBest 检测器）
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
-- NR SRS standards-shaped v2 subset（comb/BWP、NR-ZC-like sequence、group/sequence hopping、cyclic-shift port multiplexing、frequency/bandwidth hopping、port/antenna switching、power scaling、resource LS + full-band interpolation；暂非完整 3GPP SRS）
+- NR SRS standards-shaped v2 subset（comb/BWP、NR-ZC-like sequence、group/sequence hopping、cyclic-shift port multiplexing、frequency/bandwidth hopping、port/antenna switching、resource LS + full-band interpolation；暂非完整 3GPP SRS）
+- 协议无关 uplink power/RSSI 模型：`tx_power_dbm` 生效到 SRS/PUSCH TX grid，支持 relative-SNR 与 absolute-thermal 噪声口径
 - 波形级 ranging observation：从 `/observation/cfr_est` 估计 ToA/one-way range，支持 PDP peak 与 phase-slope estimator
 - PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
@@ -20,7 +21,7 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
-- HDF5 schema `1.5.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
+- HDF5 schema `1.6.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform/power 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -132,15 +133,22 @@ path = run_rt_truth_pipeline(config)
 `phy.standard: "nr_srs"` 当前实现 standards-shaped NR SRS v2 subset：按 `phy.srs`
 生成 comb/BWP/hopping resource plan，在完整 14-symbol slot 中只填 SRS symbols，支持
 `zc_like` 与 deterministic `nr_zc` sequence、group/sequence hopping、同 symbol
-cyclic-shift port multiplexing、antenna switching 口径和简化 uplink power scaling。
+cyclic-shift port multiplexing、antenna switching 口径和通用 uplink power/RSSI 标定。
 receiver 先在 flattened SRS RE 上做 despread/LS，再插值到 full-band
 `/observation/cfr_est`。它和 PUSCH 一样走通用 clean channel →
 impairment/AWGN 链路，写出统一 waveform 字段 `/waveform/tx_grid`、
-`/waveform/rx_grid`、`/waveform/noise_variance`，以及 SRS 专属
+`/waveform/rx_grid`、`/waveform/noise_variance`、通用
+`/waveform/tx_power_dbm_per_port` 和 `/waveform/tx_power_scale_linear`，以及 SRS 专属
 `/waveform/srs_resource_mask`、`/waveform/srs_pilot_symbols`、
 `/waveform/srs_re_symbol_indices`、`/waveform/srs_re_subcarrier_indices`、
 `/waveform/srs_port_tx_ant_map` 和 SRS power metadata。schema `1.5.0`
-后不再写 `/waveform/pilot_code` 或 `/waveform/srs_port_index`。
+后不再写 `/waveform/pilot_code` 或 `/waveform/srs_port_index`；schema `1.6.0`
+后 `tx_power_dbm` 生效到 SRS/PUSCH 发射 grid，并写入通用 power/RSSI 字段。
+
+`phy.tx_power_dbm` 当前会影响 SRS/PUSCH 的发射 grid 幅度。默认
+`phy.power.noise_mode="relative_snr"` 保持历史 SNR 口径：TX power 上调时 RSSI 和
+noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，噪声按 kTB + NF
+固定，TX power 会直接改变 SNR。
 
 这一路径适合做室内定位 CSI 基线和 PUSCH-DMRS proxy 对比，但仍不能称为
 完整 3GPP NR SRS：本项目的 hopping/sequence/power control 是可解释的 v2 subset，
@@ -209,7 +217,7 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 | `/derived` | 几何距离、first-path truth delay/range、AoA、LoS/NLoS、link mask、TX/RX 平面几何量 |
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
-| `/waveform` | OFDM/NR 波形；NR PUSCH/SRS 统一保存 `tx_grid/rx_grid/noise_variance`，NR SRS 另写 resource/sequence/port datasets |
+| `/waveform` | OFDM/NR 波形；NR PUSCH/SRS 统一保存 `tx_grid/rx_grid/noise_variance` 和 power/RSSI metadata，NR SRS 另写 resource/sequence/port datasets |
 | `/array` | 阵列 snapshot、`aoa_heatmap_label`、truth/estimated/RX-grid Bartlett 空间谱；旧 `spatial_spectrum_label` 和 `spatial_spectrum_srs` 不再写入 |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/ranging` | 从受损后 `cfr_est` 估计的 ToA/range observation；含 `pdp_peak` 与 `phase_slope` |

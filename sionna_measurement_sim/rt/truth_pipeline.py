@@ -152,6 +152,7 @@ class RTTruthRunConfig:
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = 1
+    power_config: Any | None = None
     srs_config: Any | None = None
     ranging_config: RangingConfig = field(default_factory=RangingConfig)
     visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
@@ -1493,6 +1494,8 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "observation_snr_db": config.observation_snr_db,
         "observation_seed": config.observation_seed,
         "phy_standard": config.phy_standard,
+        "tx_power_dbm": config.tx_power_dbm,
+        "power_config": _power_config_snapshot(config.power_config),
         "srs_config": _srs_config_snapshot(config.srs_config),
         "ranging": _ranging_config_snapshot(config.ranging_config),
         "link_config": {
@@ -1615,6 +1618,45 @@ def _ranging_config_snapshot(config: RangingConfig) -> dict[str, object]:
             "min_mean_power": config.phase_slope.min_mean_power,
         },
     }
+
+
+def _power_config_snapshot(config: Any | None) -> dict[str, object]:
+    if config is None:
+        return {
+            "reference_tx_power_dbm": 0.0,
+            "apply_tx_power_to_grid": True,
+            "noise_mode": "relative_snr",
+            "thermal_noise": {
+                "temperature_k": 290.0,
+                "noise_figure_db": 7.0,
+                "bandwidth_hz": None,
+            },
+            "uplink_control": {
+                "enabled": False,
+                "serving_rx_policy": "strongest_path",
+                "open_loop_enabled": True,
+                "p0_dbm": 0.0,
+                "alpha": 0.8,
+                "closed_loop_enabled": False,
+                "tpc_offset_db": 0.0,
+                "accumulation_db": 0.0,
+                "min_tx_power_dbm": -40.0,
+                "max_tx_power_dbm": 23.0,
+            },
+        }
+    if hasattr(config, "model_dump"):
+        return dict(config.model_dump())
+    if hasattr(config, "__dict__"):
+        snapshot: dict[str, object] = {}
+        for key, value in vars(config).items():
+            if hasattr(value, "model_dump"):
+                snapshot[key] = dict(value.model_dump())
+            elif hasattr(value, "__dict__"):
+                snapshot[key] = dict(vars(value))
+            else:
+                snapshot[key] = value
+        return snapshot
+    return {}
 
 
 def _srs_config_snapshot(config: Any | None) -> dict[str, object]:

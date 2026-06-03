@@ -14,6 +14,7 @@
 phy/
 ├── modules.py                # PHYContext / PHYModuleResult / registry / built-in adapters
 ├── common_link.py            # 通用 clean grid → impairment → AWGN 链路
+├── power.py                  # 协议无关 uplink power/RSSI 标定和 thermal noise
 ├── observation_pipeline.py   # custom OFDM: AWGN + LS 估计
 ├── impairments.py            # 基带损伤模型
 ├── reciprocity.py            # TDD 互易性 transpose
@@ -53,12 +54,21 @@ link-view，后续维度由具体标准决定，例如 SRS/PUSCH 都使用
 
 - `rx_grid`：施加基带损伤和 AWGN 后的频域接收 grid。
 - `noise_variance`：`[snapshot, tx, rx]`，由 common chain 统一写入 waveform。
+- `snr_db`、`rssi_dbm`、`noise_power_dbm`：按 `phy.power` 标定后的 per-link 观测标量。
 - `ImpairmentSample`：CFO/SFO/timing/phase/AGC/clipping per-link 观测值。
 - `ImpairmentSpec`：写入 `/impairments` 的配置快照。
 
 SRS、PUSCH 只负责各自的 waveform builder 和 receiver/estimator。后续新增
 WiFi-like 或 6G waveform 时，也应复用这个 clean-grid impairment 链，而不是在
 标准模块内重写 AWGN 或损伤 metadata。
+
+`phy/power.py` 是标准无关的 uplink power/RSSI 模块：单位幅度 TX grid 默认对应
+`reference_tx_power_dbm=0 dBm`，`phy.tx_power_dbm` 会转成发射 grid 幅度缩放。
+默认 `noise_mode="relative_snr"` 时 common chain 按 clean `rx_grid` 平均功率和
+`snr_db` 反推噪声，因此 TX power 改变会让 `rssi_dbm` 与 `noise_power_dbm` 同步平移；
+`noise_mode="absolute_thermal"` 时噪声由 kTB、bandwidth 和 noise figure 固定，TX power
+会改变实际 SNR。通用模块也负责 serving RX、open-loop、静态 closed-loop/TPC offset、
+clamp 和 power metadata；`phy.srs.power_control` 只保留为旧 YAML adapter。
 
 waveform-level ranging 不属于 SRS/PUSCH 私有逻辑。pipeline 会在 PHY observation
 完成后读取统一的 `/observation/cfr_est`，由 `sionna_measurement_sim.ranging`
@@ -258,14 +268,17 @@ def run_nr_pusch_observation(
 7. build_stream_management(num_rx, num_tx, num_layers)
 8. build_mimo_detector(resource_grid, stream_management, ...)
 9. PUSCHReceiver(tx, channel_estimator, mimo_detector, stream_management)
-10. 计算目标 noise 口径 (ebnodb2no 或 SNR)
-11. backend clean apply 得到 `y_clean, h`
-12. `ObservationImpairmentChain` 对 `y_clean` 统一施加 impairment/AWGN
-13. PUSCHReceiver 使用 impaired `rx_grid` 和 common chain 返回的 receiver noise
-14. if su_mimo: _process_su_mimo_per_link(...)
+10. 计算通用 TX power scale 和目标 noise 口径 (`relative_snr` / `absolute_thermal` / `ebnodb2no`)
+11. 对 transmitter 输出的 `tx_grid` 施加 TX power scale
+12. backend clean apply 得到 `y_clean, h`
+13. `ObservationImpairmentChain` 对 `y_clean` 统一施加 impairment/AWGN
+14. PUSCHReceiver 使用 impaired `rx_grid` 和 common chain 返回的 receiver noise
+    （`perfect_csi=true` 时 receiver 使用含 TX power scale 的 effective oracle CSI）
+15. if su_mimo: _process_su_mimo_per_link(...)
     if mu_mimo: _process_mu_mimo(...)
-15. 组装 resolved TX/RX link-view 的 ObservationResult + EvaluationResult
-16. 返回 dict
+16. 导出的 `/observation/cfr_est` 除回 TX power scale，保持物理 CFR 口径
+17. 组装 resolved TX/RX link-view 的 ObservationResult + EvaluationResult
+18. 返回 dict
 ```
 
 ## 七、NR SRS Subset (`nr_srs_observation.py`)
@@ -277,7 +290,8 @@ def run_nr_pusch_observation(
 3. comb/BWP/hopping resource 写入 `srs_resource_mask`、`srs_re_symbol_indices` 和 `srs_re_subcarrier_indices`
 4. 生成可复现 `zc_like` 或 deterministic `nr_zc` pilot，可启用 group/sequence hopping
 5. 按 `ports` 生成 `srs_port_tx_ant_map`，支持 one-to-one 与简化 antenna switching
-6. 可选按 RT `path_power_db` 做 open-loop SRS power scaling，写 `srs_tx_power_dbm` 和 `srs_power_scale_linear`
+6. 通过通用 `phy.power` 计算 TX power scale；SRS 继续写 `srs_tx_power_dbm` 和
+   `srs_power_scale_linear` 作为 port 级别别名
 7. 通过 clean channel 得到 `y_clean`
 8. `ObservationImpairmentChain` 统一施加 impairment/AWGN 得到 `rx_grid`
 9. receiver 从 flattened SRS RE 做 time-code LS 或 cyclic-shift delay-window despreading，写 `/observation/cfr_est_resource`
@@ -296,17 +310,19 @@ quality 指标。若 `array.spectrum.sources` 包含 `cfr_est`，会从统一
 `/link/rx_role` 将 link-view 轴映射回 BS/UE 标签，direct uplink 中
 `tx=UE, rx=BS` 不再按历史 `BS->UE` 假设取图。
 
-schema `1.5.0` 后，NR SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
-`noise_variance`，并写 SRS 专属 `/waveform/srs_resource_mask`、
+schema `1.6.0` 后，NR PUSCH/SRS HDF5 使用统一 `/waveform/tx_grid`、`rx_grid`、
+`noise_variance`、`tx_power_dbm_per_port`、`tx_power_scale_linear`、
+`serving_rx_index`、`path_loss_db` 和 `power_clipped_flag`。NR SRS 另写专属
+`/waveform/srs_resource_mask`、
 `/waveform/srs_pilot_symbols`、`/waveform/srs_re_symbol_indices`、
 `/waveform/srs_re_subcarrier_indices`、`/waveform/srs_port_tx_ant_map`、
-per-symbol PRB、cyclic shift、sequence 和 power-control metadata。不再写
+per-symbol PRB、cyclic shift、sequence 和 SRS port power metadata。不再写
 `/waveform/pilot_code`、`/waveform/srs_port_index`、`/observation/srs_cfr_est`、
 `/array/spatial_spectrum_srs` 或 `/array/spatial_spectrum_label`。
 
 当前 v2 已覆盖 group/sequence hopping、同 symbol cyclic-shift port multiplexing、
-frequency/bandwidth hopping、port/antenna switching 口径和简化 power scaling；
-仍未做 38.211/38.213 reference 对齐、完整 antenna switching procedure、闭环功控或
+frequency/bandwidth hopping、port/antenna switching 口径和通用 uplink power/RSSI 标定；
+仍未做 38.211/38.213 reference 对齐、完整 antenna switching procedure 或
 3GPP-compliant 声明，详见 `docs/todo/feature.md`。
 
 ### SU-MIMO per-link 处理：`_process_su_mimo_per_link()`
@@ -375,14 +391,15 @@ def build_mimo_detector(resource_grid, stream_management,
 - **estimated CSI**：`num_layers == num_antenna_ports` 时支持；不等时抛 `NotImplementedError`（DMRS LS 估计返回 effective stream channel，不能直接写成 physical antenna-pair CFR）
 - **MU-MIMO bit counter**：`total_bit_errors` / `total_bits` 按 snapshot 累计一次（joint），不在 per-link 循环中重复累计
 - **`perfect_csi`**：`h_perfect` 来自 clean backend 返回的 `ChannelApplyResult.h`。
-  `perfect_csi=true` 时 receiver 使用 oracle CSI，但输入仍是 impaired `rx_grid`；
-  导出的 `cfr_est` 是 oracle channel CSI。`perfect_csi=false` 时 receiver 不接收
+  `perfect_csi=true` 时 receiver 使用按 TX power scale 调整后的 effective oracle CSI，
+  但输入仍是 impaired `rx_grid`；导出的 `cfr_est` 会除回 scale，保持 physical
+  channel CSI。`perfect_csi=false` 时 receiver 不接收
   真值 `h`，而是使用 PUSCHReceiver 内部 DMRS LS；导出的 `cfr_est` 来自外部
-  `PUSCHLSChannelEstimator(y, no)`，与 receiver 使用同一个 impaired `rx_grid` 和
-  common-chain noise 口径。
-- **SNR/noise 口径**：普通 `snr_db` 路径下 common chain 按 clean `rx_grid` 的每
-  link 平均功率计算 `/waveform/noise_variance`；只有 `ebno_db` 非空时，PUSCH 使用
-  Sionna `ebnodb2no` 结果作为 override。
+  `PUSCHLSChannelEstimator(y, no)`，再除回 scale；与 receiver 使用同一个 impaired
+  `rx_grid` 和 common-chain noise 口径。
+- **SNR/noise 口径**：默认 `relative_snr` 下 common chain 按 clean `rx_grid` 的每
+  link 平均功率计算 `/waveform/noise_variance`；`absolute_thermal` 下噪声由 kTB + NF
+  固定。只有 `ebno_db` 非空时，PUSCH 使用 Sionna `ebnodb2no` 结果作为 override。
 
 ## 八、Waveform Ranging Observation (`ranging/`)
 

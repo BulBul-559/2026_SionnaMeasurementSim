@@ -94,6 +94,11 @@ class TestNRPUSCHSchema:
                 "waveform/tx_grid",
                 "waveform/rx_grid",
                 "waveform/noise_variance",
+                "waveform/tx_power_dbm_per_port",
+                "waveform/tx_power_scale_linear",
+                "waveform/serving_rx_index",
+                "waveform/path_loss_db",
+                "waveform/power_clipped_flag",
                 "array/rx_snapshot_matrix",
                 "array/aoa_label_rad",
                 "array/aoa_heatmap_label",
@@ -120,11 +125,20 @@ class TestNRPUSCHSchema:
             tx_grid = h5["waveform/tx_grid"]
             rx_grid = h5["waveform/rx_grid"]
             noise_variance = h5["waveform/noise_variance"]
+            tx_power = h5["waveform/tx_power_dbm_per_port"]
+            tx_scale = h5["waveform/tx_power_scale_linear"]
             assert tx_grid.shape[:3] == rx_grid.shape[:3]
             assert noise_variance.shape == tx_grid.shape[:3]
+            assert tx_power.shape == (*tx_grid.shape[:2], 1)
+            assert tx_scale.shape == tx_power.shape
+            assert h5["waveform/serving_rx_index"].shape == tx_grid.shape[:2]
+            assert h5["waveform/path_loss_db"].shape == tx_grid.shape[:2]
+            assert h5["waveform/power_clipped_flag"].shape == tx_power.shape
             assert tx_grid.attrs["unit"] == "linear_complex"
             assert rx_grid.attrs["unit"] == "linear_complex"
             assert noise_variance.attrs["unit"] == "linear"
+            assert tx_power.attrs["unit"] == "dBm"
+            assert tx_scale.attrs["unit"] == "linear"
             assert tx_grid.attrs["index_order"] == (
                 "snapshot,ul_tx,ul_rx,ul_tx_ant,ofdm_symbol,subcarrier"
             )

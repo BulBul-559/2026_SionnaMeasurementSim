@@ -413,6 +413,46 @@ def _write_waveform(h5: h5py.File, result: MeasurementSimulationResult) -> None:
                     unit="linear",
                     index_order="snapshot,ul_tx,ul_rx",
                 )
+            if "tx_power_dbm_per_port" in extras:
+                _write_dataset(
+                    group,
+                    "tx_power_dbm_per_port",
+                    extras["tx_power_dbm_per_port"],
+                    unit="dBm",
+                    index_order="snapshot,tx,port",
+                )
+            if "tx_power_scale_linear" in extras:
+                _write_dataset(
+                    group,
+                    "tx_power_scale_linear",
+                    extras["tx_power_scale_linear"],
+                    unit="linear",
+                    index_order="snapshot,tx,port",
+                )
+            if "serving_rx_index" in extras:
+                _write_dataset(
+                    group,
+                    "serving_rx_index",
+                    extras["serving_rx_index"],
+                    unit="index",
+                    index_order="snapshot,tx",
+                )
+            if "path_loss_db" in extras:
+                _write_dataset(
+                    group,
+                    "path_loss_db",
+                    extras["path_loss_db"],
+                    unit="dB",
+                    index_order="snapshot,tx",
+                )
+            if "power_clipped_flag" in extras:
+                _write_dataset(
+                    group,
+                    "power_clipped_flag",
+                    extras["power_clipped_flag"],
+                    unit="bool",
+                    index_order="snapshot,tx,port",
+                )
             if waveform.standard == "nr_pusch" and "pilot_code" in extras:
                 _write_dataset(
                     group,

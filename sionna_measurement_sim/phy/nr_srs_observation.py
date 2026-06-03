@@ -18,11 +18,15 @@ from sionna_measurement_sim.phy.common_link import (
     ObservationImpairmentChain,
     ResultAssembler,
 )
-from sionna_measurement_sim.phy.nr_srs_power_control import compute_srs_power_control
 from sionna_measurement_sim.phy.nr_srs_resources import (
     NRSRSResource,
     build_srs_resource,
     resolve_srs_resource_config,
+)
+from sionna_measurement_sim.phy.power import (
+    compute_uplink_power,
+    noise_mode_from_config,
+    thermal_noise_metadata,
 )
 from sionna_measurement_sim.phy.spatial_spectrum import project_cfr_to_ul_receiver_samples
 
@@ -69,14 +73,16 @@ def run_nr_srs_observation(
     )
     num_srs_ports = int(srs_resource.pilot_symbols.shape[0])
     num_symbols = int(srs_resource_config.slot_length_symbols)
-    power_control = compute_srs_power_control(
+    power_config = getattr(phy_config, "power_config", None)
+    power_control = compute_uplink_power(
         path_power_db=path_power_db,
         snapshot_count=num_snap,
         tx_count=num_ul_tx,
         rx_count=num_ul_rx,
-        num_srs_ports=num_srs_ports,
-        base_tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
-        config=srs_resource_config.power_control,
+        port_count=num_srs_ports,
+        fixed_tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
+        power_config=power_config,
+        legacy_power_control=srs_resource_config.power_control,
     )
     snr_db = float(
         getattr(phy_config, "snr_db", None)
@@ -104,11 +110,19 @@ def run_nr_srs_observation(
         y_clean = np.einsum("...rtf,...tsf->...rsf", h_ul, tx_grid, optimize=True)
     _record_array_event(tracer, "nr_srs.array_shape", "y_clean", y_clean)
     with _span(tracer, "nr_srs.common_impairments_and_awgn", snr_db=float(snr_db)):
+        noise_mode = noise_mode_from_config(power_config)
+        thermal_meta = thermal_noise_metadata(
+            power_config=power_config,
+            default_bandwidth_hz=sc_spacing_hz * num_subcarriers,
+        )
         impairment_chain = ObservationImpairmentChain(
             fft_size=num_subcarriers,
             sample_rate_hz=sc_spacing_hz * num_subcarriers,
             random_seed=int(getattr(phy_config, "observation_seed", 42)),
             impairment_config=getattr(phy_config, "impairment_config", None),
+            noise_mode=noise_mode,
+            thermal_noise_power_mw=thermal_meta["thermal_noise_mw"],
+            thermal_noise_config=thermal_meta,
         )
         impairment_result = impairment_chain.apply(y_clean, snr_db=snr_db)
         rx_grid = (
@@ -197,6 +211,11 @@ def run_nr_srs_observation(
             "tx_grid": tx_grid.astype(np.complex64, copy=False),
             "rx_grid": rx_grid,
             "noise_variance": chain_scalars["noise_variance"],
+            "tx_power_dbm_per_port": power_control.tx_power_dbm,
+            "tx_power_scale_linear": power_control.power_scale_linear,
+            "serving_rx_index": power_control.serving_rx_index,
+            "path_loss_db": power_control.path_loss_db,
+            "power_clipped_flag": power_control.clipped_flag,
             "srs_resource_mask": srs_resource.resource_mask,
             "srs_pilot_symbols": srs_resource.pilot_symbols,
             "srs_re_symbol_indices": srs_resource.re_symbol_indices,
@@ -252,7 +271,10 @@ def run_nr_srs_observation(
             "ports_mapping": srs_resource_config.ports.mapping,
             "ports_usage": srs_resource_config.ports.usage,
             "hopping_enabled": bool(srs_resource_config.hopping.enabled),
-            "power_control_enabled": bool(srs_resource_config.power_control.enabled),
+            "power_control_enabled": bool(
+                getattr(getattr(power_config, "uplink_control", None), "enabled", False)
+                or srs_resource_config.power_control.enabled
+            ),
         },
     }
 

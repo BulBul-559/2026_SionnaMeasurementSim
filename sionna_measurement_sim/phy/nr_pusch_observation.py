@@ -35,6 +35,11 @@ from sionna_measurement_sim.phy.nr_mimo_channel import (
     pusch_h_to_cfr_est,
     reverse_reciprocity_cfr,
 )
+from sionna_measurement_sim.phy.power import (
+    compute_uplink_power,
+    noise_mode_from_config,
+    thermal_noise_metadata,
+)
 from sionna_measurement_sim.phy.spatial_spectrum import (
     build_angle_grid_rad,
     build_aoa_heatmap_label,
@@ -226,6 +231,8 @@ def run_nr_pusch_observation(
     link_config: LinkConfig,
     phy_config,
     carrier_config,
+    *,
+    path_power_db: np.ndarray | None = None,
 ) -> dict:
     device = getattr(phy_config, "device", "cpu")
     with _torch_default_device(device):
@@ -235,6 +242,7 @@ def run_nr_pusch_observation(
             link_config=link_config,
             phy_config=phy_config,
             carrier_config=carrier_config,
+            path_power_db=path_power_db,
         )
 
 
@@ -244,6 +252,7 @@ def _run_nr_pusch_observation_impl(
     link_config: LinkConfig,
     phy_config,
     carrier_config,
+    path_power_db: np.ndarray | None = None,
 ) -> dict:
     """Run NR PUSCH uplink observation with full MIMO channel.
 
@@ -303,6 +312,16 @@ def _run_nr_pusch_observation_impl(
     num_snap = backend.num_snap
     num_ul_tx = backend.num_ul_tx
     num_ul_rx = backend.num_ul_rx
+    power_config = getattr(phy_config, "power_config", None)
+    power_result = compute_uplink_power(
+        path_power_db=path_power_db,
+        snapshot_count=num_snap,
+        tx_count=num_ul_tx,
+        rx_count=num_ul_rx,
+        port_count=1,
+        fixed_tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
+        power_config=power_config,
+    )
 
     # 2. Build PUSCH configs — auto-derive num_pusch_tx for MU-MIMO ──
     _pusch_tx = num_ul_tx if mimo_mode == "mu_mimo" else None
@@ -362,11 +381,19 @@ def _run_nr_pusch_observation_impl(
         no_val = 10.0 ** (-snr_db / 10.0)
         no = torch.tensor(no_val, dtype=torch.float32)
     noise_variance_override = no if ebno_db is not None else None
+    noise_mode = noise_mode_from_config(power_config)
+    thermal_meta = thermal_noise_metadata(
+        power_config=power_config,
+        default_bandwidth_hz=sc_spacing_hz * num_subcarriers,
+    )
     impairment_chain = ObservationImpairmentChain(
         fft_size=num_subcarriers,
         sample_rate_hz=sc_spacing_hz * num_subcarriers,
         random_seed=int(getattr(phy_config, "observation_seed", getattr(phy_config, "seed", 42))),
         impairment_config=getattr(phy_config, "impairment_config", None),
+        noise_mode=noise_mode,
+        thermal_noise_power_mw=thermal_meta["thermal_noise_mw"],
+        thermal_noise_config=thermal_meta,
     )
 
     # 6. Process links ───────────────────────────────────────────────
@@ -382,6 +409,7 @@ def _run_nr_pusch_observation_impl(
             receiver_failure_policy=receiver_failure_policy,
             cfr_clean_ref=cfr_clean_ref,
             num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
+            power_result=power_result,
         )
     elif requested_batch_size > 1:
         proc_result = _process_su_mimo_batched(
@@ -396,6 +424,7 @@ def _run_nr_pusch_observation_impl(
             cfr_clean_ref=cfr_clean_ref,
             num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
             requested_batch_size=requested_batch_size,
+            power_result=power_result,
         )
     else:
         proc_result = _process_su_mimo_per_link(
@@ -409,10 +438,20 @@ def _run_nr_pusch_observation_impl(
             receiver_failure_policy=receiver_failure_policy,
             cfr_clean_ref=cfr_clean_ref,
             num_snap=num_snap, num_ul_tx=num_ul_tx, num_ul_rx=num_ul_rx,
+            power_result=power_result,
         )
 
     cfr_est_full = proc_result["cfr_est_full"]
     waveform_grids = proc_result["waveform_grids"]
+    waveform_grids.update(
+        {
+            "tx_power_dbm_per_port": power_result.tx_power_dbm,
+            "tx_power_scale_linear": power_result.power_scale_linear,
+            "serving_rx_index": power_result.serving_rx_index,
+            "path_loss_db": power_result.path_loss_db,
+            "power_clipped_flag": power_result.clipped_flag,
+        }
+    )
     nmse_db_full = proc_result["nmse_db_full"]
     ber_per_link = proc_result["ber_per_link"]
     bler_per_link = proc_result["bler_per_link"]
@@ -581,6 +620,7 @@ def _process_su_mimo_per_link(
     num_snap: int,
     num_ul_tx: int,
     num_ul_rx: int,
+    power_result: Any,
 ) -> dict:
     """Process each (snap, ul_tx, ul_rx) independently (SU-MIMO)."""
     cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
@@ -621,6 +661,9 @@ def _process_su_mimo_per_link(
                     perfect_csi=perfect_csi,
                     num_ofdm_symbols=num_ofdm_symbols,
                     receiver_failure_policy=receiver_failure_policy,
+                    tx_power_scale=float(
+                        power_result.power_scale_linear[snap_idx, ul_tx_idx, 0]
+                    ),
                 )
                 cfr_est_full[
                     snap_idx, ul_tx_idx, ul_rx_idx, ...
@@ -696,6 +739,7 @@ def _process_su_mimo_batched(
     num_ul_tx: int,
     num_ul_rx: int,
     requested_batch_size: int,
+    power_result: Any,
 ) -> dict:
     """Process SU-MIMO links in configurable batches."""
     cfr_est_full = np.zeros(cfr_clean_ref.shape, dtype=np.complex64)
@@ -758,6 +802,9 @@ def _process_su_mimo_batched(
                 perfect_csi=perfect_csi,
                 num_ofdm_symbols=num_ofdm_symbols,
                 receiver_failure_policy=receiver_failure_policy,
+                tx_power_scale=float(
+                    power_result.power_scale_linear[group[0][0], group[0][1], 0]
+                ),
             )
             stats["num_batches"] += 1
             return [result]
@@ -775,6 +822,13 @@ def _process_su_mimo_batched(
                 perfect_csi=perfect_csi,
                 num_ofdm_symbols=num_ofdm_symbols,
                 receiver_failure_policy=receiver_failure_policy,
+                tx_power_scales=np.asarray(
+                    [
+                        power_result.power_scale_linear[snap_idx, ul_tx_idx, 0]
+                        for snap_idx, ul_tx_idx, _ul_rx_idx in group
+                    ],
+                    dtype=np.float32,
+                ),
             )
             stats["num_batches"] += 1
             stats["effective_batch_size"] = max(
@@ -859,10 +913,12 @@ def _process_pusch_link_batch(
     perfect_csi: bool,
     num_ofdm_symbols: int,
     receiver_failure_policy: str,
+    tx_power_scales: np.ndarray,
 ) -> list[dict[str, Any]]:
     """Run one batched SU-MIMO PUSCH forward pass."""
     batch_size = len(link_indices)
     tx_signal, tx_bits = tx(batch_size)
+    tx_signal = _scale_su_tx_signal(tx_signal, tx_power_scales)
     channel_result = backend.apply_clean_batch_with_h(
         tx_signal,
         link_indices=link_indices,
@@ -876,13 +932,13 @@ def _process_pusch_link_batch(
         noise_variance_override=noise_variance_override,
     )
     receiver_no = _receiver_no_from_chain(impairment_result, y)
-    h_perfect = channel_result.h
+    h_perfect = _scale_su_channel_h(channel_result.h, tx_power_scales)
 
     receiver_failed = np.zeros(batch_size, dtype=np.bool_)
     tb_crc_ok = None
     if perfect_csi:
         try:
-            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect)
+            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect.clone())
         except Exception:
             if receiver_failure_policy == "fail_fast":
                 raise
@@ -892,7 +948,13 @@ def _process_pusch_link_batch(
             )
             receiver_failed[:] = True
         tb_crc_ok = tb_crc_status
-        cfr_est_batch = _pusch_h_batch_to_cfr_est(h_perfect)
+        cfr_est_batch = np.stack(
+            [
+                backend.cfr[snap_idx, ul_tx_idx, ul_rx_idx, ...]
+                for snap_idx, ul_tx_idx, ul_rx_idx in link_indices
+            ],
+            axis=0,
+        ).astype(np.complex64, copy=False)
     else:
         if ls_estimator is None:
             raise RuntimeError("LS estimator is required when perfect_csi=False")
@@ -924,7 +986,10 @@ def _process_pusch_link_batch(
                 f"num_layers == num_antenna_ports ({h_hat_dim4} != {_num_tx_ant}). "
                 "Effective-channel export is not yet supported."
             )
-        cfr_est_batch = _pusch_h_batch_to_cfr_est(h_hat)
+        cfr_est_batch = _descale_cfr_batch(
+            _pusch_h_batch_to_cfr_est(h_hat),
+            tx_power_scales,
+        )
 
     tx_bits_np = _to_numpy(tx_bits)
     rx_bits_np = _to_numpy(rx_bits)
@@ -980,6 +1045,61 @@ def _pusch_h_batch_to_cfr_est(h: torch.Tensor) -> np.ndarray:
     return h_np[:, 0, :, 0, :, 0, :].astype(np.complex64, copy=False)
 
 
+def _scale_su_tx_signal(tx_signal: torch.Tensor, scales: np.ndarray) -> torch.Tensor:
+    scale = torch.as_tensor(
+        np.asarray(scales, dtype=np.float32),
+        dtype=tx_signal.real.dtype,
+        device=tx_signal.device,
+    ).reshape(-1, 1, 1, 1, 1)
+    return tx_signal * scale
+
+
+def _scale_su_channel_h(h: torch.Tensor, scales: np.ndarray) -> torch.Tensor:
+    scale = torch.as_tensor(
+        np.asarray(scales, dtype=np.float32),
+        dtype=h.real.dtype,
+        device=h.device,
+    ).reshape(-1, 1, 1, 1, 1, 1, 1)
+    return h * scale
+
+
+def _scale_mu_tx_signal(tx_signal: torch.Tensor, scales: np.ndarray) -> torch.Tensor:
+    scale = torch.as_tensor(
+        np.asarray(scales, dtype=np.float32),
+        dtype=tx_signal.real.dtype,
+        device=tx_signal.device,
+    ).reshape(1, -1, 1, 1, 1)
+    return tx_signal * scale
+
+
+def _scale_mu_channel_h(h: torch.Tensor, scales: np.ndarray) -> torch.Tensor:
+    scale = torch.as_tensor(
+        np.asarray(scales, dtype=np.float32),
+        dtype=h.real.dtype,
+        device=h.device,
+    ).reshape(1, 1, 1, -1, 1, 1, 1)
+    return h * scale
+
+
+def _descale_cfr_batch(cfr: np.ndarray, scales: np.ndarray) -> np.ndarray:
+    safe = np.maximum(np.asarray(scales, dtype=np.float32), 1.0e-12)
+    return (
+        np.asarray(cfr, dtype=np.complex64)
+        / safe[:, np.newaxis, np.newaxis, np.newaxis]
+    ).astype(
+        np.complex64,
+        copy=False,
+    )
+
+
+def _descale_mu_cfr(cfr: np.ndarray, scales: np.ndarray) -> np.ndarray:
+    safe = np.maximum(np.asarray(scales, dtype=np.float32), 1.0e-12)
+    return (
+        np.asarray(cfr, dtype=np.complex64)
+        / safe[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis]
+    ).astype(np.complex64, copy=False)
+
+
 def _tb_crc_metrics_for_batch_item(
     tb_crc_np: np.ndarray | None,
     batch_idx: int,
@@ -1011,6 +1131,7 @@ def _process_mu_mimo(
     num_snap: int,
     num_ul_tx: int,
     num_ul_rx: int,
+    power_result: Any,
 ) -> dict:
     """Process all TX/RX jointly per snapshot (MU-MIMO).
 
@@ -1064,6 +1185,11 @@ def _process_mu_mimo(
 
         # 2. Generate TX signal for all UEs
         tx_signal, tx_bits = tx(1)
+        tx_power_scales = np.asarray(
+            power_result.power_scale_linear[snap_idx, :, 0],
+            dtype=np.float32,
+        )
+        tx_signal = _scale_mu_tx_signal(tx_signal, tx_power_scales)
 
         # 3. Apply MIMO OFDM channel via backend's full-MIMO path
         channel_result = backend.apply_clean_full_with_h(
@@ -1079,7 +1205,7 @@ def _process_mu_mimo(
             noise_variance_override=noise_variance_override,
         )
         receiver_no = _receiver_no_from_chain(impairment_result, y)
-        h_full = channel_result.h
+        h_full = _scale_mu_channel_h(channel_result.h, tx_power_scales)
         for ul_tx_idx in range(num_ul_tx):
             for ul_rx_idx in range(num_ul_rx):
                 tx_slice, rx_slice, no_value = _extract_waveform_link_slices(
@@ -1111,7 +1237,7 @@ def _process_mu_mimo(
         tb_crc_ok = None
         try:
             if perfect_csi:
-                rx_bits, tb_crc_status = rx(y, receiver_no, h_full)
+                rx_bits, tb_crc_status = rx(y, receiver_no, h_full.clone())
             else:
                 rx_bits, tb_crc_status = rx(y, receiver_no)
             tb_crc_ok = tb_crc_status
@@ -1123,13 +1249,9 @@ def _process_mu_mimo(
 
         # 5. Extract cfr_est per link
         if perfect_csi:
-            # h_full: [1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant, sym, sub]
-            h_np = h_full[0, :, :, :, :, 0, :].cpu().numpy()
-            # → [num_ul_rx, num_ul_rx_ant, num_ul_tx, num_ul_tx_ant, subcarrier]
-            # Permute to project UL convention:
-            # [num_ul_tx, num_ul_rx, num_ul_rx_ant, num_ul_tx_ant, subcarrier]
-            h_np = np.transpose(h_np, (2, 0, 1, 3, 4))
-            cfr_est_full[snap_idx, ...] = h_np.astype(np.complex64, copy=False)
+            cfr_est_full[snap_idx, ...] = cfr_clean_ref[
+                snap_idx, ...
+            ].astype(np.complex64, copy=False)
         else:
             # Estimated CSI: extract per-link from estimator output
             if ls_estimator is None:
@@ -1146,6 +1268,7 @@ def _process_mu_mimo(
             # h_hat: [1, num_ul_rx, num_ul_rx_ant, num_ul_tx, num_streams, sym, sub]
             # Permute to [num_ul_tx, num_ul_rx, num_ul_rx_ant, num_streams, subcarrier]
             h_hat_np = np.transpose(h_hat_np, (2, 0, 1, 3, 4))
+            h_hat_np = _descale_mu_cfr(h_hat_np, tx_power_scales)
 
             _num_tx_ant = cfr_clean_ref.shape[4]
             if h_hat_np.shape[3] == _num_tx_ant:
@@ -1248,6 +1371,7 @@ def _process_one_pusch_link(
     perfect_csi: bool,
     num_ofdm_symbols: int,
     receiver_failure_policy: str,
+    tx_power_scale: float = 1.0,
 ) -> dict:
     """Process a single PUSCH link with full MIMO.
 
@@ -1255,6 +1379,10 @@ def _process_one_pusch_link(
     """
     # 1. Generate TX signal
     tx_signal, tx_bits = tx(1)
+    tx_signal = _scale_su_tx_signal(
+        tx_signal,
+        np.asarray([tx_power_scale], dtype=np.float32),
+    )
 
     # 2. Apply clean MIMO OFDM channel, then common impairments/AWGN
     channel_result = backend.apply_clean_with_h(
@@ -1272,7 +1400,10 @@ def _process_one_pusch_link(
         noise_variance_override=noise_variance_override,
     )
     receiver_no = _receiver_no_from_chain(impairment_result, y)
-    h_perfect = channel_result.h
+    h_perfect = _scale_su_channel_h(
+        channel_result.h,
+        np.asarray([tx_power_scale], dtype=np.float32),
+    )
     tx_grid_slice, rx_grid_slice, noise_variance = _extract_waveform_link_slices(
         tx_signal=tx_signal,
         y=y,
@@ -1292,7 +1423,7 @@ def _process_one_pusch_link(
 
     if perfect_csi:
         try:
-            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect)
+            rx_bits, tb_crc_status = rx(y, receiver_no, h_perfect.clone())
         except Exception:
             rx_bits = torch.zeros_like(tx_bits)
             tb_crc_status = torch.zeros(tx_bits.shape[0], dtype=torch.bool)
@@ -1301,7 +1432,9 @@ def _process_one_pusch_link(
                 raise
         tb_crc_ok = tb_crc_status
         # For perfect CSI, cfr_est = physical MIMO channel
-        cfr_est_slice = pusch_h_to_cfr_est(h_perfect)
+        cfr_est_slice = backend.cfr[
+            snap_idx, ul_tx_idx, ul_rx_idx, ...
+        ].astype(np.complex64, copy=False)
     else:
         # Estimated CSI: let PUSCHReceiver use its internal estimator.
         # We run a separate PUSCHLSChannelEstimator to get h_hat for cfr_est.
@@ -1333,7 +1466,9 @@ def _process_one_pusch_link(
         _num_tx_ant = backend.cfr.shape[4]
         h_hat_dim4 = h_hat.shape[4]
         if h_hat_dim4 == _num_tx_ant:
-            cfr_est_slice = pusch_h_to_cfr_est(h_hat)
+            cfr_est_slice = pusch_h_to_cfr_est(h_hat) / np.complex64(
+                max(float(tx_power_scale), 1.0e-12)
+            )
         else:
             raise NotImplementedError(
                 "Estimated CSI physical antenna-pair CFR requires "

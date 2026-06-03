@@ -34,6 +34,15 @@ CIR、path table 和 runtime versions。模块应返回领域模型，而不是 
 重复实现损伤和 `/observation/*` metadata。现有 NR SRS 与 NR PUSCH 已按这个
 口径接入；`custom_ofdm` 是 legacy 路径，保留测试用途，后续单独迁移或移除。
 
+Uplink 发射功率、RSSI 和噪声 dBm 口径也不应在标准模块里重写。新增标准应调用
+`sionna_measurement_sim.phy.power.compute_uplink_power()` 计算 per-TX/per-port
+`tx_power_dbm`、`tx_power_scale_linear`、serving RX、path loss 与 clip flag，
+再把 `tx_power_scale_linear` 施加到自己的 `tx_grid` 上。common impairment chain
+负责按照 `phy.power.noise_mode` 处理 `relative_snr` 或 `absolute_thermal` AWGN，
+并导出标定后的 `snr_db`、`rssi_dbm` 和 `noise_power_dbm`。标准 receiver 若需要估计
+physical channel，导出 `/observation/cfr_est` 前应除回 TX power scale；SRS/PUSCH
+均以这种方式保持 CFR 与 truth CFR 的物理口径一致。
+
 ## 注册
 
 在 `sionna_measurement_sim/phy/modules.py` 中加入实例：
@@ -59,9 +68,11 @@ TX/RX 契约；现有 PUSCH/SRS 都遵守这一点。
 
 时域 waveform 默认不保存。需要保存频域观测时，优先使用统一字段
 `/waveform/tx_grid`、`/waveform/rx_grid`、`/waveform/noise_variance`，并为每个
-dataset 设置 `unit` 和 `index_order`。标准专属 pilot、resource 或 DMRS 元数据可以
-继续放在 `/waveform` 下，例如 NR SRS 的 `/waveform/srs_resource_mask` 和
-`/waveform/srs_pilot_symbols`。
+dataset 设置 `unit` 和 `index_order`。schema `1.6.0` 后，NR uplink 标准还应写通用
+power 字段 `/waveform/tx_power_dbm_per_port`、`tx_power_scale_linear`、
+`serving_rx_index`、`path_loss_db` 和 `power_clipped_flag`。标准专属 pilot、resource
+或 DMRS 元数据可以继续放在 `/waveform` 下，例如 NR SRS 的
+`/waveform/srs_resource_mask` 和 `/waveform/srs_pilot_symbols`。
 
 `/derived/*aoa*` 和 `/array/aoa_label_rad` 表示 scene/global 坐标中的 PHY
 接收侧到达方向；`/array/spatial_spectrum_*` 也必须在 scene/global 角度网格上输出。

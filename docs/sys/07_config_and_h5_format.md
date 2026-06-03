@@ -272,7 +272,27 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 | `fft_size` | int | 64 | ≥2 | FFT 大小 |
 | `cp_length` | int | 0 | ≥0 | 循环前缀长度 |
 | `num_ofdm_symbols` | int | 1 | ≥1 | OFDM 符号数 |
-| `tx_power_dbm` | float | 0.0 | — | 发射功率 dBm |
+| `tx_power_dbm` | float | 0.0 | — | UE 发射功率 dBm；SRS/PUSCH 中会按 `phy.power` 生效到 TX grid 幅度 |
+
+**`phy.power` 通用 uplink power/RSSI 字段**（NR PUSCH 和 NR SRS 共享）：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `reference_tx_power_dbm` | float | 0.0 | 单位幅度 TX grid 对应的参考发射功率 |
+| `apply_tx_power_to_grid` | bool | true | 是否把 TX power 换算成发射 grid 幅度缩放 |
+| `noise_mode` | str | `"relative_snr"` | `"relative_snr"` 或 `"absolute_thermal"` |
+| `thermal_noise.temperature_k` | float | 290.0 | kTB 噪声温度 |
+| `thermal_noise.noise_figure_db` | float | 7.0 | 接收机 noise figure |
+| `thermal_noise.bandwidth_hz` | float\|null | null | null 时使用 active occupied bandwidth |
+| `uplink_control.enabled` | bool | false | 是否启用服务小区/open-loop/static closed-loop 功控 |
+| `uplink_control.serving_rx_policy` | str | `"strongest_path"` | `"strongest_path"` 或 `"first_rx"` |
+| `uplink_control.open_loop_enabled` | bool | true | 是否使用 `p0_dbm + alpha * path_loss` |
+| `uplink_control.p0_dbm` | float | 0.0 | open-loop 基准功率 |
+| `uplink_control.alpha` | float | 0.8 | pathloss compensation 系数 |
+| `uplink_control.closed_loop_enabled` | bool | false | 是否叠加静态 TPC/accumulation offset |
+| `uplink_control.tpc_offset_db` | float | 0.0 | 静态 TPC offset |
+| `uplink_control.accumulation_db` | float | 0.0 | 静态累积 offset |
+| `uplink_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
 
 **NR PUSCH 专有字段**：
 
@@ -302,13 +322,14 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 `standard == "nr_srs"` 复用 `subcarrier_spacing_khz`、`num_prb`、`tx_power_dbm`
 等字段，并通过 `phy.srs` 控制 resource。v2 支持 full-slot time allocation、
 comb/BWP/hopping resource、`zc_like`/`nr_zc` pilot、group/sequence hopping、
-同 symbol cyclic-shift port multiplexing、port/antenna switching 口径、简化
-SRS power scaling、resource LS/despread 和 full-band interpolation。当前实现仍不是
-完整 3GPP NR SRS，reference 对齐与闭环功控见 `docs/todo/feature.md`。
+同 symbol cyclic-shift port multiplexing、port/antenna switching 口径、通用
+uplink power/RSSI 标定、resource LS/despread 和 full-band interpolation。当前实现仍不是
+完整 3GPP NR SRS，reference 对齐见 `docs/todo/feature.md`。
 
 NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
-AGC/ADC 与 AWGN。普通 `snr_db` 下噪声方差按 clean `rx_grid` 每条 link 的平均功率
-计算；仅当 PUSCH `ebno_db` 非空时使用 Sionna `ebnodb2no` 作为 override。
+AGC/ADC 与 AWGN。默认 `relative_snr` 下噪声方差按 clean `rx_grid` 每条 link 的平均
+功率计算；`absolute_thermal` 下 `/observation/noise_power_dbm` 由 kTB + NF 固定。
+仅当 PUSCH `ebno_db` 非空时使用 Sionna `ebnodb2no` 作为 override。
 
 #### `impairments` — 损伤模型
 
@@ -546,7 +567,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.5.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.6.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -776,7 +797,20 @@ results.h5
 | `pilot_indices` | int array | 导频子载波索引 |
 | `data_subcarrier_indices` | int array | 数据子载波索引 |
 | `pilot_symbols` | complex array | 导频符号 (unit: `linear_complex`) |
-| `tx_power_dbm` | float32 | 发射功率 dBm |
+| `tx_power_dbm` | float32 | 配置层发射功率标尺 dBm；schema `1.6.0` 后 per-port 权威值见 `tx_power_dbm_per_port` |
+
+**NR PUSCH/SRS 通用 waveform/power 字段**（`standard == "nr_pusch"` 或 `"nr_srs"`）：
+
+| Dataset | 类型 | 说明 |
+|---------|------|------|
+| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | 实际频域发送 grid；已施加 `tx_power_scale_linear` |
+| `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | clean channel + common impairment/AWGN 后的接收 grid |
+| `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差，linear mW 口径 |
+| `tx_power_dbm_per_port` | float32 [snap, ul_tx, port] | 通用 uplink power 模块计算的每 TX/port 发射功率 |
+| `tx_power_scale_linear` | float32 [snap, ul_tx, port] | 相对 `reference_tx_power_dbm` 的发射幅度缩放 |
+| `serving_rx_index` | int32 [snap, ul_tx] | uplink power control 选择的 serving RX；固定功率时为 0 |
+| `path_loss_db` | float32 [snap, ul_tx] | serving RX 对应 path loss；固定功率时为 0 |
+| `power_clipped_flag` | bool [snap, ul_tx, port] | 发射功率是否被 min/max clamp |
 
 **NR PUSCH 专有**（仅 `standard == "nr_pusch"`）：
 
@@ -797,17 +831,11 @@ results.h5
 | `cyclic_prefix` | string | 循环前缀类型 |
 | `target_coderate` | string | 目标码率 |
 | `modulation` | string | 调制方式 |
-| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域发送 grid |
-| `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | 实际 NR PUSCH 频域接收 grid |
-| `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
 
-**NR SRS subset 使用的统一 waveform 字段**（仅 `standard == "nr_srs"`）：
+**NR SRS subset 专属字段**（仅 `standard == "nr_srs"`）：
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `tx_grid` | complex64 [snap, ul_tx, ul_rx, ul_tx_ant, ofdm_symbol, subcarrier] | 完整 slot 发送 grid；非 SRS symbol/subcarrier 为 0 |
-| `rx_grid` | complex64 [snap, ul_tx, ul_rx, ul_rx_ant, ofdm_symbol, subcarrier] | clean channel + common impairment/AWGN 后的接收 grid |
-| `noise_variance` | float32 [snap, ul_tx, ul_rx] | common impairment chain 添加 AWGN 时使用的噪声方差 |
 | `srs_resource_mask` | bool [ofdm_symbol, subcarrier] | SRS resource RE mask |
 | `srs_pilot_symbols` | complex64 [srs_port, ofdm_symbol, subcarrier] | 每个 SRS port 的 pilot 符号，非 SRS RE 为 0 |
 | `srs_re_symbol_indices` | int32 [srs_re] | flattened SRS RE 的 OFDM symbol 索引 |
@@ -817,8 +845,8 @@ results.h5
 | `srs_prb_start_per_symbol` | int32 [srs_symbol] | 每个 SRS symbol 的 PRB 起点 |
 | `srs_prb_count_per_symbol` | int32 [srs_symbol] | 每个 SRS symbol 的 PRB 数 |
 | `srs_cyclic_shift_indices` | int32 [srs_port] | port-specific cyclic shift 配置 |
-| `srs_tx_power_dbm` | float32 [snap, ul_tx, srs_port] | SRS open-loop power-control 后的发射功率 |
-| `srs_power_scale_linear` | float32 [snap, ul_tx, srs_port] | 相对 `phy.tx_power_dbm` 的发射幅度缩放 |
+| `srs_tx_power_dbm` | float32 [snap, ul_tx, srs_port] | SRS port 级发射功率别名，值来自通用 `tx_power_dbm_per_port` |
+| `srs_power_scale_linear` | float32 [snap, ul_tx, srs_port] | SRS port 级幅度缩放别名，值来自通用 `tx_power_scale_linear` |
 
 不保存 `/waveform/tx_time` 或 `/waveform/rx_time`；custom OFDM 暂不写 fake grid，后续另行适配。
 schema `1.5.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_grid`、
@@ -826,6 +854,11 @@ schema `1.5.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 或 `/array/spatial_spectrum_label`。resource LS/despread 写到
 `/observation/cfr_est_resource [snapshot,tx,rx,rx_ant,srs_port,srs_re]`，full-band
 插值结果仍写 `/observation/cfr_est [snapshot,tx,rx,rx_ant,tx_ant,subcarrier]`。
+schema `1.6.0` 后，`phy.tx_power_dbm` 不再只是 metadata：NR SRS/PUSCH 会按
+`phy.power.reference_tx_power_dbm` 转为发射幅度缩放，写入通用
+`tx_power_dbm_per_port`、`tx_power_scale_linear`、`serving_rx_index`、
+`path_loss_db` 和 `power_clipped_flag`。旧数据中的 scalar `tx_power_dbm`
+可能只表示配置记录，不能反推 TX grid 已经被缩放。
 
 大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 
@@ -857,8 +890,8 @@ schema `1.5.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 | `detection_success` | [snap, tx, rx] | bool | — | 检测成功标志 |
 | `estimation_success` | [snap, tx, rx] | bool | — | 估计成功标志 |
 | `snr_db` | [snap, tx, rx] | float | dB | SNR |
-| `rssi_dbm` | [snap, tx, rx] | float | dBm | RSSI |
-| `noise_power_dbm` | [snap, tx, rx] | float | dBm | 噪声功率 |
+| `rssi_dbm` | [snap, tx, rx] | float | dBm | mW 标定后的接收信号功率 |
+| `noise_power_dbm` | [snap, tx, rx] | float | dBm | mW 标定后的噪声功率 |
 | `cfo_hz` | [snap, tx, rx] | float | Hz | 载波频偏 |
 | `sfo_ppm` | [snap, tx, rx] | float | ppm | 采样频偏 |
 | `timing_offset_samples` | [snap, tx, rx] | float | sample | 定时偏移 |
@@ -866,7 +899,7 @@ schema `1.5.0` 后 NR SRS 不再写 `/waveform/pilot_code`、`/waveform/srs_tx_g
 | `agc_gain_db` | [snap, rx] | float | dB | 接收侧 AGC 增益 |
 | `clipping_flag` | [snap, tx, rx] | bool | — | ADC 削波标志 |
 
-> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。schema `1.5.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS/despread 另写 `/observation/cfr_est_resource`。
+> `cfr_est.shape[-5:] == truth.cfr.shape`，即观测 CFR 的 TX/RX/天线/子载波维度与真值一致，仅在前面多一维 snapshot。SRS/PUSCH receiver 会在导出 CFR 时除回 TX power scale，使 `/observation/cfr_est` 继续保持 physical channel 口径。schema `1.5.0` 后 NR SRS 不再写 `/observation/srs_cfr_est`，统一使用 `/observation/cfr_est`，resource LS/despread 另写 `/observation/cfr_est_resource`。
 
 ### 2.20 `/ranging` — 波形级 ToA/range 观测（可选）
 
@@ -899,7 +932,7 @@ schema 校验要求成功位置的 range/toa/error 为 finite，失败位置为 
 |---------|------|------|
 | `model_version` | string | 损伤模型版本 |
 | `random_seed` | int64 | 损伤随机种子 |
-| `awgn_config` | string | AWGN 配置摘要 |
+| `awgn_config` | string | AWGN 配置摘要；包含 `noise_mode`、`snr_db` 和 thermal noise 参数/effective bandwidth |
 | `cfo_sfo_config` | string | CFO/SFO 配置摘要 |
 | `phase_noise_config` | string | 相位噪声配置摘要 |
 | `iq_imbalance_config` | string | IQ 不平衡配置摘要 |

@@ -332,13 +332,40 @@ uv run python -m sionna_measurement_sim.app.cli visualize \
 | `enabled` | bool | true | 是否启用 PHY 观测 |
 | `standard` | str | "custom_ofdm" | `"custom_ofdm"` \| `"nr_pusch"` \| `"nr_srs"` |
 | `snr_db` | float | 30.0 | 信噪比 dB |
-| `tx_power_dbm` | float | 0.0 | 发射功率 dBm |
+| `tx_power_dbm` | float | 0.0 | UE 发射功率 dBm；在 SRS/PUSCH 中会按 `phy.power.reference_tx_power_dbm` 换算为 TX grid 幅度缩放 |
 
 NR PUSCH 与 NR SRS 共享 `common_link.py` 的 clean channel → impairment/AWGN
-链路。`snr_db` 口径下 AWGN 方差按 clean `rx_grid` 每条 link 的平均功率计算；
-仅当 `phy.ebno_db` 非空时，PUSCH 使用 Sionna `ebnodb2no` 结果作为 receiver/noise
-override。`/observation/cfo_hz`、`sfo_ppm`、`timing_offset_samples`、
-`phase_offset_rad`、`agc_gain_db`、`clipping_flag` 均来自 common impairment chain。
+链路。`phy.power.noise_mode="relative_snr"` 是默认口径：AWGN 方差按 clean
+`rx_grid` 每条 link 的平均功率和 `snr_db` 反推，因此修改 `tx_power_dbm` 会让
+`rssi_dbm` 与 `noise_power_dbm` 同步平移，SNR 基本不变。`"absolute_thermal"` 口径下
+噪声由 kTB + noise figure 固定，`tx_power_dbm` 会改变 SNR。仅当 `phy.ebno_db`
+非空时，PUSCH 使用 Sionna `ebnodb2no` 结果作为 receiver/noise override。
+`/observation/cfo_hz`、`sfo_ppm`、`timing_offset_samples`、`phase_offset_rad`、
+`agc_gain_db`、`clipping_flag` 均来自 common impairment chain。
+
+#### `phy.power` — 通用 uplink power/RSSI 口径
+
+`phy.power` 是协议无关层，SRS/PUSCH 都复用它。默认单位幅度 TX grid 对应
+`reference_tx_power_dbm=0 dBm`，因此 `tx_power_dbm=23` 会把发射 grid 幅度乘以
+约 `sqrt(200)=14.125`，RSSI 理论上上移约 23 dB。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `power.reference_tx_power_dbm` | float | 0.0 | 单位幅度 TX grid 对应的参考发射功率 |
+| `power.apply_tx_power_to_grid` | bool | true | 是否把功率换算为 TX grid 幅度缩放；false 时只写 metadata |
+| `power.noise_mode` | str | `"relative_snr"` | `"relative_snr"` 或 `"absolute_thermal"` |
+| `power.thermal_noise.temperature_k` | float | 290.0 | absolute thermal 模式的温度 |
+| `power.thermal_noise.noise_figure_db` | float | 7.0 | 接收机 noise figure |
+| `power.thermal_noise.bandwidth_hz` | float\|null | null | null 时使用 active occupied bandwidth |
+| `power.uplink_control.enabled` | bool | false | 是否启用通用 uplink control |
+| `power.uplink_control.serving_rx_policy` | str | `"strongest_path"` | `"strongest_path"` 或 `"first_rx"` |
+| `power.uplink_control.open_loop_enabled` | bool | true | 是否使用 `p0_dbm + alpha * path_loss` |
+| `power.uplink_control.p0_dbm` | float | 0.0 | open-loop 基准功率 |
+| `power.uplink_control.alpha` | float | 0.8 | pathloss compensation 系数 |
+| `power.uplink_control.closed_loop_enabled` | bool | false | 是否叠加静态 closed-loop/TPC offset |
+| `power.uplink_control.tpc_offset_db` | float | 0.0 | 静态 TPC offset |
+| `power.uplink_control.accumulation_db` | float | 0.0 | 静态累积 offset |
+| `power.uplink_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
 
 #### custom OFDM 字段
 
@@ -409,11 +436,7 @@ correlation、estimation success 和 SRS resource quality 指标。
 | `srs.ports.mapping` | str | "one_to_one" | `"one_to_one"` \| `"antenna_switching"` |
 | `srs.ports.port_tx_ant_map` | list[list[int]]\|null | null | `antenna_switching` 时为 `[srs_port,srs_symbol]`，`-1` 表示该 symbol 不发 |
 | `srs.ports.usage` | str | "non_codebook" | `"codebook"` \| `"non_codebook"` metadata |
-| `srs.power_control.enabled` | bool | false | 是否启用 pathloss-compensated SRS power scaling |
-| `srs.power_control.p0_dbm` | float | 0.0 | open-loop power control 的基准功率 |
-| `srs.power_control.alpha` | float | 0.8 | pathloss compensation 系数 |
-| `srs.power_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
-| `srs.power_control.serving_rx_policy` | str | "strongest_path" | `"strongest_path"` \| `"first_rx"` |
+| `srs.power_control.*` | legacy adapter | disabled | 兼容旧 SRS YAML；实现上会映射到通用 `phy.power.uplink_control`，新配置优先使用 `phy.power` |
 
 当前仍不能称为完整 3GPP NR SRS；v2 是 standards-shaped subset，尚未做 38.211/38.213
 reference 对齐、真实闭环功控或认证级一致性测试。

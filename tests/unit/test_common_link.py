@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from sionna_measurement_sim.phy.common_link import ObservationImpairmentChain
@@ -46,6 +47,48 @@ def test_common_chain_awgn_noise_shape_and_snr_monotonicity():
     assert high.noise_variance.shape == (1, 1, 1)
     assert torch.all(low.noise_variance > high.noise_variance)
     assert high_nmse < low_nmse
+
+
+def test_common_chain_relative_snr_power_scale_moves_rssi_and_noise_together():
+    base = torch.ones((1, 1, 1, 1, 1, 16), dtype=torch.complex64)
+    scaled = base * (10.0 ** (23.0 / 20.0))
+    chain = ObservationImpairmentChain(
+        fft_size=16,
+        sample_rate_hz=20e6,
+        random_seed=11,
+        noise_mode="relative_snr",
+    )
+
+    result_base = chain.apply(base, snr_db=30.0)
+    result_scaled = chain.apply(scaled, snr_db=30.0)
+
+    assert float(result_scaled.rssi_dbm - result_base.rssi_dbm) == pytest.approx(23.0, abs=1e-4)
+    assert float(result_scaled.noise_power_dbm - result_base.noise_power_dbm) == pytest.approx(
+        23.0,
+        abs=1e-4,
+    )
+    assert float(result_scaled.snr_db - result_base.snr_db) == pytest.approx(0.0, abs=1e-4)
+
+
+def test_common_chain_absolute_thermal_keeps_noise_fixed_and_snr_follows_power():
+    base = torch.ones((1, 1, 1, 1, 1, 16), dtype=torch.complex64)
+    scaled = base * (10.0 ** (23.0 / 20.0))
+    chain = ObservationImpairmentChain(
+        fft_size=16,
+        sample_rate_hz=20e6,
+        random_seed=11,
+        noise_mode="absolute_thermal",
+        thermal_noise_power_mw=1e-9,
+    )
+
+    result_base = chain.apply(base, snr_db=30.0)
+    result_scaled = chain.apply(scaled, snr_db=30.0)
+
+    assert float(result_scaled.noise_power_dbm - result_base.noise_power_dbm) == pytest.approx(
+        0.0,
+        abs=1e-4,
+    )
+    assert float(result_scaled.snr_db - result_base.snr_db) == pytest.approx(23.0, abs=1e-4)
 
 
 def test_common_chain_impairment_metadata_nonzero_and_reproducible():

@@ -27,11 +27,11 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
   `/devices/rx_orientation_rad` 适配接收阵列旋转。
 - 为后续定位、场重建、CSI/embedding 学习生成可复现数据。
 
-当前 `main` 已包含 NR PUSCH 与 NR SRS 的 clean channel、基带损伤、AWGN 和
-observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。NR SRS 已升级为
-standards-shaped v2 subset。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
+当前 `main` 已包含 NR PUSCH 与 NR SRS 的 clean channel、基带损伤、AWGN、
+uplink power/RSSI 和 observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。
+NR SRS 已升级为 standards-shaped v2 subset。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
 `bs_points`/`ue_points` 口径。
-当前 HDF5 schema 版本是 `1.5.0`。新输出不再写 array 兼容别名
+当前 HDF5 schema 版本是 `1.6.0`。新输出不再写 array 兼容别名
 `/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`；AoA 监督 heatmap
 统一使用 `/array/aoa_heatmap_label`，SRS/估计 CFR 空间谱统一使用
 `/array/spatial_spectrum_cfr_est`。
@@ -106,7 +106,12 @@ tx_grid -> clean channel apply -> rx_grid_clean
 ```
 
 common chain 统一写 `/waveform/tx_grid`、`/waveform/rx_grid`、
-`/waveform/noise_variance` 以及 `/observation/cfo_hz` 等损伤观测字段。
+`/waveform/noise_variance`、`/waveform/tx_power_dbm_per_port`、
+`/waveform/tx_power_scale_linear` 以及 `/observation/cfo_hz` 等损伤观测字段。
+`phy.tx_power_dbm` 默认以 `reference_tx_power_dbm=0 dBm` 标定单位幅度 TX grid；
+`tx_power_dbm=23` 时发射幅度乘约 `sqrt(200)`。默认 `phy.power.noise_mode="relative_snr"`
+保持历史 SNR 口径，RSSI/noise power 随 TX power 同步平移；`"absolute_thermal"` 则用
+kTB + noise figure 固定噪声，TX power 会改变 SNR。
 NR SRS 另写 `/waveform/srs_resource_mask`、`/waveform/srs_pilot_symbols`、
 `/waveform/srs_re_symbol_indices`、`/waveform/srs_re_subcarrier_indices`、
 `/waveform/srs_port_tx_ant_map`、per-symbol PRB/cyclic-shift/sequence/power metadata
@@ -122,7 +127,7 @@ truth range 写为 `/derived/first_path_propagation_range_m`。估计型 ToA/ran
 `nr_srs` 当前是 standards-shaped v2 subset，不是完整 3GPP NR SRS。它按 `phy.srs`
 生成 full-slot 14-symbol resource grid，支持 comb/BWP/hopping、`zc_like`/`nr_zc`、
 group/sequence hopping、cyclic-shift port multiplexing、简化 antenna switching 和
-pathloss-based power scaling；SRS RE 上做 LS/despread，然后插值到 full-band
+通用 uplink power/RSSI metadata；SRS RE 上做 LS/despread，然后插值到 full-band
 `/observation/cfr_est`：
 
 ```text
@@ -247,7 +252,8 @@ outputs/nr_srs_median_0000_label0p2_full_baseline_shard20
 - `/link/rx_role = "bs"`。
 - 没有 `/waveform/tx_time` 或 `/waveform/rx_time`。
 - schema `1.5.0` 后使用统一 waveform 字段 `/waveform/tx_grid`、`/waveform/rx_grid`、
-  `/waveform/noise_variance`，以及 NR SRS resource 字段 `srs_resource_mask`、
+  `/waveform/noise_variance`，schema `1.6.0` 后另写通用 power 字段
+  `tx_power_dbm_per_port`、`tx_power_scale_linear`，以及 NR SRS resource 字段 `srs_resource_mask`、
   `srs_pilot_symbols`、`srs_re_symbol_indices`、`srs_re_subcarrier_indices`、
   `srs_port_tx_ant_map` 和 SRS power metadata。
 - `manifest/manifest.json` 已生成。

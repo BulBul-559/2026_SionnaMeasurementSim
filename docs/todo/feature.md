@@ -16,9 +16,8 @@
 | 7 | FEAT-SRS-004 | 多 slot time allocation | 扩展到多 slot 观测轴，支持真实 periodic / aperiodic / semipersistent 触发流程。 |
 | 8 | FEAT-SRS-005 | 完整 frequency / bandwidth hopping | 对齐标准 bandwidth hopping / frequency hopping 规则，而不仅是 per-symbol offset/list。 |
 | 9 | FEAT-SRS-006 | 完整 ports / layers / antenna switching | 对齐 NR SRS port、antenna switching procedure 和 codebook/non-codebook uplink。 |
-| 10 | FEAT-SRS-007 | NR uplink power control | 把当前 open-loop scaling 扩展为更完整的服务小区、闭环功控和绝对噪声口径。 |
-| 11 | FEAT-SRS-008 | 标准化 SRS receiver quality | 强化 interpolation、delay-spread 检测、quality 指标和 reference validation。 |
-| 12 | FEAT-RNG-004 | NLoS bias detection / correction | 基于 path truth、PDP、SNR、AoA/空间谱或 learned feature 做 NLoS 判别和偏差修正。 |
+| 10 | FEAT-SRS-008 | 标准化 SRS receiver quality | 强化 interpolation、delay-spread 检测、quality 指标和 reference validation。 |
+| 11 | FEAT-RNG-004 | NLoS bias detection / correction | 基于 path truth、PDP、SNR、AoA/空间谱或 learned feature 做 NLoS 判别和偏差修正。 |
 
 ## Details
 
@@ -141,20 +140,6 @@ docs/tests。
 
 重点提醒：`ports.usage` 当前只是 metadata，不要在没有 receiver/selection 逻辑前声称实现了
 PUSCH codebook selection。
-
-### FEAT-SRS-007: NR uplink power control
-
-目的：从当前 pathloss-based open-loop scaling 推进到更完整的 NR uplink power control，
-包括服务小区选择、闭环项、功率限制和更真实的噪声/功率口径。
-
-涉及模块：`nr_srs_power_control.py`、config `phy.srs.power_control`、common AWGN 口径、
-HDF5 power metadata、performance/smoke configs。
-
-验收标准：服务小区策略、clamp、open-loop/closed-loop 项和 metadata 测试通过；开启功控后
-SNR/CSI 质量变化可解释；文档明确 relative-SNR 与 absolute thermal-noise 口径。
-
-重点提醒：如要引入绝对噪声模型，需要和 common link 的 AWGN 设计一起评审，避免 SRS/PUSCH
-口径分裂。
 
 ### FEAT-SRS-008: 标准化 SRS receiver quality
 

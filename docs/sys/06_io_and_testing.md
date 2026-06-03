@@ -52,7 +52,9 @@ def validate_hdf5_contract(path: str | Path) -> None
    - `num_prb`、`num_layers`、`num_antenna_ports`、`mimo_detector` 等
    - `num_layers >= 1`、`num_antenna_ports >= num_layers`
 8. **NR SRS 专有字段**（当 `waveform/standard == "nr_srs"`）：
-   - 统一 waveform 字段 `tx_grid`、`rx_grid`、`noise_variance`
+   - 统一 waveform 字段 `tx_grid`、`rx_grid`、`noise_variance` 和 schema `1.6.0`
+     通用 power 字段 `tx_power_dbm_per_port`、`tx_power_scale_linear`、
+     `serving_rx_index`、`path_loss_db`、`power_clipped_flag`
    - SRS 专属 `srs_resource_mask`、`srs_pilot_symbols`、`srs_re_symbol_indices`、
      `srs_re_subcarrier_indices`、`srs_port_tx_ant_map`、PRB/cyclic-shift/power metadata
    - schema `1.5.0` 后不再写 `/waveform/pilot_code`、`/waveform/srs_port_index`、`/observation/srs_cfr_est`、`/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`

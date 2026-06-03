@@ -65,6 +65,11 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
         assert h5["waveform/tx_grid"].shape == (1, 1, 1, 2, 14, 8)
         assert h5["waveform/rx_grid"].shape == (1, 1, 1, 4, 14, 8)
         assert h5["waveform/noise_variance"].shape == (1, 1, 1)
+        assert h5["waveform/tx_power_dbm_per_port"].shape == (1, 1, 2)
+        assert h5["waveform/tx_power_scale_linear"].shape == (1, 1, 2)
+        assert h5["waveform/serving_rx_index"].shape == (1, 1)
+        assert h5["waveform/path_loss_db"].shape == (1, 1)
+        assert h5["waveform/power_clipped_flag"].shape == (1, 1, 2)
         assert h5["waveform/srs_resource_mask"].shape == (14, 8)
         assert h5["waveform/srs_pilot_symbols"].shape == (2, 14, 8)
         assert h5["waveform/srs_re_symbol_indices"].shape == h5[
@@ -75,6 +80,10 @@ def test_nr_srs_pipeline_writes_common_waveform_fields_and_schema(tmp_path: Path
         assert h5["waveform/srs_prb_count_per_symbol"].shape == (2,)
         assert h5["waveform/srs_tx_power_dbm"].shape == (1, 1, 2)
         assert h5["waveform/srs_power_scale_linear"].shape == (1, 1, 2)
+        np.testing.assert_allclose(
+            h5["waveform/srs_power_scale_linear"][()],
+            h5["waveform/tx_power_scale_linear"][()],
+        )
         assert h5["waveform/srs_re_subcarrier_indices"].ndim == 1
         assert h5["observation/cfr_est_resource"].shape[-1] == h5[
             "waveform/srs_re_subcarrier_indices"

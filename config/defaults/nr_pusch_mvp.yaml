@@ -155,6 +155,25 @@ phy:
   receiver_failure_policy: "fail_fast"  # "fail_fast" | "mark_invalid"
   su_mimo_link_batch_size: 64   # batch independent SU-MIMO links per receiver call
   tx_power_dbm: 0.0
+  power:
+    reference_tx_power_dbm: 0.0
+    apply_tx_power_to_grid: true
+    noise_mode: "relative_snr"  # "relative_snr" keeps configured SNR; "absolute_thermal" fixes kTB+NF noise
+    thermal_noise:
+      temperature_k: 290.0
+      noise_figure_db: 7.0
+      bandwidth_hz: null
+    uplink_control:
+      enabled: false
+      serving_rx_policy: "strongest_path"
+      open_loop_enabled: true
+      p0_dbm: 0.0
+      alpha: 0.8
+      closed_loop_enabled: false
+      tpc_offset_db: 0.0
+      accumulation_db: 0.0
+      min_tx_power_dbm: -40.0
+      max_tx_power_dbm: 23.0
   srs:
     slot_length_symbols: 14
     start_symbol: 12

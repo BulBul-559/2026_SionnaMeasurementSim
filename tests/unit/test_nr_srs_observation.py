@@ -184,3 +184,51 @@ def test_nr_srs_common_impairments_change_estimate_and_metadata():
     )
     assert np.all(impaired["observation"].cfo_hz == 500.0)
     assert np.all(impaired["observation"].timing_offset_samples == 2.0)
+
+
+def test_nr_srs_tx_power_scales_waveform_rssi_but_receiver_descales_cfr():
+    truth = np.ones((1, 1, 1, 1, 8), dtype=np.complex64)
+    common = dict(
+        srs_config=_srs_config(
+            start_symbol=12,
+            num_srs_symbols=1,
+            comb_size=1,
+            cyclic_shift_multiplexing="cyclic_shift",
+        ),
+        snr_db=300.0,
+    )
+
+    result_0 = run_nr_srs_observation(
+        truth,
+        LinkConfig(),
+        _phy_config(tx_power_dbm=0.0, **common),
+        SimpleNamespace(num_subcarriers=8),
+    )
+    result_23 = run_nr_srs_observation(
+        truth,
+        LinkConfig(),
+        _phy_config(tx_power_dbm=23.0, **common),
+        SimpleNamespace(num_subcarriers=8),
+    )
+
+    tx_delta_db = 20.0 * np.log10(
+        np.max(np.abs(result_23["waveform_grids"]["tx_grid"]))
+        / np.max(np.abs(result_0["waveform_grids"]["tx_grid"]))
+    )
+    rx_delta_db = 20.0 * np.log10(
+        np.max(np.abs(result_23["waveform_grids"]["rx_grid"]))
+        / np.max(np.abs(result_0["waveform_grids"]["rx_grid"]))
+    )
+    rssi_delta_db = float(
+        result_23["observation"].rssi_dbm[0, 0, 0]
+        - result_0["observation"].rssi_dbm[0, 0, 0]
+    )
+
+    np.testing.assert_allclose(tx_delta_db, 23.0, atol=1e-4)
+    np.testing.assert_allclose(rx_delta_db, 23.0, atol=1e-4)
+    np.testing.assert_allclose(rssi_delta_db, 23.0, atol=1e-4)
+    np.testing.assert_allclose(result_23["observation"].cfr_est, truth[np.newaxis, ...], atol=1e-5)
+    np.testing.assert_allclose(
+        result_23["waveform_grids"]["tx_power_scale_linear"],
+        10.0 ** (23.0 / 20.0),
+    )

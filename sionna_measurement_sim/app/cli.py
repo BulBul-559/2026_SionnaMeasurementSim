@@ -417,6 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pusch_dmrs_additional_position=cfg.phy.pusch_dmrs_additional_position,
                 pusch_num_cdm_groups_without_data=cfg.phy.pusch_num_cdm_groups_without_data,
                 tx_power_dbm=cfg.phy.tx_power_dbm,
+                power_config=cfg.phy.power,
                 su_mimo_link_batch_size=cfg.phy.su_mimo_link_batch_size,
                 num_ofdm_symbols=cfg.phy.num_ofdm_symbols,
                 cp_length=cfg.phy.cp_length,

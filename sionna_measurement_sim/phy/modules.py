@@ -118,6 +118,7 @@ class NRPUSCHModule:
             link_config=config.link_config,
             phy_config=config,
             carrier_config=config,
+            path_power_db=adapter_result.truth.path_power_db,
         )
         waveform_extras = {
             "num_prb": config.num_prb,

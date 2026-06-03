@@ -285,6 +285,56 @@ class SRSPowerControlConfig(BaseModel):
         return self
 
 
+class ThermalNoiseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    temperature_k: float = Field(default=290.0, gt=0)
+    noise_figure_db: float = Field(default=7.0, ge=0)
+    bandwidth_hz: float | None = Field(default=None, gt=0)
+
+
+class UplinkPowerControlConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    serving_rx_policy: str = Field(default="strongest_path")
+    open_loop_enabled: bool = True
+    p0_dbm: float = 0.0
+    alpha: float = Field(default=0.8, ge=0.0, le=1.0)
+    closed_loop_enabled: bool = False
+    tpc_offset_db: float = 0.0
+    accumulation_db: float = 0.0
+    min_tx_power_dbm: float = -40.0
+    max_tx_power_dbm: float = 23.0
+
+    @model_validator(mode="after")
+    def check_uplink_control_values(self) -> UplinkPowerControlConfig:
+        if self.serving_rx_policy not in ("strongest_path", "first_rx"):
+            raise ValueError(
+                "phy.power.uplink_control.serving_rx_policy must be "
+                "strongest_path/first_rx"
+            )
+        if self.min_tx_power_dbm > self.max_tx_power_dbm:
+            raise ValueError("phy.power.uplink_control min_tx_power_dbm must be <= max")
+        return self
+
+
+class PHYPowerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference_tx_power_dbm: float = 0.0
+    apply_tx_power_to_grid: bool = True
+    noise_mode: str = Field(default="relative_snr")
+    thermal_noise: ThermalNoiseConfig = Field(default_factory=ThermalNoiseConfig)
+    uplink_control: UplinkPowerControlConfig = Field(default_factory=UplinkPowerControlConfig)
+
+    @model_validator(mode="after")
+    def check_power_values(self) -> PHYPowerConfig:
+        if self.noise_mode not in ("relative_snr", "absolute_thermal"):
+            raise ValueError("phy.power.noise_mode must be relative_snr/absolute_thermal")
+        return self
+
+
 class SRSConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -367,6 +417,7 @@ class PHYConfig(BaseModel):
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = Field(default=1, ge=1)
+    power: PHYPowerConfig = Field(default_factory=PHYPowerConfig)
     srs: SRSConfig = Field(default_factory=SRSConfig)
 
     @model_validator(mode="after")

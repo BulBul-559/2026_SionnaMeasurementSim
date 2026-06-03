@@ -83,6 +83,11 @@ def test_nr_pusch_hdf5_writes_waveform_grids_and_array_outputs(tmp_path):
             "tx_grid": tx_grid,
             "rx_grid": rx_grid,
             "noise_variance": noise_variance,
+            "tx_power_dbm_per_port": np.zeros((1, 1, 1), dtype=np.float32),
+            "tx_power_scale_linear": np.ones((1, 1, 1), dtype=np.float32),
+            "serving_rx_index": np.zeros((1, 1), dtype=np.int32),
+            "path_loss_db": np.zeros((1, 1), dtype=np.float32),
+            "power_clipped_flag": np.zeros((1, 1, 1), dtype=np.bool_),
         },
         array_outputs=build_array_outputs_from_waveform(rx_grid),
     )
@@ -96,6 +101,8 @@ def test_nr_pusch_hdf5_writes_waveform_grids_and_array_outputs(tmp_path):
         assert h5["waveform/tx_grid"].shape == tx_grid.shape
         assert h5["waveform/rx_grid"].shape == rx_grid.shape
         assert h5["waveform/noise_variance"].shape == noise_variance.shape
+        assert h5["waveform/tx_power_dbm_per_port"].shape == (1, 1, 1)
+        assert h5["waveform/tx_power_scale_linear"].shape == (1, 1, 1)
         assert h5["waveform/tx_grid"].attrs["unit"] == "linear_complex"
         assert h5["waveform/rx_grid"].attrs["index_order"] == (
             "snapshot,ul_tx,ul_rx,ul_rx_ant,ofdm_symbol,subcarrier"

@@ -21,6 +21,7 @@ from sionna_measurement_sim.phy.impairments import (
     ImpairmentSample,
     apply_base_impairments,
 )
+from sionna_measurement_sim.phy.power import mw_to_dbm, noise_mode_from_config
 
 
 @dataclass(frozen=True)
@@ -82,12 +83,18 @@ class ObservationImpairmentChain:
         random_seed: int,
         impairment_config: ImpairmentConfig | None = None,
         awgn_enabled: bool = True,
+        noise_mode: str = "relative_snr",
+        thermal_noise_power_mw: float | np.ndarray | torch.Tensor | None = None,
+        thermal_noise_config: dict[str, float] | None = None,
     ) -> None:
         self.fft_size = int(fft_size)
         self.sample_rate_hz = float(sample_rate_hz)
         self.random_seed = int(random_seed)
         self.impairment_config = impairment_config
         self.awgn_enabled = bool(awgn_enabled)
+        self.noise_mode = noise_mode_from_config({"noise_mode": noise_mode})
+        self.thermal_noise_power_mw = thermal_noise_power_mw
+        self.thermal_noise_config = dict(thermal_noise_config or {})
         self._generators: dict[str, torch.Generator] = {}
 
     def apply(
@@ -96,6 +103,8 @@ class ObservationImpairmentChain:
         *,
         snr_db: float,
         noise_variance_override: float | np.ndarray | torch.Tensor | None = None,
+        noise_mode: str | None = None,
+        thermal_noise_power_mw: float | np.ndarray | torch.Tensor | None = None,
     ) -> ImpairmentChainResult:
         """Return an impaired grid with per-link metadata.
 
@@ -133,6 +142,8 @@ class ObservationImpairmentChain:
             signal_power,
             snr_db=snr_db,
             override=noise_variance_override,
+            noise_mode=noise_mode,
+            thermal_noise_power_mw=thermal_noise_power_mw,
         )
         if self.awgn_enabled:
             noise = self._complex_awgn(impaired.shape, impaired.device, impaired.dtype)
@@ -142,14 +153,22 @@ class ObservationImpairmentChain:
         else:
             rx_grid = impaired
 
-        snr = torch.full(
-            impaired.shape[:3],
-            float(snr_db),
+        snr = 10.0 * torch.log10(
+            torch.clamp(signal_power, min=1e-30)
+            / torch.clamp(noise_variance, min=1e-30)
+        )
+        if not self.awgn_enabled:
+            snr = torch.full_like(snr, float(snr_db), dtype=torch.float32)
+        rssi_dbm = torch.as_tensor(
+            mw_to_dbm(_to_numpy(signal_power)),
             dtype=torch.float32,
             device=impaired.device,
         )
-        rssi_dbm = 10.0 * torch.log10(torch.clamp(signal_power, min=1e-30))
-        noise_power_dbm = 10.0 * torch.log10(torch.clamp(noise_variance, min=1e-30))
+        noise_power_dbm = torch.as_tensor(
+            mw_to_dbm(_to_numpy(noise_variance)),
+            dtype=torch.float32,
+            device=impaired.device,
+        )
         return ImpairmentChainResult(
             rx_grid=rx_grid.to(torch.complex64),
             noise_variance=noise_variance.to(torch.float32),
@@ -164,14 +183,18 @@ class ObservationImpairmentChain:
         """Build the HDF5 impairment spec for this chain."""
 
         config = self.impairment_config
+        awgn_config = {
+            "enabled": self.awgn_enabled,
+            "snr_db": snr_db,
+            "noise_mode": self.noise_mode,
+        }
+        if self.thermal_noise_config:
+            awgn_config.update(self.thermal_noise_config)
         if config is None:
             return ImpairmentSpec(
                 model_version=self.model_version,
                 random_seed=self.random_seed,
-                awgn_config=json.dumps(
-                    {"enabled": self.awgn_enabled, "snr_db": snr_db},
-                    sort_keys=True,
-                ),
+                awgn_config=json.dumps(awgn_config, sort_keys=True),
             )
 
         cfo_sfo_timing: dict[str, float] = {}
@@ -194,10 +217,7 @@ class ObservationImpairmentChain:
         return ImpairmentSpec(
             model_version=self.model_version,
             random_seed=self.random_seed,
-            awgn_config=json.dumps(
-                {"enabled": self.awgn_enabled, "snr_db": snr_db},
-                sort_keys=True,
-            ),
+            awgn_config=json.dumps(awgn_config, sort_keys=True),
             cfo_sfo_config=json.dumps(cfo_sfo_timing, sort_keys=True),
             phase_noise_config=json.dumps(phase, sort_keys=True),
             iq_imbalance_config=json.dumps({}, sort_keys=True),
@@ -210,30 +230,37 @@ class ObservationImpairmentChain:
         *,
         snr_db: float,
         override: float | np.ndarray | torch.Tensor | None,
+        noise_mode: str | None,
+        thermal_noise_power_mw: float | np.ndarray | torch.Tensor | None,
     ) -> torch.Tensor:
         if not self.awgn_enabled:
             return torch.zeros_like(signal_power, dtype=torch.float32)
         if override is None:
+            mode = self.noise_mode if noise_mode is None else noise_mode_from_config(
+                {"noise_mode": noise_mode}
+            )
+            if mode == "absolute_thermal":
+                thermal = (
+                    self.thermal_noise_power_mw
+                    if thermal_noise_power_mw is None
+                    else thermal_noise_power_mw
+                )
+                if thermal is None:
+                    raise ValueError(
+                        "absolute_thermal noise mode requires thermal_noise_power_mw"
+                    )
+                return _as_broadcast_float_tensor(
+                    thermal,
+                    signal_power,
+                    name="thermal_noise_power_mw",
+                )
             return (signal_power / (10.0 ** (float(snr_db) / 10.0))).to(torch.float32)
 
-        value = torch.as_tensor(
+        return _as_broadcast_float_tensor(
             override,
-            dtype=torch.float32,
-            device=signal_power.device,
+            signal_power,
+            name="noise_variance_override",
         )
-        if value.ndim == 0:
-            return torch.full_like(signal_power, float(value.item()), dtype=torch.float32)
-        if value.shape == signal_power.shape:
-            return value.to(torch.float32)
-        if value.numel() == signal_power.numel():
-            return value.reshape(signal_power.shape).to(torch.float32)
-        try:
-            return torch.broadcast_to(value, signal_power.shape).to(torch.float32)
-        except RuntimeError as exc:
-            raise ValueError(
-                "noise_variance_override must be scalar or broadcastable to "
-                f"{tuple(signal_power.shape)}, got {tuple(value.shape)}"
-            ) from exc
 
     def _complex_awgn(
         self,
@@ -378,6 +405,28 @@ def _as_complex_tensor(value: np.ndarray | torch.Tensor) -> torch.Tensor:
     if isinstance(value, torch.Tensor):
         return value.to(dtype=torch.complex64)
     return torch.as_tensor(np.asarray(value), dtype=torch.complex64)
+
+
+def _as_broadcast_float_tensor(
+    value: float | np.ndarray | torch.Tensor,
+    target: torch.Tensor,
+    *,
+    name: str,
+) -> torch.Tensor:
+    tensor = torch.as_tensor(value, dtype=torch.float32, device=target.device)
+    if tensor.ndim == 0:
+        return torch.full_like(target, float(tensor.item()), dtype=torch.float32)
+    if tensor.shape == target.shape:
+        return tensor.to(torch.float32)
+    if tensor.numel() == target.numel():
+        return tensor.reshape(target.shape).to(torch.float32)
+    try:
+        return torch.broadcast_to(tensor, target.shape).to(torch.float32)
+    except RuntimeError as exc:
+        raise ValueError(
+            f"{name} must be scalar or broadcastable to "
+            f"{tuple(target.shape)}, got {tuple(tensor.shape)}"
+        ) from exc
 
 
 def _zero_impairment_sample(

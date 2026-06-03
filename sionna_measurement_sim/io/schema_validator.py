@@ -666,6 +666,11 @@ NR_PUSCH_REQUIRED_FIELDS = (
     "waveform/tx_grid",
     "waveform/rx_grid",
     "waveform/noise_variance",
+    "waveform/tx_power_dbm_per_port",
+    "waveform/tx_power_scale_linear",
+    "waveform/serving_rx_index",
+    "waveform/path_loss_db",
+    "waveform/power_clipped_flag",
     "array/rx_snapshot_matrix",
     "array/aoa_label_rad",
     "array/aoa_heatmap_label",
@@ -722,6 +727,7 @@ def _validate_nr_pusch_fields_if_applicable(h5: h5py.File) -> None:
                 f"/receiver/receiver_type must be 'pusch_receiver' for NR PUSCH, got {rt!r}"
             )
     _validate_nr_pusch_waveform_grid_shapes(h5)
+    _validate_common_power_fields(h5)
     _validate_nr_pusch_array_shapes(h5)
 
 
@@ -748,6 +754,40 @@ def _validate_nr_pusch_waveform_grid_shapes(h5: h5py.File) -> None:
         "waveform/tx_grid",
         "waveform/rx_grid",
         "waveform/noise_variance",
+    ):
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_common_power_fields(h5: h5py.File) -> None:
+    tx_grid = h5["waveform/tx_grid"]
+    tx_power = h5["waveform/tx_power_dbm_per_port"]
+    scale = h5["waveform/tx_power_scale_linear"]
+    serving = h5["waveform/serving_rx_index"]
+    path_loss = h5["waveform/path_loss_db"]
+    clipped = h5["waveform/power_clipped_flag"]
+    link_tx_shape = tx_grid.shape[:2]
+    if tx_power.ndim != 3:
+        raise SchemaValidationError(
+            f"/waveform/tx_power_dbm_per_port must be rank 3, got {tx_power.shape}"
+        )
+    if scale.shape != tx_power.shape or clipped.shape != tx_power.shape:
+        msg = "/waveform TX power, scale, and clipped flag must share [snapshot,tx,port]"
+        raise SchemaValidationError(msg)
+    if tx_power.shape[:2] != link_tx_shape:
+        msg = "/waveform/tx_power_dbm_per_port must match tx_grid [snapshot,tx]"
+        raise SchemaValidationError(msg)
+    if serving.shape != link_tx_shape or path_loss.shape != link_tx_shape:
+        msg = "/waveform serving_rx_index/path_loss_db must match [snapshot,tx]"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "waveform/tx_power_dbm_per_port",
+        "waveform/tx_power_scale_linear",
+        "waveform/serving_rx_index",
+        "waveform/path_loss_db",
+        "waveform/power_clipped_flag",
     ):
         ds = h5[dataset_path]
         if "unit" not in ds.attrs or "index_order" not in ds.attrs:
@@ -809,6 +849,11 @@ NR_SRS_REQUIRED_FIELDS = (
     "waveform/tx_grid",
     "waveform/rx_grid",
     "waveform/noise_variance",
+    "waveform/tx_power_dbm_per_port",
+    "waveform/tx_power_scale_linear",
+    "waveform/serving_rx_index",
+    "waveform/path_loss_db",
+    "waveform/power_clipped_flag",
     "waveform/srs_resource_mask",
     "waveform/srs_pilot_symbols",
     "waveform/srs_re_symbol_indices",
@@ -843,6 +888,7 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     _require_absent(h5, "waveform/srs_tx_grid")
     _require_absent(h5, "observation/srs_cfr_est")
     _require_present(h5, NR_SRS_REQUIRED_FIELDS, kind=h5py.Dataset)
+    _validate_common_power_fields(h5)
     tx_grid = h5["waveform/tx_grid"]
     rx_grid = h5["waveform/rx_grid"]
     noise_variance = h5["waveform/noise_variance"]
@@ -950,6 +996,11 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         "waveform/tx_grid",
         "waveform/rx_grid",
         "waveform/noise_variance",
+        "waveform/tx_power_dbm_per_port",
+        "waveform/tx_power_scale_linear",
+        "waveform/serving_rx_index",
+        "waveform/path_loss_db",
+        "waveform/power_clipped_flag",
         "waveform/srs_resource_mask",
         "waveform/srs_pilot_symbols",
         "waveform/srs_re_symbol_indices",
