@@ -101,6 +101,59 @@ def test_run_full_cli_values_override_yaml(tmp_path, monkeypatch, capsys):
     assert str(tmp_path / "out" / "results.h5") in capsys.readouterr().out
 
 
+def test_run_full_rt_labels_profile_disables_heavy_branches(tmp_path, monkeypatch):
+    import yaml
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "output:",
+                "  profile: rt_labels_only",
+                f"  root_dir: {tmp_path / 'labels'}",
+                "phy:",
+                "  enabled: true",
+                "array:",
+                "  spectrum:",
+                "    enabled: true",
+                "ranging:",
+                "  enabled: true",
+                "visualization:",
+                "  enabled: true",
+                "calibration:",
+                "  enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    captured_config = {}
+
+    def _fake_run(config):
+        captured_config["value"] = config
+        return config.output_dir / "results.h5"
+
+    import sionna_measurement_sim.rt.truth_pipeline as truth_pipeline
+
+    monkeypatch.setattr(truth_pipeline, "run_rt_truth_pipeline", _fake_run)
+
+    assert main(["--config", str(config_path), "run-full"]) == 0
+
+    run_config = captured_config["value"]
+    assert run_config.output_profile == "rt_labels_only"
+    assert run_config.observation_snr_db is None
+    assert run_config.ranging_config.enabled is False
+    assert run_config.spectrum_config.enabled is False
+    assert run_config.visualization_config.enabled is False
+    assert run_config.calibration_enabled is False
+    written_config = yaml.safe_load((tmp_path / "labels" / "run_config.yaml").read_text())
+    assert written_config["output"]["profile"] == "rt_labels_only"
+    assert written_config["phy"]["enabled"] is False
+    assert written_config["ranging"]["enabled"] is False
+    assert written_config["array"]["spectrum"]["enabled"] is False
+    assert written_config["visualization"]["enabled"] is False
+    assert written_config["calibration"]["enabled"] is False
+
+
 def test_run_full_without_yaml_writes_run_config(tmp_path, monkeypatch):
     from sionna_measurement_sim.config.loader import load_config
 

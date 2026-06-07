@@ -305,6 +305,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _phy_standard = (
                 args.phy_standard if args.phy_standard is not None else cfg.phy.standard
             )
+            _output_profile = cfg.output.profile
 
             # Impairments: respect .enabled flags
             imp = cfg.impairments
@@ -331,6 +332,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.clipping_threshold is None and imp.agc_adc.enabled
                 else args.clipping_threshold,
             )
+            if _output_profile in ("rt_lite", "rt_labels_only"):
+                cfg.phy.enabled = False
+                cfg.ranging.enabled = False
+                cfg.array.spectrum.enabled = False
+                cfg.visualization.enabled = False
+                cfg.calibration.enabled = False
+                cfg.output.save_full_paths = False
             # PHY: only enable if cfg.phy.enabled
             phy_enabled = cfg.phy.enabled
             obs_snr = _snr if phy_enabled else None
@@ -447,6 +455,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 hdf5_filename=cfg.output.hdf5_filename,
                 hdf5_compression=cfg.output.compression,
+                output_profile=_output_profile,
                 save_full_paths=cfg.output.save_full_paths,
                 calibration_enabled=cfg.calibration.enabled,
                 link_config=DomainLinkConfig(

@@ -66,3 +66,38 @@ class RTTruthResult:
         object.__setattr__(self, "geometric_path_count", geometric_path_count)
         object.__setattr__(self, "los_exists", los_exists)
         object.__setattr__(self, "nlos_exists", nlos_exists)
+
+
+@dataclass(frozen=True)
+class RTLinkSummary:
+    """Lightweight per-link RT summary that does not require CFR materialization."""
+
+    path_power_db: np.ndarray
+    has_geometric_signal: np.ndarray
+    geometric_path_count: np.ndarray
+    los_exists: np.ndarray
+    nlos_exists: np.ndarray
+
+    def __post_init__(self) -> None:
+        path_power_db = np.asarray(self.path_power_db, dtype=np.float32)
+        has_signal = np.asarray(self.has_geometric_signal, dtype=np.bool_)
+        geometric_path_count = np.asarray(self.geometric_path_count, dtype=np.int32)
+        los_exists = np.asarray(self.los_exists, dtype=np.bool_)
+        nlos_exists = np.asarray(self.nlos_exists, dtype=np.bool_)
+
+        require_shape("path_power_db", path_power_db, (None, None))
+        link_shape = path_power_db.shape
+        for name, arr in (
+            ("has_geometric_signal", has_signal),
+            ("geometric_path_count", geometric_path_count),
+            ("los_exists", los_exists),
+            ("nlos_exists", nlos_exists),
+        ):
+            require_shape(name, arr, link_shape)
+        require_finite("path_power_db", path_power_db)
+
+        object.__setattr__(self, "path_power_db", path_power_db)
+        object.__setattr__(self, "has_geometric_signal", has_signal)
+        object.__setattr__(self, "geometric_path_count", geometric_path_count)
+        object.__setattr__(self, "los_exists", los_exists)
+        object.__setattr__(self, "nlos_exists", nlos_exists)

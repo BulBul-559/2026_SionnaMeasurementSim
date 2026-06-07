@@ -25,6 +25,7 @@ input:
   max_ue: 2500
 
 output:
+  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
   root_dir: "outputs/bistro_0000_nr_srs_fr1_100mhz"
   hdf5_filename: "results.h5"
   compression: "gzip"

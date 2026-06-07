@@ -81,6 +81,7 @@ class RTTruthRunConfig:
     # ── 其他 ──
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
+    output_profile: str = "full"   # "full" | "rt_lite" | "rt_labels_only"
     save_full_paths: bool = False
     debug_config: Any | None = None
     output_sharding_config: Any | None = None
@@ -104,6 +105,7 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 **内部流程：**
 
 ```
+0. build_rt_output_plan(output_profile)
 1. load_role_topology_from_label() → RoleTopology(BS/UE)
 2. resolve_link_roles() + resolve_role_topology() → Topology(TX/RX)
 3. FrequencyGrid.from_center_bandwidth() → FrequencyGrid
@@ -120,6 +122,18 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 8. validate_hdf5_contract()          → schema check
 9. write_manifest()                  → manifest.json
 ```
+
+`output.profile` 决定 RT adapter 与 writer 的取舍：
+
+| profile | 行为 |
+|---|---|
+| `full` | 当前完整 contract，计算并写 CFR、CIR、path samples，可选 PHY/ranging/array/viz |
+| `rt_lite` | 保留完整 HDF5 contract，但作为 preset 关闭 PHY/ranging/spectrum/viz/calibration/full paths |
+| `rt_labels_only` | 使用 `sionna_measurement_rt_labels` contract，只从 PathSolver/path table 生成 `/derived` 和 `/labels/link/*`，跳过 `paths.cfr()`、`paths.cir()`、path samples、PHY 和所有下游观测 |
+
+`rt_labels_only` 的目标是大规模视觉预训练或场景筛选标签；它不是信道数据，不能用于
+需要 CFR/CIR/路径顶点可视化的流程。compact table 可通过
+`io.hdf5_reader.iter_link_labels()` 读取单文件或 sharded run。
 
 **Shard 外壳：**
 
@@ -151,7 +165,7 @@ transpose 只作为内部测试/兼容路径存在。
 ## 关键设计点
 
 1. **单配置对象**：`RTTruthRunConfig` 承载了从 RT 到 PHY 到 MIMO 的全部参数，避免多个配置对象同步问题
-2. **PHY 可选**：`observation_snr_db=None` 时跳过 PHY 链，仅输出 RT 真值
+2. **PHY 可选**：`observation_snr_db=None` 时跳过 PHY 链，仅输出 RT 真值或 compact labels
 3. **插件化 PHY**：`phy_standard` 通过 registry 选择 custom OFDM、NR PUSCH 或 NR SRS 模块
 4. **HDF5 schema 校验内置**：每次运行结束自动调用 `validate_hdf5_contract()`
 5. **Debug profiling 可选**：`debug.enabled=true` 时记录阶段耗时、GPU/CPU/RSS 采样和每 shard summary；默认关闭，不影响普通运行。

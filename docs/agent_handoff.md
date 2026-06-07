@@ -31,7 +31,12 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 uplink power/RSSI 和 observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。
 NR SRS 已升级为 standards-shaped v2 subset。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
 `bs_points`/`ue_points` 口径。
-当前 HDF5 schema 版本是 `1.6.0`。新输出不再写 array 兼容别名
+当前 HDF5 schema 版本是 `1.7.0`。`output.profile` 支持 `full`、`rt_lite` 和
+`rt_labels_only`：`rt_lite` 是保留 full contract 的轻量 preset，会关闭
+PHY/ranging/spectrum/viz/calibration/full paths；`rt_labels_only` 使用独立
+`sionna_measurement_rt_labels` compact contract，只写 topology、derived 和
+`/labels/link/*` link-level 标签，不写 CFR/CIR/path samples/waveform/observation/array/ranging。
+新输出不再写 array 兼容别名
 `/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`；AoA 监督 heatmap
 统一使用 `/array/aoa_heatmap_label`，SRS/估计 CFR 空间谱统一使用
 `/array/spatial_spectrum_cfr_est`。
@@ -151,6 +156,15 @@ benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 ```
 
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
+
+RT labels-only 输出可用以下模板生成：
+
+```text
+config/defaults/rt_labels_only.yaml
+```
+
+它适合大规模场景的视觉预训练或 link-level 标签筛选；若需要 CFR、CIR、path samples、
+path 可视化、PHY observation、空间谱或 ranging，应使用 `output.profile="full"`。
 
 可视化注意：`visualization.plots` 可加入 `radio_map`。该图把 uplink 中 UE 发射、BS 接收的
 `/observation/rssi_dbm` 解释为“每个 BS 在 UE 位置的 RSS 代表值”，每个 BS 输出一张图到

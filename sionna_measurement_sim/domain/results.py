@@ -19,6 +19,7 @@ from sionna_measurement_sim.domain.constants import (
     CONTRACT_NAME,
     INDEX_ORDER,
     PRODUCER,
+    RT_LABELS_CONTRACT_NAME,
     SCHEMA_VERSION,
     UNIT_CONVENTION,
 )
@@ -69,6 +70,7 @@ class Metadata:
     observation_branch_enabled: bool = False
     measurement_realism_level: str = "phase1_schema_only"
     software_versions: str = field(default_factory=lambda: json.dumps({"package": __version__}))
+    output_profile: str = "full"
 
 
 @dataclass(frozen=True)
@@ -266,6 +268,152 @@ class RuntimeInfo:
     cuda_device_name: str = ""
     command_line: str = ""
     elapsed_seconds: float = 0.0
+
+
+@dataclass(frozen=True)
+class RTCompactLinkLabels:
+    """Flattened link-level labels for compact RT labels-only output."""
+
+    link_index: np.ndarray
+    tx_index: np.ndarray
+    rx_index: np.ndarray
+    global_tx_index: np.ndarray
+    global_rx_index: np.ndarray
+    tx_xy_m: np.ndarray
+    rx_xy_m: np.ndarray
+    link_valid_mask: np.ndarray
+    geometric_distance_m: np.ndarray
+    first_path_delay_s: np.ndarray
+    first_path_propagation_range_m: np.ndarray
+    strongest_path_delay_s: np.ndarray
+    path_power_db: np.ndarray
+    los_flag: np.ndarray
+    nlos_flag: np.ndarray
+    path_count: np.ndarray
+    first_path_aoa_azimuth_rad: np.ndarray
+    first_path_aoa_zenith_rad: np.ndarray
+    tx_rx_bearing_rad: np.ndarray
+    tx_rx_distance_m: np.ndarray
+
+    def __post_init__(self) -> None:
+        link_index = np.asarray(self.link_index, dtype=np.int64)
+        require_shape("link_index", link_index, (None,))
+        link_count = link_index.shape[0]
+        object.__setattr__(self, "link_index", link_index)
+        for name in (
+            "tx_index",
+            "rx_index",
+            "global_tx_index",
+            "global_rx_index",
+            "path_count",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                np.asarray(getattr(self, name), dtype=np.int64),
+            )
+            require_shape(name, getattr(self, name), (link_count,))
+        for name in ("link_valid_mask", "los_flag", "nlos_flag"):
+            object.__setattr__(self, name, np.asarray(getattr(self, name), dtype=np.bool_))
+            require_shape(name, getattr(self, name), (link_count,))
+        for name in (
+            "geometric_distance_m",
+            "first_path_delay_s",
+            "first_path_propagation_range_m",
+            "strongest_path_delay_s",
+            "path_power_db",
+            "first_path_aoa_azimuth_rad",
+            "first_path_aoa_zenith_rad",
+            "tx_rx_bearing_rad",
+            "tx_rx_distance_m",
+        ):
+            object.__setattr__(self, name, np.asarray(getattr(self, name), dtype=np.float32))
+            require_shape(name, getattr(self, name), (link_count,))
+        for name in ("tx_xy_m", "rx_xy_m"):
+            object.__setattr__(self, name, np.asarray(getattr(self, name), dtype=np.float32))
+            require_shape(name, getattr(self, name), (link_count, 2))
+
+    @classmethod
+    def from_topology(
+        cls,
+        topology: Topology,
+        derived: DerivedLabels,
+        *,
+        shard: ShardMetadata | None = None,
+    ) -> RTCompactLinkLabels:
+        tx_count, rx_count = topology.num_tx, topology.num_rx
+        tx_grid, rx_grid = np.indices((tx_count, rx_count), dtype=np.int64)
+        if shard is not None:
+            global_tx = shard.global_tx_indices[tx_grid]
+            global_rx = shard.global_rx_indices[rx_grid]
+        else:
+            global_tx = tx_grid
+            global_rx = rx_grid
+        tx_xy = np.broadcast_to(
+            topology.tx_positions_m[:, np.newaxis, :2],
+            (tx_count, rx_count, 2),
+        )
+        rx_xy = np.broadcast_to(
+            topology.rx_positions_m[np.newaxis, :, :2],
+            (tx_count, rx_count, 2),
+        )
+        return cls(
+            link_index=np.arange(tx_count * rx_count, dtype=np.int64),
+            tx_index=tx_grid.reshape(-1),
+            rx_index=rx_grid.reshape(-1),
+            global_tx_index=global_tx.reshape(-1),
+            global_rx_index=global_rx.reshape(-1),
+            tx_xy_m=tx_xy.reshape(-1, 2),
+            rx_xy_m=rx_xy.reshape(-1, 2),
+            link_valid_mask=derived.link_valid_mask.reshape(-1),
+            geometric_distance_m=derived.geometric_distance_m.reshape(-1),
+            first_path_delay_s=derived.first_path_delay_s.reshape(-1),
+            first_path_propagation_range_m=(
+                derived.first_path_propagation_range_m.reshape(-1)
+            ),
+            strongest_path_delay_s=derived.strongest_path_delay_s.reshape(-1),
+            path_power_db=derived.path_power_db.reshape(-1),
+            los_flag=derived.los_flag.reshape(-1),
+            nlos_flag=derived.nlos_flag.reshape(-1),
+            path_count=derived.path_count.reshape(-1),
+            first_path_aoa_azimuth_rad=derived.first_path_aoa_azimuth_rad.reshape(-1),
+            first_path_aoa_zenith_rad=derived.first_path_aoa_zenith_rad.reshape(-1),
+            tx_rx_bearing_rad=derived.tx_rx_bearing_rad.reshape(-1),
+            tx_rx_distance_m=derived.tx_rx_distance_m.reshape(-1),
+        )
+
+
+@dataclass(frozen=True)
+class RTLabelsOnlyResult:
+    """Compact RT labels-only result used by the lightweight HDF5 writer."""
+
+    metadata: Metadata
+    input_spec: InputSpec
+    topology: Topology
+    devices: DeviceState
+    antenna: AntennaSpec
+    scene: SceneSpec
+    frequency: FrequencyGrid
+    runtime: RuntimeInfo
+    derived: DerivedLabels
+    link_labels: RTCompactLinkLabels
+    link: LinkConfig | None = None
+    shard: ShardMetadata | None = None
+
+    def __post_init__(self) -> None:
+        if self.metadata.contract_name != RT_LABELS_CONTRACT_NAME:
+            msg = "RTLabelsOnlyResult metadata.contract_name must be RT labels contract"
+            raise ValueError(msg)
+        if self.metadata.output_profile != "rt_labels_only":
+            msg = "RTLabelsOnlyResult metadata.output_profile must be rt_labels_only"
+            raise ValueError(msg)
+        link_shape = (self.topology.num_tx, self.topology.num_rx)
+        require_shape("derived.link_valid_mask", self.derived.link_valid_mask, link_shape)
+        require_shape(
+            "link_labels.link_index",
+            self.link_labels.link_index,
+            (link_shape[0] * link_shape[1],),
+        )
 
 
 @dataclass(frozen=True)

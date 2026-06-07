@@ -111,6 +111,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
+| `profile` | str | `"full"` | 输出 profile：`full`、`rt_lite` 或 `rt_labels_only` |
 | `root_dir` | str | `"outputs"` | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | `"results.h5"` | HDF5 文件名 |
@@ -120,6 +121,9 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 | `save_raw_waveform` | bool | false | 是否保存原始波形 |
 
 `compression` 可选 `gzip`、`lzf`、`none`。大规模性能排查时可用 `none` 或 `lzf` 分离写盘压缩成本。
+`profile="rt_lite"` 会保留 full HDF5 contract，但默认关闭 PHY/ranging/spectrum/viz/full paths。
+`profile="rt_labels_only"` 写 compact RT link-level label contract，不写 CFR/CIR/path samples、
+waveform/observation/array/ranging，适合大规模视觉预训练标签生成。
 
 `output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`results_dir`、`manifest_dir`、`parallel_workers`、`gpu_ids`、`visualization_mode` 和 `fallback`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件写到 `results/result_000.h5`。CLI 会把最终 YAML 写到输出根目录 `run_config.yaml`；aggregate manifest 和 JSON config snapshot 写到 `manifest/`。队列/验收 wrapper 的附加日志与汇总应写在同一个 run 目录：`logs/run.log`、`logs/heatmap.log`、`summary.json`。
 
@@ -563,11 +567,17 @@ results.h5
 └── /runtime                       # 运行环境/版本/耗时
 ```
 
+`output.profile="rt_labels_only"` 使用独立 contract
+`sionna_measurement_rt_labels`。该 contract 仍写 `/meta`、`/input`、`/topology`、
+`/devices`、`/antenna`、`/scene`、`/frequency`、`/derived`、`/link` 和 `/runtime`，
+但不写 `/channel`、`/paths`、`/waveform`、`/observation`、`/array` 或 `/ranging`。
+紧凑监督字段统一放在 `/labels/link`。
+
 ### 2.3 `/meta` — 元数据
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.6.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.7.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -580,8 +590,34 @@ results.h5
 | `truth_branch_enabled` | bool | RT 真值分支是否启用 |
 | `observation_branch_enabled` | bool | PHY 观测分支是否启用 |
 | `measurement_realism_level` | string | 测量真实度等级 |
+| `output_profile` | string | 输出 profile：`full`、`rt_lite` 或 `rt_labels_only` |
 | `config_snapshot` | string | 完整 YAML 配置快照 |
 | `software_versions` | string | 软件版本摘要 |
+
+### 2.3.1 `/labels/link` — RT labels-only compact table
+
+仅当 `/meta/contract_name = "sionna_measurement_rt_labels"` 时存在。所有字段第一维
+均为 flattened link，顺序是本地 `[tx, rx]` 网格按 C-order 展平。
+
+| Dataset | Shape | Unit | 说明 |
+|---------|-------|------|------|
+| `link_index` | [link] | — | 本文件内 link 序号 |
+| `tx_index`, `rx_index` | [link] | — | 本文件局部 TX/RX index |
+| `global_tx_index`, `global_rx_index` | [link] | — | shard 模式下的全局 TX/RX index |
+| `tx_xy_m`, `rx_xy_m` | [link, 2] | m | TX/RX 平面坐标 |
+| `link_valid_mask` | [link] | — | RT 是否存在几何路径 |
+| `geometric_distance_m` | [link] | m | TX/RX 三维几何距离 |
+| `first_path_delay_s` | [link] | s | 最早可检测路径 truth delay；无有效路径为 NaN |
+| `first_path_propagation_range_m` | [link] | m | `first_path_delay_s * c` |
+| `strongest_path_delay_s` | [link] | s | 最强路径 delay |
+| `path_power_db` | [link] | dB | 从 path table 聚合的链路功率 proxy |
+| `los_flag`, `nlos_flag` | [link] | — | LoS / NLoS path 是否存在 |
+| `path_count` | [link] | — | 几何路径数量 |
+| `first_path_aoa_azimuth_rad`, `first_path_aoa_zenith_rad` | [link] | rad | 接收端场景坐标 AoA |
+| `tx_rx_bearing_rad`, `tx_rx_distance_m` | [link] | rad / m | 平面 bearing 与距离 |
+
+该 compact table 是 link-level 监督标签，不是信道观测；下游 reader 可用
+`sionna_measurement_sim.io.hdf5_reader.iter_link_labels()` 遍历单文件或 sharded run 目录。
 
 ### 2.4 `/shard` — Shard 元数据
 

@@ -21,7 +21,8 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
-- HDF5 schema `1.6.0` 强校验（NR SRS v2 resource/port/power datasets、NR PUSCH/SRS 统一 waveform/power 字段，array label/source 旧别名已移除，ranging 与 truth range 语义拆开）
+- `output.profile` 支持 `full`、`rt_lite`、`rt_labels_only`；labels-only 使用 compact `/labels/link` HDF5 contract，不写 CFR/CIR/path samples
+- HDF5 schema `1.7.0` 强校验（full contract、RT labels-only contract、NR SRS v2 resource/port/power datasets、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -51,6 +52,12 @@ uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml \
     run-full \
     --output-dir outputs/bistro_0000_nr_srs
+
+# 只生成紧凑 RT link-level 标签，不写 CFR/CIR/path samples/PHY
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/defaults/rt_labels_only.yaml \
+    run-full \
+    --output-dir outputs/my_rt_labels
 
 # 查看所有参数
 uv run python -m sionna_measurement_sim.app.cli run-full --help
@@ -175,6 +182,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment（默认） |
+| `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，跳过 CFR/CIR/path samples/PHY |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz NR SRS subset 定位模板 |
@@ -224,6 +232,11 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 | `/receiver` | 估计器类型、MIMO 检测器 |
 | `/evaluation` | NMSE、BER、BLER（TB CRC）、num_block_errors/num_blocks |
 | `/runtime` | 软件版本、耗时 |
+
+`output.profile="rt_labels_only"` 会写 `contract_name="sionna_measurement_rt_labels"`，
+只保留 topology、derived 和 `/labels/link/*` compact table；不会写 `/channel`、
+`/paths`、`/waveform`、`/observation`、`/array` 或 `/ranging`。`rt_lite` 则是
+保留 full HDF5 contract 的轻量 preset，默认关闭 PHY/ranging/spectrum/viz/full paths。
 
 完整数据契约见 [docs/sys/07_config_and_h5_format.md](docs/sys/07_config_and_h5_format.md)。
 

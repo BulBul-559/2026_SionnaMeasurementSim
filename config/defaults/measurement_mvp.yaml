@@ -31,6 +31,7 @@ input:
   max_ue: 100
 
 output:
+  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
   root_dir: "outputs"
   hdf5_filename: "results.h5"
   compression: "gzip"

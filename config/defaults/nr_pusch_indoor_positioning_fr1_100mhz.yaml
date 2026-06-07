@@ -37,6 +37,7 @@ input:
   max_ue: 1000              # target UE/sample-position count; run small smoke first
 
 output:
+  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
   root_dir: "outputs/indoor_fr1_100mhz_positioning"
   hdf5_filename: "results.h5"
   compression: "gzip"

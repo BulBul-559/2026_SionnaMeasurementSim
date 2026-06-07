@@ -6,7 +6,7 @@ import numpy as np
 
 from sionna_measurement_sim.config.schema import OutputShardingConfig
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
-from sionna_measurement_sim.io.hdf5_reader import read_truth_cfr
+from sionna_measurement_sim.io.hdf5_reader import read_link_labels, read_truth_cfr
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
@@ -110,6 +110,41 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
                 h5["shard/global_tx_indices"][()],
                 np.asarray(expected_ue, dtype=np.int64),
             )
+
+
+def test_rt_truth_pipeline_can_write_rt_labels_only_profile(tmp_path: Path):
+    output_dir = tmp_path / "rt_labels_only"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_bs=1,
+            max_ue=2,
+            output_profile="rt_labels_only",
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert h5["meta/contract_name"][()].decode("utf-8") == (
+            "sionna_measurement_rt_labels"
+        )
+        assert h5["meta/output_profile"][()].decode("utf-8") == "rt_labels_only"
+        assert "channel" not in h5
+        assert "paths" not in h5
+        assert "waveform" not in h5
+        assert h5["labels/link/link_index"].shape == (2,)
+        assert h5["labels/link/first_path_delay_s"].shape == (2,)
+
+    labels = read_link_labels(results_path)
+    assert labels["tx_index"].shape == (2,)
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["output_profile"] == "rt_labels_only"
+    assert manifest["raw_cfr_shape"] == []
 
 
 def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):

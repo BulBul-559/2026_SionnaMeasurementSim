@@ -9,8 +9,15 @@ import pytest
 
 from sionna_measurement_sim.domain.path import PathSamples
 from sionna_measurement_sim.domain.results import ShardMetadata, create_phase1_minimal_result
-from sionna_measurement_sim.io.hdf5_reader import read_metadata, read_truth_cfr
-from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
+from sionna_measurement_sim.io.hdf5_reader import (
+    read_link_labels,
+    read_metadata,
+    read_truth_cfr,
+)
+from sionna_measurement_sim.io.hdf5_writer import (
+    write_measurement_result,
+    write_rt_labels_result,
+)
 from sionna_measurement_sim.io.schema_validator import SchemaValidationError, validate_hdf5_contract
 
 
@@ -39,8 +46,9 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
 
     with h5py.File(output_path, "r") as h5:
         assert "channel/cfr" not in h5
-        assert h5["meta/schema_version"][()].decode("utf-8") == "1.6.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "1.7.0"
         assert h5["meta/contract_name"][()].decode("utf-8") == "sionna_measurement_sim_hdf5"
+        assert h5["meta/output_profile"][()].decode("utf-8") == "full"
         assert h5["meta/index_order"][()].decode("utf-8") == "tx,rx,rx_ant,tx_ant,..."
         assert h5["meta/unit_convention"][()].decode("utf-8") == "si_mks"
         assert h5["topology/tx_positions_m"].dtype == np.dtype("float32")
@@ -120,7 +128,7 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     metadata = read_metadata(output_path)
     cfr = read_truth_cfr(output_path)
 
-    assert metadata["schema_version"] == "1.6.0"
+    assert metadata["schema_version"] == "1.7.0"
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")
@@ -143,6 +151,55 @@ def test_validator_rejects_forbidden_channel_cfr(tmp_path: Path):
 
     with pytest.raises(SchemaValidationError, match="Forbidden dataset"):
         validate_hdf5_contract(output_path)
+
+
+def test_write_and_validate_rt_labels_only_hdf5(tmp_path: Path):
+    from dataclasses import replace
+
+    from sionna_measurement_sim.domain.constants import RT_LABELS_CONTRACT_NAME
+    from sionna_measurement_sim.domain.results import RTCompactLinkLabels, RTLabelsOnlyResult
+
+    full = create_phase1_minimal_result()
+    derived = replace(
+        full.derived,
+        first_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+        first_path_propagation_range_m=np.array([[2.9979246]], dtype=np.float32),
+        strongest_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+    )
+    labels_result = RTLabelsOnlyResult(
+        metadata=replace(
+            full.metadata,
+            contract_name=RT_LABELS_CONTRACT_NAME,
+            output_profile="rt_labels_only",
+        ),
+        input_spec=full.input_spec,
+        topology=full.topology,
+        devices=full.devices,
+        antenna=full.antenna,
+        scene=full.scene,
+        frequency=full.frequency,
+        runtime=full.runtime,
+        derived=derived,
+        link_labels=RTCompactLinkLabels.from_topology(full.topology, derived),
+        link=full.link,
+    )
+    output_path = tmp_path / "rt_labels.h5"
+
+    write_rt_labels_result(output_path, labels_result)
+
+    validate_hdf5_contract(output_path)
+    with h5py.File(output_path, "r") as h5:
+        assert h5["meta/contract_name"][()].decode("utf-8") == RT_LABELS_CONTRACT_NAME
+        assert h5["meta/output_profile"][()].decode("utf-8") == "rt_labels_only"
+        assert "channel" not in h5
+        assert "paths" not in h5
+        assert "waveform" not in h5
+        assert h5["labels/link/link_index"].shape == (1,)
+        assert h5["labels/link/tx_xy_m"].shape == (1, 2)
+
+    labels = read_link_labels(output_path)
+    assert labels["geometric_distance_m"].shape == (1,)
+    assert labels["geometric_distance_m"][0] == pytest.approx(5.0)
 
 
 def test_validator_rejects_legacy_rtt_like_fields(tmp_path: Path):

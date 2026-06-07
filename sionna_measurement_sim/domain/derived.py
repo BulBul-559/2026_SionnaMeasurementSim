@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.channel import RTLinkSummary, RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.path import PathTable
@@ -97,7 +97,7 @@ class DerivedLabels:
 
 def build_derived_labels(
     topology: Topology,
-    truth: RTTruthResult,
+    truth: RTTruthResult | RTLinkSummary,
     path_table: PathTable | None = None,
     cir_truth: CIRTruth | None = None,
     link_config: LinkConfig | None = None,

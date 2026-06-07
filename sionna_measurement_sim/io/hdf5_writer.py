@@ -14,7 +14,10 @@ from typing import Any
 import h5py
 import numpy as np
 
-from sionna_measurement_sim.domain.results import MeasurementSimulationResult
+from sionna_measurement_sim.domain.results import (
+    MeasurementSimulationResult,
+    RTLabelsOnlyResult,
+)
 
 UTF8_DTYPE = h5py.string_dtype(encoding="utf-8")
 _ACTIVE_COMPRESSION: ContextVar[str] = ContextVar(
@@ -76,6 +79,45 @@ def write_measurement_result(
     return output_path
 
 
+def write_rt_labels_result(
+    path: str | Path,
+    result: RTLabelsOnlyResult,
+    *,
+    compression: str = "gzip",
+    tracer: Any | None = None,
+) -> Path:
+    """Write compact RT labels-only HDF5 output."""
+
+    if compression not in ("gzip", "lzf", "none"):
+        msg = f"Unsupported HDF5 compression: {compression!r}"
+        raise ValueError(msg)
+
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    compression_token = _ACTIVE_COMPRESSION.set(compression)
+    tracer_token = _ACTIVE_TRACER.set(tracer)
+    try:
+        with h5py.File(output_path, "w") as h5:
+            _write_meta(h5, result)
+            _write_input(h5, result)
+            _write_shard(h5, result)
+            _write_topology(h5, result)
+            _write_devices(h5, result)
+            _write_antenna(h5, result)
+            _write_scene(h5, result)
+            _write_frequency(h5, result)
+            _write_derived(h5, result)
+            _write_rt_link_labels(h5, result)
+            _write_link(h5, result)
+            _write_runtime(h5, result)
+    finally:
+        _ACTIVE_TRACER.reset(tracer_token)
+        _ACTIVE_COMPRESSION.reset(compression_token)
+
+    return output_path
+
+
 def _write_meta(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     meta = result.metadata
     group = h5.require_group("meta")
@@ -92,6 +134,7 @@ def _write_meta(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "truth_branch_enabled", bool(meta.truth_branch_enabled))
     _write_scalar(group, "observation_branch_enabled", bool(meta.observation_branch_enabled))
     _write_scalar(group, "measurement_realism_level", meta.measurement_realism_level)
+    _write_scalar(group, "output_profile", meta.output_profile)
     _write_scalar(group, "config_snapshot", meta.config_snapshot)
     _write_scalar(group, "software_versions", meta.software_versions)
 
@@ -882,6 +925,85 @@ def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "cuda_device_name", runtime.cuda_device_name)
     _write_scalar(group, "command_line", runtime.command_line)
     _write_scalar(group, "elapsed_seconds", np.float64(runtime.elapsed_seconds))
+
+
+def _write_rt_link_labels(h5: h5py.File, result: RTLabelsOnlyResult) -> None:
+    labels = result.link_labels
+    group = h5.require_group("labels").require_group("link")
+    _write_dataset(group, "link_index", labels.link_index, index_order="link")
+    _write_dataset(group, "tx_index", labels.tx_index, index_order="link")
+    _write_dataset(group, "rx_index", labels.rx_index, index_order="link")
+    _write_dataset(group, "global_tx_index", labels.global_tx_index, index_order="link")
+    _write_dataset(group, "global_rx_index", labels.global_rx_index, index_order="link")
+    _write_dataset(group, "tx_xy_m", labels.tx_xy_m, unit="m", index_order="link,xy")
+    _write_dataset(group, "rx_xy_m", labels.rx_xy_m, unit="m", index_order="link,xy")
+    _write_dataset(group, "link_valid_mask", labels.link_valid_mask, index_order="link")
+    _write_dataset(
+        group,
+        "geometric_distance_m",
+        labels.geometric_distance_m,
+        unit="m",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "first_path_delay_s",
+        labels.first_path_delay_s,
+        unit="s",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "first_path_propagation_range_m",
+        labels.first_path_propagation_range_m,
+        unit="m",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "strongest_path_delay_s",
+        labels.strongest_path_delay_s,
+        unit="s",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "path_power_db",
+        labels.path_power_db,
+        unit="dB",
+        index_order="link",
+    )
+    _write_dataset(group, "los_flag", labels.los_flag, index_order="link")
+    _write_dataset(group, "nlos_flag", labels.nlos_flag, index_order="link")
+    _write_dataset(group, "path_count", labels.path_count, index_order="link")
+    _write_dataset(
+        group,
+        "first_path_aoa_azimuth_rad",
+        labels.first_path_aoa_azimuth_rad,
+        unit="rad",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "first_path_aoa_zenith_rad",
+        labels.first_path_aoa_zenith_rad,
+        unit="rad",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "tx_rx_bearing_rad",
+        labels.tx_rx_bearing_rad,
+        unit="rad",
+        index_order="link",
+    )
+    _write_dataset(
+        group,
+        "tx_rx_distance_m",
+        labels.tx_rx_distance_m,
+        unit="m",
+        index_order="link",
+    )
 
 
 def _write_scalar(group: h5py.Group, name: str, value: Any) -> h5py.Dataset:

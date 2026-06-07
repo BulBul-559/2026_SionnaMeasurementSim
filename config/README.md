@@ -24,6 +24,12 @@ uv run python -m sionna_measurement_sim.app.cli \
     run-full \
     --phy-standard nr_srs \
     --output-dir outputs/my_nr_srs_run
+
+# 使用 compact RT labels-only 配置
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/defaults/rt_labels_only.yaml \
+    run-full \
+    --output-dir outputs/my_rt_labels
 ```
 
 ## 配置模板
@@ -31,6 +37,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
+| `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，不写 CFR/CIR/path samples/PHY |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR uplink 定位主实验模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
@@ -148,6 +155,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
+| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract，不写 CFR/CIR/path samples/PHY |
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
 | `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none` |

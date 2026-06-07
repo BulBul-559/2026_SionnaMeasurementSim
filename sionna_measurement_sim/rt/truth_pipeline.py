@@ -29,12 +29,15 @@ from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
     DiagnosticsReport,
 )
+from sionna_measurement_sim.domain.output_plan import RTOutputPlan, build_rt_output_plan
 from sionna_measurement_sim.domain.path import build_nlos_path_truth
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
     MeasurementSimulationResult,
     Metadata,
+    RTCompactLinkLabels,
+    RTLabelsOnlyResult,
     RuntimeInfo,
     SceneSpec,
     ShardMetadata,
@@ -49,7 +52,7 @@ from sionna_measurement_sim.domain.topology import (
     resolve_role_topology,
     resolved_global_indices,
 )
-from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
+from sionna_measurement_sim.io.hdf5_writer import write_measurement_result, write_rt_labels_result
 from sionna_measurement_sim.io.label_parser import (
     STANDARD_LABEL_SCHEMA_VERSION,
     count_topology_points,
@@ -121,6 +124,8 @@ class RTTruthRunConfig:
     merge_shapes: bool = False
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
+    output_profile: str = "full"
+    output_plan: RTOutputPlan | None = None
     save_full_paths: bool = False
     calibration_enabled: bool = True
     link_config: LinkConfig = LinkConfig()
@@ -161,12 +166,35 @@ class RTTruthRunConfig:
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     """Run RT truth pipeline, optionally as UE HDF5 shards."""
 
+    config = _normalize_output_profile_config(config)
     if config.ranging_config.enabled and config.observation_snr_db is None:
         msg = "ranging.enabled=true requires PHY observation with /observation/cfr_est"
         raise ValueError(msg)
     if _should_run_sharded(config):
         return run_sharded_rt_truth_pipeline(config)
     return _run_rt_truth_pipeline_single(config)
+
+
+def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConfig:
+    plan = config.output_plan or build_rt_output_plan(config.output_profile)
+    if plan.profile == config.output_profile and plan is config.output_plan:
+        return config
+    updates: dict[str, object] = {
+        "output_profile": plan.profile,
+        "output_plan": plan,
+    }
+    if plan.profile in ("rt_lite", "rt_labels_only"):
+        updates.update(
+            {
+                "observation_snr_db": None,
+                "calibration_enabled": False,
+                "spectrum_config": replace(config.spectrum_config, enabled=False),
+                "ranging_config": replace(config.ranging_config, enabled=False),
+                "visualization_config": replace(config.visualization_config, enabled=False),
+                "save_full_paths": False,
+            }
+        )
+    return replace(config, **updates)
 
 
 def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -302,6 +330,7 @@ def _run_rt_truth_pipeline_single_impl(
     output_dir: Path,
     logs_dir: Path,
 ) -> Path:
+    output_plan = config.output_plan or build_rt_output_plan(config.output_profile)
     mapping = resolve_link_roles(config.link_config.phy_link_direction)
     link_config = replace(
         config.link_config,
@@ -355,6 +384,9 @@ def _run_rt_truth_pipeline_single_impl(
                     mapping,
                 )[1],
                 merge_shapes=config.merge_shapes,
+                compute_cfr=output_plan.compute_cfr,
+                compute_cir=output_plan.compute_cir,
+                compute_path_samples=output_plan.compute_path_samples,
             ),
         )
     elapsed_seconds = time.perf_counter() - start
@@ -362,6 +394,9 @@ def _run_rt_truth_pipeline_single_impl(
     observation_bundle = None
     phy_extra: dict = {}
     if config.observation_snr_db is not None:
+        if adapter_result.truth is None:
+            msg = "PHY observation requires RT output plan with compute_cfr=true"
+            raise ValueError(msg)
         phy_module = get_phy_module(config.phy_standard)
         with tracer.span(f"{phy_module.standard}_observation"):
             phy_result = phy_module.run(
@@ -377,20 +412,26 @@ def _run_rt_truth_pipeline_single_impl(
             "array_outputs": phy_result.array_outputs,
             "diagnostics": phy_result.diagnostics,
             "metadata": phy_result.metadata,
-        }
+            }
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     scene_id = config.scene_id or config.scene_file.stem
+    truth_summary = adapter_result.truth or adapter_result.link_summary
     with tracer.span("derived_nlos"):
         derived = build_derived_labels(
             topology,
-            adapter_result.truth,
+            truth_summary,
             adapter_result.path_table,
             adapter_result.cir_truth,
             link_config=link_config,
         )
-        nlos_path_truth = build_nlos_path_truth(adapter_result.path_table)
+        nlos_path_truth = (
+            build_nlos_path_truth(adapter_result.path_table)
+            if output_plan.compute_nlos_truth
+            else None
+        )
     with tracer.span("array_outputs"):
+        truth_cfr = adapter_result.truth.cfr if adapter_result.truth is not None else None
         if phy_extra.get("waveform_extras"):
             cfr_est = (
                 observation_bundle.observation.cfr_est
@@ -401,15 +442,19 @@ def _run_rt_truth_pipeline_single_impl(
                 phy_extra,
                 derived,
                 config,
-                adapter_result.truth.cfr,
+                truth_cfr,
                 cfr_est,
                 rx_orientation_rad=adapter_result.rx_orientation_rad,
             )
-        elif config.spectrum_config.enabled and "truth_cfr" in config.spectrum_config.sources:
+        elif (
+            truth_cfr is not None
+            and config.spectrum_config.enabled
+            and "truth_cfr" in config.spectrum_config.sources
+        ):
             phy_extra["array_outputs"] = _build_truth_array_outputs(
                 config,
                 derived,
-                adapter_result.truth.cfr,
+                truth_cfr,
                 rx_orientation_rad=adapter_result.rx_orientation_rad,
             )
     with tracer.span("ranging"):
@@ -420,50 +465,112 @@ def _run_rt_truth_pipeline_single_impl(
             config=config.ranging_config,
         )
     shard_metadata = _build_shard_metadata(config, role_topology, mapping)
+    common_metadata = Metadata(
+        run_id=output_dir.name,
+        random_seed=config.seed,
+        config_snapshot=json.dumps(_config_snapshot(config), sort_keys=True),
+        contract_name=output_plan.contract_name,
+        output_profile=output_plan.profile,
+        measurement_realism_level=f"phase{phase}_rt_truth",
+        observation_branch_enabled=observation_bundle is not None,
+        software_versions=json.dumps(adapter_result.runtime_versions, sort_keys=True),
+    )
+    input_spec = InputSpec(
+        label_file=config.label_file.as_posix(),
+        scene_file=config.scene_file.as_posix(),
+        input_dataset_id=_input_dataset_id(config.label_file),
+        input_schema=f"standard_label_{STANDARD_LABEL_SCHEMA_VERSION}",
+    )
+    devices = _build_device_state(
+        config,
+        topology,
+        mapping,
+        tx_orientation_rad_scene=adapter_result.tx_orientation_rad,
+        rx_orientation_rad_scene=adapter_result.rx_orientation_rad,
+    )
+    scene = SceneSpec(
+        scene_name=config.scene_file.stem,
+        scene_file=config.scene_file.as_posix(),
+        scene_id=scene_id,
+        map_id=config.map_id,
+        material_policy="sionna_rt_scene_materials",
+    )
+    runtime = RuntimeInfo(
+        sionna_version=adapter_result.runtime_versions["sionna"],
+        sionna_rt_version=adapter_result.runtime_versions["sionna_rt"],
+        torch_version=adapter_result.runtime_versions["torch"],
+        mitsuba_version=adapter_result.runtime_versions["mitsuba"],
+        drjit_version=adapter_result.runtime_versions["drjit"],
+        cuda_available=bool(environment["cuda_available"]),
+        cuda_device_name=str(environment["cuda_device_name"]),
+        command_line="run-rt-truth",
+        elapsed_seconds=elapsed_seconds,
+    )
+    if output_plan.write_compact_link_labels:
+        labels_result = RTLabelsOnlyResult(
+            metadata=common_metadata,
+            input_spec=input_spec,
+            topology=topology,
+            devices=devices,
+            antenna=antenna,
+            scene=scene,
+            frequency=frequency,
+            runtime=runtime,
+            derived=derived,
+            link_labels=RTCompactLinkLabels.from_topology(
+                topology,
+                derived,
+                shard=shard_metadata,
+            ),
+            link=link_config,
+            shard=shard_metadata,
+        )
+        with tracer.span("hdf5_write"):
+            results_path = write_rt_labels_result(
+                output_dir / config.hdf5_filename,
+                labels_result,
+                compression=config.hdf5_compression,
+                tracer=tracer,
+            )
+        with tracer.span("schema_validate"):
+            validate_hdf5_contract(results_path)
+        manifest_path = _write_single_manifest(
+            config=config,
+            output_dir=output_dir,
+            scene_id=scene_id,
+            adapter_result=adapter_result,
+            results_path=results_path,
+            phase=phase,
+            elapsed_seconds=elapsed_seconds,
+            shard_metadata=shard_metadata,
+            tracer=tracer,
+        )
+        _write_run_log(
+            logs_dir,
+            config=config,
+            shard_metadata=shard_metadata,
+            phase=phase,
+            results_path=results_path,
+            manifest_path=manifest_path,
+            adapter_result=adapter_result,
+            path_count=int(adapter_result.link_summary.geometric_path_count.sum()),
+        )
+        return results_path
+    if adapter_result.truth is None or adapter_result.path_samples is None:
+        msg = "Full HDF5 contract requires CFR truth and path samples"
+        raise ValueError(msg)
     result = MeasurementSimulationResult(
-        metadata=Metadata(
-            run_id=output_dir.name,
-            random_seed=config.seed,
-            config_snapshot=json.dumps(_config_snapshot(config), sort_keys=True),
-            measurement_realism_level=f"phase{phase}_rt_truth",
-            observation_branch_enabled=observation_bundle is not None,
-            software_versions=json.dumps(adapter_result.runtime_versions, sort_keys=True),
-        ),
-        input_spec=InputSpec(
-            label_file=config.label_file.as_posix(),
-            scene_file=config.scene_file.as_posix(),
-            input_dataset_id=_input_dataset_id(config.label_file),
-            input_schema=f"standard_label_{STANDARD_LABEL_SCHEMA_VERSION}",
-        ),
+        metadata=common_metadata,
+        input_spec=input_spec,
         topology=topology,
-        devices=_build_device_state(
-            config, topology, mapping,
-            tx_orientation_rad_scene=adapter_result.tx_orientation_rad,
-            rx_orientation_rad_scene=adapter_result.rx_orientation_rad,
-        ),
+        devices=devices,
         motion=_build_motion_spec(config),
         antenna=antenna,
-        scene=SceneSpec(
-            scene_name=config.scene_file.stem,
-            scene_file=config.scene_file.as_posix(),
-            scene_id=scene_id,
-            map_id=config.map_id,
-            material_policy="sionna_rt_scene_materials",
-        ),
+        scene=scene,
         frequency=frequency,
         truth=adapter_result.truth,
         path_samples=adapter_result.path_samples,
-        runtime=RuntimeInfo(
-            sionna_version=adapter_result.runtime_versions["sionna"],
-            sionna_rt_version=adapter_result.runtime_versions["sionna_rt"],
-            torch_version=adapter_result.runtime_versions["torch"],
-            mitsuba_version=adapter_result.runtime_versions["mitsuba"],
-            drjit_version=adapter_result.runtime_versions["drjit"],
-            cuda_available=bool(environment["cuda_available"]),
-            cuda_device_name=str(environment["cuda_device_name"]),
-            command_line="run-rt-truth",
-            elapsed_seconds=elapsed_seconds,
-        ),
+        runtime=runtime,
         cir_truth=adapter_result.cir_truth,
         derived=derived,
         path_table=adapter_result.path_table if config.save_full_paths else None,
@@ -512,6 +619,7 @@ def _run_rt_truth_pipeline_single_impl(
             )
     manifest_data = {
         "phase": phase,
+        "output_profile": config.output_profile,
         "results_h5": results_path.as_posix(),
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
@@ -565,6 +673,7 @@ def _run_rt_truth_pipeline_single_impl(
         "\n".join(
             [
                 f"phase={phase}",
+                f"output_profile={config.output_profile}",
                 f"results_h5={results_path.as_posix()}",
                 f"manifest={manifest_path.as_posix()}",
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
@@ -577,6 +686,111 @@ def _run_rt_truth_pipeline_single_impl(
         encoding="utf-8",
     )
     return results_path
+
+
+def _write_single_manifest(
+    *,
+    config: RTTruthRunConfig,
+    output_dir: Path,
+    scene_id: str,
+    adapter_result: Any,
+    results_path: Path,
+    phase: int,
+    elapsed_seconds: float,
+    shard_metadata: ShardMetadata | None,
+    tracer: PerfTracer,
+    visualization_summary: Any | None = None,
+    diagnostics: DiagnosticsReport | None = None,
+    ranging_result: Any | None = None,
+    batching_stats: dict | None = None,
+) -> Path:
+    path_count = (
+        int(adapter_result.path_samples.path_count.sum())
+        if adapter_result.path_samples is not None
+        else int(adapter_result.link_summary.geometric_path_count.sum())
+    )
+    manifest_data = {
+        "phase": phase,
+        "output_profile": config.output_profile,
+        "results_h5": results_path.as_posix(),
+        "label_file": config.label_file.as_posix(),
+        "scene_file": config.scene_file.as_posix(),
+        "scene_id": scene_id,
+        "map_id": config.map_id,
+        "config_snapshot": _config_snapshot(config),
+        "software_versions": adapter_result.runtime_versions,
+        "raw_cfr_shape": adapter_result.raw_cfr_shape,
+        "internal_cfr_shape": adapter_result.internal_cfr_shape,
+        "path_count": path_count,
+        "observation_snr_db": config.observation_snr_db,
+        "elapsed_seconds": elapsed_seconds,
+    }
+    if batching_stats:
+        manifest_data["nr_pusch_batching"] = batching_stats
+    if visualization_summary is not None:
+        manifest_data["visualization"] = _manifest_visualization_summary(
+            visualization_summary
+        )
+    if diagnostics is not None:
+        manifest_data["diagnostics"] = diagnostics.to_summary_dict()
+    if ranging_result is not None:
+        manifest_data["ranging"] = _manifest_ranging_summary(ranging_result)
+    if shard_metadata is not None:
+        manifest_data["shard"] = _manifest_shard_summary(shard_metadata)
+    manifest_path = (
+        _shard_manifest_path(config)
+        if shard_metadata is not None
+        else output_dir / "manifest.json"
+    )
+    with tracer.span("manifest_write"):
+        manifest_path = write_manifest(manifest_path, manifest_data)
+    perf_summary = tracer.finish({"results_h5": results_path.as_posix()})
+    if perf_summary:
+        manifest_data["performance"] = {
+            "enabled": True,
+            "summary_path": perf_summary["logs"]["events"].replace(
+                "perf_events", "perf_summary"
+            ).replace(".jsonl", ".json"),
+            "stage_totals_s": perf_summary.get("stage_totals_s", {}),
+            "hardware_summary": perf_summary.get("hardware_summary", {}),
+            "dataset_write_summary": perf_summary.get("dataset_write_summary", {}),
+        }
+        manifest_path = write_manifest(manifest_path, manifest_data)
+    return manifest_path
+
+
+def _write_run_log(
+    logs_dir: Path,
+    *,
+    config: RTTruthRunConfig,
+    shard_metadata: ShardMetadata | None,
+    phase: int,
+    results_path: Path,
+    manifest_path: Path,
+    adapter_result: Any,
+    path_count: int,
+) -> None:
+    run_log_name = (
+        f"run_{_shard_spec_id(config.shard_spec)}.log"
+        if shard_metadata is not None
+        else "run.log"
+    )
+    (logs_dir / run_log_name).write_text(
+        "\n".join(
+            [
+                f"phase={phase}",
+                f"output_profile={config.output_profile}",
+                f"results_h5={results_path.as_posix()}",
+                f"manifest={manifest_path.as_posix()}",
+                f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
+                f"internal_cfr_shape={adapter_result.internal_cfr_shape}",
+                f"path_count={path_count}",
+                f"observation_snr_db={config.observation_snr_db}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _should_run_sharded(config: RTTruthRunConfig) -> bool:
@@ -1426,6 +1640,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "center_frequency_hz": config.center_frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
         "num_subcarriers": config.num_subcarriers,
+        "output_profile": config.output_profile,
         "device": config.device,
         "max_depth": config.max_depth,
         "los": config.los,

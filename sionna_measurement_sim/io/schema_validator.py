@@ -7,6 +7,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from sionna_measurement_sim.domain.constants import (
+    FULL_CONTRACT_NAME,
+    RT_LABELS_CONTRACT_NAME,
+)
+
 
 class SchemaValidationError(ValueError):
     """Raised when an HDF5 file violates the project data contract."""
@@ -33,6 +38,7 @@ REQUIRED_TRUTH_DATASETS = (
     "meta/contract_name",
     "meta/index_order",
     "meta/unit_convention",
+    "meta/output_profile",
     "meta/config_snapshot",
     "topology/tx_positions_m",
     "topology/rx_positions_m",
@@ -179,6 +185,84 @@ PHASE_SLOPE_RANGING_DATASETS = (
     "ranging/phase_slope/fit_residual_rad",
 )
 
+RT_LABELS_REQUIRED_GROUPS = (
+    "meta",
+    "input",
+    "topology",
+    "devices",
+    "antenna",
+    "scene",
+    "frequency",
+    "derived",
+    "labels/link",
+    "runtime",
+    "link",
+)
+
+RT_LABELS_REQUIRED_DATASETS = (
+    "meta/schema_version",
+    "meta/contract_name",
+    "meta/index_order",
+    "meta/unit_convention",
+    "meta/output_profile",
+    "meta/config_snapshot",
+    "topology/tx_positions_m",
+    "topology/rx_positions_m",
+    "devices/tx_velocity_mps",
+    "devices/rx_velocity_mps",
+    "devices/tx_orientation_rad",
+    "devices/rx_orientation_rad",
+    "antenna/tx_polarization",
+    "antenna/rx_polarization",
+    "scene/scene_id",
+    "scene/map_id",
+    "frequency/frequencies_hz",
+    "derived/geometric_distance_m",
+    "derived/los_distance_m",
+    "derived/first_path_delay_s",
+    "derived/first_path_propagation_range_m",
+    "derived/strongest_path_delay_s",
+    "derived/los_aoa_azimuth_rad",
+    "derived/los_aoa_zenith_rad",
+    "derived/strongest_aoa_azimuth_rad",
+    "derived/strongest_aoa_zenith_rad",
+    "derived/first_path_aoa_azimuth_rad",
+    "derived/first_path_aoa_zenith_rad",
+    "derived/los_flag",
+    "derived/nlos_flag",
+    "derived/path_count",
+    "derived/path_power_db",
+    "derived/link_valid_mask",
+    "derived/tx_rx_midpoint_m",
+    "derived/tx_rx_bearing_rad",
+    "derived/tx_rx_distance_m",
+    "derived/path_selection_policy",
+    "labels/link/link_index",
+    "labels/link/tx_index",
+    "labels/link/rx_index",
+    "labels/link/global_tx_index",
+    "labels/link/global_rx_index",
+    "labels/link/tx_xy_m",
+    "labels/link/rx_xy_m",
+    "labels/link/link_valid_mask",
+    "labels/link/geometric_distance_m",
+    "labels/link/first_path_delay_s",
+    "labels/link/first_path_propagation_range_m",
+    "labels/link/strongest_path_delay_s",
+    "labels/link/path_power_db",
+    "labels/link/los_flag",
+    "labels/link/nlos_flag",
+    "labels/link/path_count",
+    "labels/link/first_path_aoa_azimuth_rad",
+    "labels/link/first_path_aoa_zenith_rad",
+    "labels/link/tx_rx_bearing_rad",
+    "labels/link/tx_rx_distance_m",
+    "link/duplex_mode",
+    "link/phy_link_direction",
+    "link/tx_role",
+    "link/rx_role",
+)
+
 
 def validate_hdf5_contract(path: str | Path) -> None:
     """Validate the minimal truth HDF5 contract."""
@@ -190,6 +274,14 @@ def validate_hdf5_contract(path: str | Path) -> None:
         _require_absent(h5, "array/spatial_spectrum_label")
         _require_absent(h5, "array/spatial_spectrum_srs")
         _require_present(h5, ("meta/schema_version",), kind=h5py.Dataset)
+        _require_present(h5, ("meta/contract_name",), kind=h5py.Dataset)
+        contract_name = _read_string(h5["meta/contract_name"])
+        if contract_name == RT_LABELS_CONTRACT_NAME:
+            _validate_rt_labels_contract(h5)
+            return
+        if contract_name != FULL_CONTRACT_NAME:
+            msg = f"Unsupported HDF5 contract_name: {contract_name!r}"
+            raise SchemaValidationError(msg)
         _require_present(h5, REQUIRED_TRUTH_GROUPS, kind=h5py.Group)
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
         _require_present(h5, PATH_SAMPLE_DATASETS, kind=h5py.Dataset)
@@ -213,6 +305,123 @@ def validate_hdf5_contract(path: str | Path) -> None:
             _validate_ranging(h5)
         _validate_units(h5)
         _validate_values(h5)
+
+
+def _read_string(dataset: h5py.Dataset) -> str:
+    value = dataset[()]
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def _validate_rt_labels_contract(h5: h5py.File) -> None:
+    _require_absent(h5, "channel")
+    _require_absent(h5, "paths")
+    _require_absent(h5, "waveform")
+    _require_absent(h5, "observation")
+    _require_absent(h5, "array")
+    _require_absent(h5, "ranging")
+    _require_present(h5, RT_LABELS_REQUIRED_GROUPS, kind=h5py.Group)
+    _require_present(h5, RT_LABELS_REQUIRED_DATASETS, kind=h5py.Dataset)
+    if _read_string(h5["meta/output_profile"]) != "rt_labels_only":
+        msg = "/meta/output_profile must be rt_labels_only for RT labels contract"
+        raise SchemaValidationError(msg)
+    _validate_derived_shapes(h5)
+    _validate_shard_if_present(h5)
+    _validate_rt_link_labels_shapes(h5)
+    _validate_rt_labels_units(h5)
+    _validate_rt_labels_values(h5)
+
+
+def _validate_rt_link_labels_shapes(h5: h5py.File) -> None:
+    tx = h5["topology/tx_positions_m"].shape[0]
+    rx = h5["topology/rx_positions_m"].shape[0]
+    link_count = tx * rx
+    group = h5["labels/link"]
+    for name in (
+        "link_index",
+        "tx_index",
+        "rx_index",
+        "global_tx_index",
+        "global_rx_index",
+        "link_valid_mask",
+        "geometric_distance_m",
+        "first_path_delay_s",
+        "first_path_propagation_range_m",
+        "strongest_path_delay_s",
+        "path_power_db",
+        "los_flag",
+        "nlos_flag",
+        "path_count",
+        "first_path_aoa_azimuth_rad",
+        "first_path_aoa_zenith_rad",
+        "tx_rx_bearing_rad",
+        "tx_rx_distance_m",
+    ):
+        if group[name].shape != (link_count,):
+            msg = f"/labels/link/{name} must have shape [link]"
+            raise SchemaValidationError(msg)
+        if "index_order" not in group[name].attrs:
+            msg = f"Missing index_order attribute on /labels/link/{name}"
+            raise SchemaValidationError(msg)
+    for name in ("tx_xy_m", "rx_xy_m"):
+        if group[name].shape != (link_count, 2):
+            msg = f"/labels/link/{name} must have shape [link,2]"
+            raise SchemaValidationError(msg)
+        if "index_order" not in group[name].attrs:
+            msg = f"Missing index_order attribute on /labels/link/{name}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_rt_labels_units(h5: h5py.File) -> None:
+    for dataset_path in (
+        "topology/tx_positions_m",
+        "topology/rx_positions_m",
+        "frequency/frequencies_hz",
+        "derived/geometric_distance_m",
+        "derived/first_path_delay_s",
+        "derived/first_path_propagation_range_m",
+        "derived/tx_rx_midpoint_m",
+        "derived/tx_rx_bearing_rad",
+        "derived/tx_rx_distance_m",
+        "labels/link/tx_xy_m",
+        "labels/link/rx_xy_m",
+        "labels/link/geometric_distance_m",
+        "labels/link/first_path_delay_s",
+        "labels/link/first_path_propagation_range_m",
+        "labels/link/strongest_path_delay_s",
+        "labels/link/path_power_db",
+        "labels/link/first_path_aoa_azimuth_rad",
+        "labels/link/first_path_aoa_zenith_rad",
+        "labels/link/tx_rx_bearing_rad",
+        "labels/link/tx_rx_distance_m",
+    ):
+        if "unit" not in h5[dataset_path].attrs:
+            msg = f"Missing unit attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_rt_labels_values(h5: h5py.File) -> None:
+    frequencies = h5["frequency/frequencies_hz"][()]
+    if not np.all(np.isfinite(frequencies)) or np.any(np.diff(frequencies) <= 0):
+        msg = "/frequency/frequencies_hz must be finite and strictly increasing"
+        raise SchemaValidationError(msg)
+    group = h5["labels/link"]
+    valid = group["link_valid_mask"][()].astype(np.bool_)
+    for name in ("geometric_distance_m", "tx_rx_distance_m", "path_power_db"):
+        values = group[name][()]
+        if not np.all(np.isfinite(values)):
+            msg = f"/labels/link/{name} must contain finite values"
+            raise SchemaValidationError(msg)
+    for name in (
+        "first_path_delay_s",
+        "first_path_propagation_range_m",
+        "strongest_path_delay_s",
+    ):
+        values = group[name][()]
+        if not np.all(np.isfinite(values[valid])):
+            msg = f"/labels/link/{name} must be finite for valid links"
+            raise SchemaValidationError(msg)
 
 
 def _require_absent(h5: h5py.File, dataset_path: str) -> None:

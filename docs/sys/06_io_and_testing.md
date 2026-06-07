@@ -26,13 +26,25 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 /derived /array /calibration /motion /runtime
 ```
 
+`output.profile="rt_labels_only"` 使用独立 writer，顶层 group 是：
+
+```text
+/meta /input /topology /devices /antenna /scene /frequency
+/derived /labels/link /link /runtime
+```
+
+该 compact contract 不写 `/channel`、`/paths`、`/waveform`、`/observation`、
+`/array` 或 `/ranging`。
+
 ### `schema_validator.py` — HDF5 契约校验
 
 ```python
 def validate_hdf5_contract(path: str | Path) -> None
 ```
 
-在 HDF5 写入后自动调用（也在测试中独立使用）。检查：
+在 HDF5 写入后自动调用（也在测试中独立使用）。validator 会先读取
+`/meta/contract_name` 分流：`sionna_measurement_sim_hdf5` 走 full contract，
+`sionna_measurement_rt_labels` 走 compact RT labels-only contract。full contract 检查：
 
 1. **必填 group**：`meta`、`channel/truth`、`paths/samples`、`runtime`、`link` 等
 2. **必填 dataset**（truth）：
@@ -67,9 +79,14 @@ def validate_hdf5_contract(path: str | Path) -> None
     - `pdp_peak` / `phase_slope` 输出 shape 为 `[snapshot, tx, rx]`
     - 成功位置为 finite，失败位置为 NaN，`selected_delay_bin` 失败为 -1
 
+RT labels-only contract 额外检查 `/labels/link/*` 的 flattened link shape、单位、
+本地/全局 TX/RX index、valid link 上的 finite delay/range，以及禁止 full-only group。
+
 ### `hdf5_reader.py`
 
-提供便捷的 HDF5 读回函数，自动调用 `validate_hdf5_contract`。
+提供便捷的 HDF5 读回函数，自动调用 `validate_hdf5_contract`。`read_truth_cfr()`
+用于 full contract；`read_link_labels()` 和 `iter_link_labels()` 用于 compact
+RT labels-only 单文件或 sharded run 目录。
 
 ### `manifest.py`
 

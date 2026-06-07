@@ -31,6 +31,15 @@ uv run python -m sionna_measurement_sim.app.cli \
 - **有 `--config`**：加载 YAML 配置，CLI 参数可覆盖 YAML 中的对应值
 - **无 `--config`**：使用 CLI 参数 + 硬编码默认值（功能受限，不支持完整 NR PUSCH MIMO）
 
+YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目录的
+`run_config.yaml`：
+
+| profile | CLI 侧效果 |
+|---|---|
+| `full` | 保持完整配置，按 YAML/CLI 启用 RT、PHY、ranging、array、visualization |
+| `rt_lite` | 关闭 PHY/ranging/spectrum/visualization/calibration/full paths，仍写 full HDF5 contract |
+| `rt_labels_only` | 同样关闭下游重活，并让 pipeline 跳过 CFR/CIR/path samples，写 compact `/labels/link/*` contract |
+
 关键参数：
 ```
 --config PATH         YAML 配置文件

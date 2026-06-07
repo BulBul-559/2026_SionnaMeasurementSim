@@ -108,6 +108,7 @@ class OutputShardingConfig(BaseModel):
 
 
 class OutputConfig(BaseModel):
+    profile: str = Field(default="full")
     root_dir: str = Field(default="outputs")
     run_id_format: str = Field(default="{label_stem}_{timestamp}")
     hdf5_filename: str = Field(default="results.h5")
@@ -121,6 +122,8 @@ class OutputConfig(BaseModel):
     def check_output_values(self) -> OutputConfig:
         if self.compression not in ("gzip", "lzf", "none"):
             raise ValueError("output.compression must be gzip/lzf/none")
+        if self.profile not in ("full", "rt_lite", "rt_labels_only"):
+            raise ValueError("output.profile must be full/rt_lite/rt_labels_only")
         return self
 
 
@@ -655,7 +658,11 @@ class MeasurementConfig(BaseModel):
         if self.phy.enabled:
             if self.phy.fft_size < 2:
                 raise ValueError("phy.fft_size must be >= 2 when phy enabled")
-        if self.ranging.enabled and not self.phy.enabled:
+        if (
+            self.output.profile == "full"
+            and self.ranging.enabled
+            and not self.phy.enabled
+        ):
             raise ValueError(
                 "ranging.enabled=true requires phy.enabled=true and /observation/cfr_est"
             )

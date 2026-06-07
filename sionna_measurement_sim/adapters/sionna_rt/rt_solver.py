@@ -18,7 +18,7 @@ from sionna_measurement_sim.adapters.sionna_rt.shape_contracts import (
     to_project_cir,
 )
 from sionna_measurement_sim.domain.antenna import AntennaSpec
-from sionna_measurement_sim.domain.channel import RTTruthResult
+from sionna_measurement_sim.domain.channel import RTLinkSummary, RTTruthResult
 from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.path import PathSamples, PathTable
@@ -45,19 +45,23 @@ class SionnaRTConfig:
     tx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rx_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
     merge_shapes: bool = False
+    compute_cfr: bool = True
+    compute_cir: bool = True
+    compute_path_samples: bool = True
 
 
 @dataclass(frozen=True)
 class SionnaRTTruthAdapterResult:
     """Adapter output without leaking native Sionna objects."""
 
-    truth: RTTruthResult
+    truth: RTTruthResult | None
+    link_summary: RTLinkSummary
     path_table: PathTable
-    path_samples: PathSamples
+    path_samples: PathSamples | None
     runtime_versions: dict[str, str]
     raw_cfr_shape: tuple[int, ...]
     internal_cfr_shape: tuple[int, ...]
-    cir_truth: CIRTruth
+    cir_truth: CIRTruth | None
     tx_orientation_rad: np.ndarray | None = None  # (num_tx, 3) from scene
     rx_orientation_rad: np.ndarray | None = None  # (num_rx, 3) from scene
 
@@ -85,38 +89,37 @@ def run_sionna_rt_truth(
         seed=config.seed,
     )
 
-    frequency_offsets_hz = frequency.frequencies_hz - frequency.center_frequency_hz
-    raw_cfr = paths.cfr(
-        frequencies=frequency_offsets_hz,
-        normalize=config.normalize_cfr,
-        normalize_delays=config.normalize_delays,
-        num_time_steps=config.num_time_steps,
-        sampling_frequency=config.sampling_frequency_hz or None,
-        out_type="numpy",
-    )
-    cfr, cfr_snapshots = _to_tx_first_cfr(raw_cfr, config.num_time_steps)
-    has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
-    power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
-    path_power_db = (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
     path_table, geometric_path_count, los_exists, nlos_exists = paths_to_table(paths)
-    path_samples = path_table_to_samples(path_table, topology)
-
-    # Extract CIR from Sionna paths
-    raw_cir_result = paths.cir(
-        sampling_frequency=config.sampling_frequency_hz or None,
-        num_time_steps=config.num_time_steps,
-        out_type="numpy",
+    link_summary = _build_link_summary_from_path_table(
+        path_table,
+        geometric_path_count=geometric_path_count,
+        los_exists=los_exists,
+        nlos_exists=nlos_exists,
     )
-    raw_cir_a, raw_cir_tau = raw_cir_result
-    cir_coefficients, cir_delays, cir_valid = to_project_cir(
-        raw_cir_a,
-        raw_cir_tau,
-        path_table.valid,
-        config.num_time_steps,
+    path_samples = (
+        path_table_to_samples(path_table, topology)
+        if config.compute_path_samples
+        else None
     )
 
-    return SionnaRTTruthAdapterResult(
-        truth=RTTruthResult(
+    raw_cfr_shape: tuple[int, ...] = ()
+    internal_cfr_shape: tuple[int, ...] = ()
+    truth: RTTruthResult | None = None
+    if config.compute_cfr:
+        frequency_offsets_hz = frequency.frequencies_hz - frequency.center_frequency_hz
+        raw_cfr = paths.cfr(
+            frequencies=frequency_offsets_hz,
+            normalize=config.normalize_cfr,
+            normalize_delays=config.normalize_delays,
+            num_time_steps=config.num_time_steps,
+            sampling_frequency=config.sampling_frequency_hz or None,
+            out_type="numpy",
+        )
+        cfr, cfr_snapshots = _to_tx_first_cfr(raw_cfr, config.num_time_steps)
+        has_signal = np.any(np.isfinite(cfr) & (np.abs(cfr) > 0.0), axis=(2, 3, 4))
+        power = np.mean(np.abs(cfr) ** 2, axis=(2, 3, 4))
+        path_power_db = (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
+        truth = RTTruthResult(
             cfr=cfr.astype(np.complex64, copy=False),
             path_power_db=path_power_db,
             has_geometric_signal=has_signal,
@@ -125,17 +128,39 @@ def run_sionna_rt_truth(
             nlos_exists=nlos_exists,
             cfr_snapshots=cfr_snapshots.astype(np.complex64, copy=False)
             if cfr_snapshots is not None else None,
-        ),
-        path_table=path_table,
-        path_samples=path_samples,
-        runtime_versions=_runtime_versions(),
-        raw_cfr_shape=tuple(raw_cfr.shape),
-        internal_cfr_shape=tuple(cfr.shape),
-        cir_truth=CIRTruth(
+        )
+        raw_cfr_shape = tuple(raw_cfr.shape)
+        internal_cfr_shape = tuple(cfr.shape)
+
+    cir_truth: CIRTruth | None = None
+    if config.compute_cir:
+        raw_cir_result = paths.cir(
+            sampling_frequency=config.sampling_frequency_hz or None,
+            num_time_steps=config.num_time_steps,
+            out_type="numpy",
+        )
+        raw_cir_a, raw_cir_tau = raw_cir_result
+        cir_coefficients, cir_delays, cir_valid = to_project_cir(
+            raw_cir_a,
+            raw_cir_tau,
+            path_table.valid,
+            config.num_time_steps,
+        )
+        cir_truth = CIRTruth(
             coefficients=cir_coefficients,
             delays_s=cir_delays,
             valid=cir_valid,
-        ),
+        )
+
+    return SionnaRTTruthAdapterResult(
+        truth=truth,
+        link_summary=link_summary,
+        path_table=path_table,
+        path_samples=path_samples,
+        runtime_versions=_runtime_versions(),
+        raw_cfr_shape=raw_cfr_shape,
+        internal_cfr_shape=internal_cfr_shape,
+        cir_truth=cir_truth,
         tx_orientation_rad=np.array(tx_orientations, dtype=np.float64)
         if tx_orientations else None,
         rx_orientation_rad=np.array(rx_orientations, dtype=np.float64)
@@ -219,6 +244,31 @@ def _build_scene(
     from sionna.rt import PathSolver
 
     return scene, {"PathSolver": PathSolver}, tx_orientation_list, rx_orientation_list
+
+
+def _build_link_summary_from_path_table(
+    path_table: PathTable,
+    *,
+    geometric_path_count: np.ndarray,
+    los_exists: np.ndarray,
+    nlos_exists: np.ndarray,
+) -> RTLinkSummary:
+    valid = np.asarray(path_table.valid, dtype=np.bool_)
+    has_signal = np.any(valid, axis=(2, 3, 4))
+    power_per_pair = np.sum(
+        np.where(valid, np.abs(path_table.a) ** 2, 0.0),
+        axis=-1,
+        dtype=np.float64,
+    )
+    power = np.mean(power_per_pair, axis=(2, 3))
+    path_power_db = (10.0 * np.log10(np.maximum(power, 1e-30))).astype(np.float32)
+    return RTLinkSummary(
+        path_power_db=path_power_db,
+        has_geometric_signal=has_signal,
+        geometric_path_count=geometric_path_count,
+        los_exists=los_exists,
+        nlos_exists=nlos_exists,
+    )
 
 
 def _sionna_polarization(polarization: str) -> str:

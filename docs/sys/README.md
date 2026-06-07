@@ -40,7 +40,10 @@
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `1.6.0`；NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
+- 当前 schema 版本是 `1.7.0`；`output.profile` 支持 `full`、`rt_lite` 和
+  `rt_labels_only`，其中 labels-only 使用 `sionna_measurement_rt_labels` compact
+  HDF5 contract 并只写 `/labels/link/*` link-level 标签，不写 CFR/CIR/path samples。
+- NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
   `/waveform/rx_grid`、`/waveform/noise_variance` 和通用 power/RSSI metadata；array 旧别名
   `/array/spatial_spectrum_label` 和 `/array/spatial_spectrum_srs` 已移除。
 - `phy.tx_power_dbm` 已接入 SRS/PUSCH 发射 grid；默认 `relative_snr` 保持配置 SNR，
