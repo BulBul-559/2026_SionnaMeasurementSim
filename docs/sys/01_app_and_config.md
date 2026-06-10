@@ -212,5 +212,5 @@ label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett 四类矩
 并额外输出对应 polar PNG；polar 图中每个 link 左侧为上半球，右侧为下半球。
 空间谱矩形图和 polar 图使用同一个 UE 内的局部颜色尺度；polar 图不放 colorbar。
 `multiuser_srs` 会生成 resource ownership、shared RX grid、resource/allocated
-CFR、误差摘要、BS 观测示意和 shared/separated 空间谱，图像写在
+CFR 折线与幅度/相位热力图、误差摘要、BS 观测示意和 shared/separated 空间谱，图像写在
 `figures/multiuser/`。

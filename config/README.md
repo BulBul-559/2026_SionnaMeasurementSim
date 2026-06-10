@@ -299,7 +299,7 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
   统计仍保留原始 NaN/valid-mask 语义。
 - `multiuser_srs` 只在 HDF5 存在 `/multiuser` group 时出图，面向 NR SRS shared
   observation：P0 图展示 resource ownership、shared RX grid 和 resource CFR；P1 图对比
-  resource/allocated CFR 并输出 per-frame error summary；P2 图用少量 BS 观测画 UE
+  resource/allocated CFR 折线与幅度/相位热力图，并输出 per-frame error summary；P2 图用少量 BS 观测画 UE
   发射示意和 shared/separated Bartlett 空间谱。该图集用于检查多 UE 正交资源拆分和
   BS 侧混合观测，不会把插值得到的 allocated/full-band CFR 当作真实全频观测。
 

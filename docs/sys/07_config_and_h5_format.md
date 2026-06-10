@@ -238,8 +238,8 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
   渲染为最弱信号，避免插值把无链路点补成虚假的可覆盖区域；HDF5、CSV 与统计仍保留
   原始 NaN/valid-mask 语义。
 - `multiuser_srs` 只在 `/multiuser` group 存在时生成。P0 图包含 resource ownership、
-  shared RX grid 和 resource CFR 幅度/相位；P1 图包含 resource-vs-allocated CFR 对比、
-  per-frame summary CSV/PNG 和误差分布；P2 图包含基于有限 BS 观测的 UE 发射示意以及
+  shared RX grid 和 resource CFR 幅度/相位；P1 图包含 resource-vs-allocated CFR 折线、
+  幅度/相位热力图、per-frame summary CSV/PNG 和误差分布；P2 图包含基于有限 BS 观测的 UE 发射示意以及
   shared/separated Bartlett 空间谱。它用于诊断多 UE 正交 SRS shared observation，不改变
   HDF5 数据语义。
 

@@ -466,6 +466,26 @@ def _plot_multiuser_srs(
             dataset_kind="allocated",
         )
     )
+    generated.extend(
+        _plot_multiuser_cfr_heatmaps(
+            h5,
+            output_dir,
+            entries,
+            rx_indices,
+            config,
+            dataset_kind="resource",
+        )
+    )
+    generated.extend(
+        _plot_multiuser_cfr_heatmaps(
+            h5,
+            output_dir,
+            entries,
+            rx_indices,
+            config,
+            dataset_kind="allocated",
+        )
+    )
     rows = _multiuser_error_rows(h5, entries, rx_indices)
     generated.extend(_write_multiuser_summary_outputs(output_dir, rows, config))
     generated.append(
@@ -701,6 +721,104 @@ def _multiuser_cfr_values(
         values = np.take(values_full, np.flatnonzero(mask), axis=-1)
         return subcarriers, values
     raise ValueError(f"unsupported multiuser CFR dataset kind: {dataset_kind}")
+
+
+def _plot_multiuser_cfr_heatmaps(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    config: VisualizationRunConfig,
+    *,
+    dataset_kind: str,
+) -> list[Path]:
+    generated = []
+    for value_kind in ("magnitude", "phase"):
+        figure, axes = plt.subplots(
+            len(entries),
+            len(rx_indices),
+            figsize=(4.4 * len(rx_indices), 2.9 * len(entries)),
+            squeeze=False,
+        )
+        for row, entry in enumerate(entries):
+            for col, rx_idx in enumerate(rx_indices):
+                axis = axes[row, col]
+                subcarriers, values = _multiuser_cfr_values(
+                    h5,
+                    entry,
+                    rx_idx,
+                    dataset_kind=dataset_kind,
+                )
+                _draw_multiuser_cfr_heatmap(
+                    axis,
+                    subcarriers,
+                    values,
+                    subcarrier_count=int(h5["multiuser/resource_occupancy_count"].shape[-1]),
+                    value_kind=value_kind,
+                )
+                axis.set_title(f"F{entry['frame']} UE {entry['tx']} - BS {rx_idx}", fontsize=8)
+        figure.suptitle(f"Multi-UE {dataset_kind} CFR {value_kind} heatmap")
+        generated.append(
+            _save_figure(
+                figure,
+                output_dir / f"multiuser_cfr_{dataset_kind}_heatmap_{value_kind}.{config.format}",
+                config,
+            )
+        )
+    return generated
+
+
+def _draw_multiuser_cfr_heatmap(
+    axis: Any,
+    subcarriers: np.ndarray,
+    values: np.ndarray,
+    *,
+    subcarrier_count: int,
+    value_kind: str,
+) -> None:
+    flat = np.asarray(values).reshape(-1, values.shape[-1])
+    averaged = np.full((flat.shape[0], subcarrier_count), np.nan + 1j * np.nan, dtype=np.complex64)
+    sums = np.zeros((flat.shape[0], subcarrier_count), dtype=np.complex64)
+    counts = np.zeros((subcarrier_count,), dtype=np.int32)
+    valid = (subcarriers >= 0) & (subcarriers < subcarrier_count)
+    valid_positions = np.flatnonzero(valid)
+    for position in valid_positions:
+        subcarrier = int(subcarriers[position])
+        sums[:, subcarrier] += flat[:, position]
+        counts[subcarrier] += 1
+    present = counts > 0
+    if np.any(present):
+        averaged[:, present] = sums[:, present] / counts[present][np.newaxis, :]
+
+    if value_kind == "magnitude":
+        heatmap = 20.0 * np.log10(np.abs(averaged.T) + _EPS)
+        label = "|CFR| [dB]"
+        cmap_name = "viridis"
+    elif value_kind == "phase":
+        heatmap = np.angle(averaged.T)
+        label = "CFR phase [rad]"
+        cmap_name = "twilight"
+    else:
+        raise ValueError(f"unsupported multiuser CFR heatmap value kind: {value_kind}")
+
+    cmap = plt.get_cmap(cmap_name).copy()
+    cmap.set_bad(color="lightgray")
+    finite = heatmap[np.isfinite(heatmap)]
+    vmin = vmax = None
+    if finite.size:
+        vmin, vmax = _stable_color_limits(float(np.min(finite)), float(np.max(finite)))
+    image = axis.imshow(
+        heatmap,
+        aspect="auto",
+        origin="lower",
+        interpolation="none",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    axis.figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04, label=label)
+    axis.set_xlabel("antenna pair")
+    axis.set_ylabel("subcarrier")
 
 
 def _draw_multiuser_cfr_lines(

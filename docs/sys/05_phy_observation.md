@@ -330,7 +330,8 @@ SRS RE 上恢复各 UE 的 CFR。`cfr_est_resource` 是真实被 sounding 的 RE
 frequency/bandwidth hopping 组合，后续若要研究碰撞或异步 UE，应另行扩展干扰模型。
 
 可视化入口可通过 `multiuser_srs` plot 检查该 group：P0 图展示 shared resource grid、
-shared RX grid 和 resource CFR；P1 图展示 allocated CFR 与 truth 的误差摘要；P2 图展示
+shared RX grid 和 resource CFR；P1 图展示 resource/allocated CFR 折线、幅度/相位热力图
+以及与 truth 的误差摘要；P2 图展示
 有限 BS 观测下的 UE 发射示意以及 shared/separated Bartlett 空间谱。图像写到
 `figures/multiuser/`，普通单 UE/链路诊断仍写到 `figures/standard/`。
 

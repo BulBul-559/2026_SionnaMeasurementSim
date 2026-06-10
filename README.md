@@ -222,8 +222,8 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 
 可视化入口会把普通采样诊断图写到 `figures/standard/`，RSS radio map 写到
 `figures/heatmaps/`，multi-UE SRS shared observation 图写到 `figures/multiuser/`。
-`multiuser_srs` 图集用于检查资源占用、BS 侧混合 RX grid、per-UE CFR 拆分误差和
-shared/separated 空间谱。
+`multiuser_srs` 图集用于检查资源占用、BS 侧混合 RX grid、per-UE CFR 折线与幅度/相位
+热力图、拆分误差和 shared/separated 空间谱。
 
 | Group | 内容 |
 |-------|------|
