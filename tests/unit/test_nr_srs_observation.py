@@ -40,6 +40,12 @@ def _srs_config(**overrides):
         "sequence_hopping": "disabled",
         "cyclic_shift_multiplexing": "cyclic_shift",
         "cyclic_shift_indices": None,
+        "multiuser": SimpleNamespace(
+            enabled=False,
+            active_ue_count=2,
+            resource_strategy="comb_offset",
+            frame_policy="sequential",
+        ),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -231,4 +237,99 @@ def test_nr_srs_tx_power_scales_waveform_rssi_but_receiver_descales_cfr():
     np.testing.assert_allclose(
         result_23["waveform_grids"]["tx_power_scale_linear"],
         10.0 ** (23.0 / 20.0),
+    )
+
+
+def test_nr_srs_multiuser_comb_offset_shared_grid_separates_per_ue_cfr():
+    truth = np.zeros((3, 1, 1, 1, 16), dtype=np.complex64)
+    values = np.asarray([1.0 + 0.0j, 2.0 + 0.5j, -0.75 + 0.25j], dtype=np.complex64)
+    for tx, value in enumerate(values):
+        truth[tx, 0, 0, 0, :] = value
+
+    result = run_nr_srs_observation(
+        truth,
+        LinkConfig(),
+        _phy_config(
+            snr_db=300.0,
+            srs_config=_srs_config(
+                start_symbol=12,
+                num_srs_symbols=1,
+                comb_size=4,
+                comb_offset=0,
+                cyclic_shift_multiplexing="cyclic_shift",
+                multiuser=SimpleNamespace(
+                    enabled=True,
+                    active_ue_count=3,
+                    resource_strategy="comb_offset",
+                    frame_policy="sequential",
+                ),
+            ),
+        ),
+        SimpleNamespace(num_subcarriers=16),
+    )
+
+    multiuser = result["multiuser"]
+    assert multiuser is not None
+    assert multiuser.resource_strategy == "comb_offset"
+    assert multiuser.rx_grid_shared.shape == (1, 1, 1, 1, 14, 16)
+    assert multiuser.active_tx_indices.tolist() == [[0, 1, 2]]
+    assert multiuser.active_tx_mask.tolist() == [[True, True, True]]
+    assert multiuser.comb_offset.tolist() == [[0, 1, 2]]
+    assert not np.any(multiuser.resource_collision_mask)
+
+    for active_slot, value in enumerate(values):
+        mask = multiuser.re_mask[0, active_slot]
+        estimate = multiuser.cfr_est_resource[0, 0, active_slot, 0, 0, 0, mask]
+        np.testing.assert_allclose(estimate, value, atol=1e-5)
+        alloc_mask = multiuser.allocated_subcarrier_mask[0, active_slot]
+        allocated = multiuser.cfr_est_allocated[0, 0, active_slot, 0, 0, 0, alloc_mask]
+        np.testing.assert_allclose(allocated, value, atol=1e-5)
+
+
+def test_nr_srs_multiuser_prb_split_allocates_disjoint_bands():
+    truth = np.zeros((2, 1, 1, 1, 48), dtype=np.complex64)
+    truth[0, 0, 0, 0, :] = 1.0 + 0.0j
+    truth[1, 0, 0, 0, :] = 3.0 - 1.0j
+
+    result = run_nr_srs_observation(
+        truth,
+        LinkConfig(),
+        _phy_config(
+            snr_db=300.0,
+            srs_config=_srs_config(
+                start_symbol=12,
+                num_srs_symbols=1,
+                comb_size=1,
+                comb_offset=0,
+                bwp_start_prb=0,
+                bwp_num_prb=4,
+                cyclic_shift_multiplexing="cyclic_shift",
+                multiuser=SimpleNamespace(
+                    enabled=True,
+                    active_ue_count=2,
+                    resource_strategy="prb_split",
+                    frame_policy="sequential",
+                ),
+            ),
+        ),
+        SimpleNamespace(num_subcarriers=48),
+    )
+
+    multiuser = result["multiuser"]
+    assert multiuser is not None
+    assert multiuser.resource_strategy == "prb_split"
+    assert multiuser.prb_start.tolist() == [[[0], [2]]]
+    assert multiuser.prb_count.tolist() == [[[2], [2]]]
+    assert not np.any(multiuser.resource_collision_mask)
+    assert multiuser.allocated_subcarrier_indices[0, 0, :24].tolist() == list(range(24))
+    assert multiuser.allocated_subcarrier_indices[0, 1, :24].tolist() == list(range(24, 48))
+    np.testing.assert_allclose(
+        multiuser.cfr_est_allocated[0, 0, 0, 0, 0, 0, :24],
+        1.0 + 0.0j,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        multiuser.cfr_est_allocated[0, 0, 1, 0, 0, 0, :24],
+        3.0 - 1.0j,
+        atol=1e-5,
     )

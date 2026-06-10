@@ -41,6 +41,7 @@ class PHYModuleResult:
     array_outputs: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    multiuser: Any | None = None
 
     def to_bundle(self) -> PHYObservationBundle | None:
         """Return the legacy bundle object when all core outputs are present."""
@@ -193,6 +194,7 @@ class NRSRSModule:
             evaluation=srs_result["evaluation"],
             waveform_extras=waveform_extras,
             metadata=srs_result.get("metadata", {}),
+            multiuser=srs_result.get("multiuser"),
         )
 
 

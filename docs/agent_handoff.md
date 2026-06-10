@@ -29,9 +29,10 @@ SionnaMeasurementSim 是一个基于 Sionna RT 的室内无线仿真数据生成
 
 当前 `main` 已包含 NR PUSCH 与 NR SRS 的 clean channel、基带损伤、AWGN、
 uplink power/RSSI 和 observation metadata 统一链路；`custom_ofdm` 保留为 legacy 路径。
-NR SRS 已升级为 standards-shaped v2 subset。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
+NR SRS 已升级为 standards-shaped v2 subset，并可选生成 multi-UE 正交 SRS shared
+observation。输入 label 解析已切到标准 label `0.1.0` 的全场景顶层
 `bs_points`/`ue_points` 口径。
-当前 HDF5 schema 版本是 `1.7.0`。`output.profile` 支持 `full`、`rt_lite` 和
+当前 HDF5 schema 版本是 `1.8.0`。`output.profile` 支持 `full`、`rt_lite` 和
 `rt_labels_only`：`rt_lite` 是保留 full contract 的轻量 preset，会关闭
 PHY/ranging/spectrum/viz/calibration/full paths；`rt_labels_only` 使用独立
 `sionna_measurement_rt_labels` compact contract，只写 topology、derived 和
@@ -141,6 +142,13 @@ resource LS -> cfr_est_resource -> frequency interpolation -> cfr_est
 
 v2 仍不能称为 3GPP-compliant：38.211/38.213 reference 对齐、完整 antenna switching
 procedure、闭环功控和标准一致性验证仍在 TODO 中，见 `docs/todo/feature.md`。
+
+可选 `phy.srs.multiuser.enabled=true` 会额外写 `/multiuser` group，用于研究同一
+静态 snapshot 下多个 UE 正交 SRS 同时发射的 shared observation。当前只支持理想 OFDM
+正交资源：`comb_offset` 或 `prb_split`，不新增 per-UE CFO/timing，也不建模非正交碰撞。
+`/multiuser/rx_grid_shared` 是 BS 侧混合观测，`cfr_est_resource` 是每个 UE 实际 SRS
+RE 上的权威 CFR estimate，`cfr_est_allocated` 是分配频带上的 CFR estimate。若使用
+`comb_offset`，未 sounding 子载波的补全只应视作插值派生，不能当成真实全频观测。
 
 配置层注意：`config/schema.py` 是 YAML/Pydantic validation model，ranging 算法使用
 `ranging/config.py` dataclass；两者通过 `config/mappers.py` 集中转换，不要在 CLI 或

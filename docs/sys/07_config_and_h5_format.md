@@ -268,7 +268,7 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 
 #### `phy` — 物理层
 
-**通用字段**（custom OFDM 和 NR PUSCH 共享）：
+**通用字段**（custom OFDM、NR PUSCH 和 NR SRS 共享）：
 
 | 字段 | 类型 | 默认值 | 约束 | 说明 |
 |------|------|--------|------|------|
@@ -331,6 +331,14 @@ comb/BWP/hopping resource、`zc_like`/`nr_zc` pilot、group/sequence hopping、
 同 symbol cyclic-shift port multiplexing、port/antenna switching 口径、通用
 uplink power/RSSI 标定、resource LS/despread 和 full-band interpolation。当前实现仍不是
 完整 3GPP NR SRS，reference 对齐见 `docs/todo/feature.md`。
+
+可选 `phy.srs.multiuser.enabled=true` 会额外生成 multi-UE SRS shared observation。
+当前 v1 只支持静态 snapshot 和完全正交资源：`resource_strategy="comb_offset"` 用不同
+comb offset 复用同一 BWP，要求 `active_ue_count <= comb_size`；
+`"prb_split"` 将 SRS BWP 切成互不重叠 PRB 段。多个 UE 的 clean 接收 grid 先叠加，
+再统一经过 common impairment/AWGN；不新增 per-UE CFO/timing，也不建模非正交碰撞恢复。
+实际 SRS RE 上的 `cfr_est_resource` 是权威观测，`comb_offset` 下未 sounding 子载波的
+补全只应视作插值派生。
 
 NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
 AGC/ADC 与 AWGN。默认 `relative_snr` 下噪声方差按 clean `rx_grid` 每条 link 的平均
@@ -579,7 +587,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.7.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.8.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -897,6 +905,40 @@ schema `1.6.0` 后，`phy.tx_power_dbm` 不再只是 metadata：NR SRS/PUSCH 会
 `tx_power_dbm_per_port`、`tx_power_scale_linear`、`serving_rx_index`、
 `path_loss_db` 和 `power_clipped_flag`。旧数据中的 scalar `tx_power_dbm`
 可能只表示配置记录，不能反推 TX grid 已经被缩放。
+
+### 2.17.1 `/multiuser` — Multi-UE SRS shared observation（可选）
+
+仅当 `standard == "nr_srs"` 且 `phy.srs.multiuser.enabled=true` 时存在。该 group
+描述多个 UE 在同一静态 snapshot 中通过正交 SRS 资源同时 sounding 后的 BS 侧 shared
+observation。维度里的 `frame` 表示一组同时激活的 UE；`active_ue` 是 frame 内槽位，
+padding 槽位用 mask 标记。
+
+| Dataset | Shape/类型 | Unit | 说明 |
+|---------|------------|------|------|
+| `standard` | scalar string | — | 固定为 `"nr_srs"` |
+| `resource_strategy` | scalar string | — | `"comb_offset"` 或 `"prb_split"` |
+| `rx_grid_shared` | complex64 [snap, frame, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | 多 UE clean grid 叠加并经过 common impairment/AWGN 后的 shared RX grid |
+| `noise_variance` | float32 [snap, frame, rx] | linear_mw | shared grid AWGN 方差 |
+| `snr_db`, `rssi_dbm`, `noise_power_dbm` | float32 [snap, frame, rx] | dB/dBm | shared observation 的 SNR/RSSI/noise 标量 |
+| `active_tx_indices` | int32 [frame, active_ue] | — | frame 内槽位对应的本文件局部 TX index；padding 为 -1 |
+| `active_tx_global_indices` | int64 [frame, active_ue] | — | shard 模式下的全局 TX index；padding 为 -1 |
+| `active_tx_mask` | bool [frame, active_ue] | — | frame 槽位是否有效 |
+| `active_tx_positions_m` | float32 [frame, active_ue, 3] | m | active TX 位置；padding 为 NaN |
+| `comb_offset` | int32 [frame, active_ue] | — | 每个 UE 使用的 comb offset；非 comb 策略或 padding 为 -1 |
+| `prb_start`, `prb_count` | int32 [frame, active_ue, srs_symbol] | — | 每个 UE 每个 SRS symbol 的 PRB allocation |
+| `re_symbol_indices`, `re_subcarrier_indices` | int32 [frame, active_ue, max_srs_re] | — | 每个 UE 实际 SRS RE 的 padded flattened 索引 |
+| `re_mask` | bool [frame, active_ue, max_srs_re] | — | padded RE 是否有效 |
+| `allocated_subcarrier_indices` | int32 [frame, active_ue, max_alloc_sc] | — | 每个 UE 被分配频带的 padded 子载波索引 |
+| `allocated_subcarrier_mask` | bool [frame, active_ue, max_alloc_sc] | — | allocated 子载波 padding mask |
+| `resource_occupancy_count` | int32 [frame, ofdm_symbol, subcarrier] | — | 每个 RE 被多少 UE 占用 |
+| `resource_collision_mask` | bool [frame, ofdm_symbol, subcarrier] | — | `resource_occupancy_count > 1` |
+| `cfr_est_resource` | complex64 [snap, frame, active_ue, rx, rx_ant, srs_port, max_srs_re] | linear_complex | 每个 UE 实际 SRS RE 上的 CFR estimate；padding 无效 |
+| `cfr_est_allocated` | complex64 [snap, frame, active_ue, rx, rx_ant, tx_ant, max_alloc_sc] | linear_complex | 每个 UE 被分配频带上的 CFR estimate；comb 策略下可能包含插值结果 |
+
+schema `1.8.0` 会校验 `/multiuser/resource_collision_mask == resource_occupancy_count > 1`，
+并要求 active TX index、padding mask、RX/天线/子载波维度与 topology/frequency 一致。
+对于正交资源仿真，`resource_collision_mask` 应全 false；若后续研究非正交碰撞，应新增
+明确的干扰/接收机语义，而不是复用当前 v1 contract。
 
 大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 

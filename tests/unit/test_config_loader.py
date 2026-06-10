@@ -54,6 +54,8 @@ def test_load_default_mvp_config():
     assert cfg.phy.srs.start_symbol == 12
     assert cfg.phy.srs.num_srs_symbols == 2
     assert cfg.phy.srs.comb_size == 2
+    assert cfg.phy.srs.multiuser.enabled is False
+    assert cfg.phy.srs.multiuser.resource_strategy == "comb_offset"
 
 
 def test_old_tx_rx_config_fields_are_rejected(tmp_path: Path):

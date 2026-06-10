@@ -152,6 +152,72 @@ def test_nr_srs_schema_rejects_legacy_pilot_code(tmp_path: Path):
         validate_hdf5_contract(path)
 
 
+def test_nr_srs_pipeline_writes_multiuser_shared_frame(tmp_path: Path):
+    path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=tmp_path / "nr_srs_multiuser_schema",
+            num_subcarriers=24,
+            seed=17,
+            max_bs=1,
+            max_ue=3,
+            bs_num_rows=1,
+            bs_num_cols=2,
+            ue_num_rows=1,
+            ue_num_cols=1,
+            max_depth=1,
+            observation_snr_db=120.0,
+            phy_standard="nr_srs",
+            num_ofdm_symbols=14,
+            srs_config=SimpleNamespace(
+                slot_length_symbols=14,
+                start_symbol=12,
+                num_srs_symbols=1,
+                comb_size=4,
+                comb_offset=0,
+                bwp_start_prb=0,
+                bwp_num_prb=None,
+                trigger_mode="aperiodic",
+                periodicity_slots=1,
+                slot_offset=0,
+                slot_number=0,
+                sequence_type="zc_like",
+                sequence_id=0,
+                group_hopping="disabled",
+                sequence_hopping="disabled",
+                cyclic_shift_multiplexing="cyclic_shift",
+                cyclic_shift_indices=None,
+                multiuser=SimpleNamespace(
+                    enabled=True,
+                    active_ue_count=3,
+                    resource_strategy="comb_offset",
+                    frame_policy="sequential",
+                ),
+            ),
+            spectrum_config=ArraySpectrumConfig(
+                enabled=False,
+                zenith_bins=5,
+                azimuth_bins=7,
+            ),
+        )
+    )
+
+    validate_hdf5_contract(path)
+    with h5py.File(path, "r") as h5:
+        assert h5["meta/schema_version"][()].decode("utf-8") == "1.8.0"
+        assert h5["multiuser/standard"][()].decode("utf-8") == "nr_srs"
+        assert h5["multiuser/resource_strategy"][()].decode("utf-8") == "comb_offset"
+        assert h5["multiuser/rx_grid_shared"].shape == (1, 1, 1, 2, 14, 24)
+        assert h5["multiuser/active_tx_indices"][()].tolist() == [[0, 1, 2]]
+        assert h5["multiuser/active_tx_global_indices"][()].tolist() == [[0, 1, 2]]
+        assert h5["multiuser/comb_offset"][()].tolist() == [[0, 1, 2]]
+        assert not np.any(h5["multiuser/resource_collision_mask"][()])
+        assert h5["multiuser/cfr_est_resource"].shape[:5] == (1, 1, 3, 1, 2)
+        assert h5["multiuser/cfr_est_allocated"].shape[:6] == (1, 1, 3, 1, 2, 1)
+        assert h5["observation/cfr_est"].shape[:3] == (1, 3, 1)
+
+
 def test_nr_srs_schema_requires_flattened_resource_symbol_indices(tmp_path: Path):
     path = run_rt_truth_pipeline(
         RTTruthRunConfig(

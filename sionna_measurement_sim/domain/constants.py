@@ -1,6 +1,6 @@
 """Shared schema constants."""
 
-SCHEMA_VERSION = "1.7.0"
+SCHEMA_VERSION = "1.8.0"
 FULL_CONTRACT_NAME = "sionna_measurement_sim_hdf5"
 RT_LABELS_CONTRACT_NAME = "sionna_measurement_rt_labels"
 CONTRACT_NAME = FULL_CONTRACT_NAME

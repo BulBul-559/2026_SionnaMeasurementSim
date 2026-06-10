@@ -64,6 +64,7 @@ def write_measurement_result(
             _write_waveform(h5, result)
             _write_array(h5, result)
             _write_observation(h5, result)
+            _write_multiuser(h5, result)
             _write_ranging(h5, result)
             _write_impairments(h5, result)
             _write_receiver(h5, result)
@@ -741,6 +742,161 @@ def _write_observation(h5: h5py.File, result: MeasurementSimulationResult) -> No
             unit="linear_complex",
             index_order="snapshot,tx,rx,rx_ant,srs_port,srs_re",
         )
+
+
+def _write_multiuser(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    multiuser = result.multiuser
+    if multiuser is None:
+        return
+    group = h5.require_group("multiuser")
+    _write_scalar(group, "standard", "nr_srs")
+    _write_scalar(group, "resource_strategy", multiuser.resource_strategy)
+    _write_dataset(
+        group,
+        "rx_grid_shared",
+        multiuser.rx_grid_shared,
+        unit="linear_complex",
+        index_order="snapshot,frame,rx,rx_ant,ofdm_symbol,subcarrier",
+    )
+    for name, unit in (
+        ("noise_variance", "linear"),
+        ("snr_db", "dB"),
+        ("rssi_dbm", "dBm"),
+        ("noise_power_dbm", "dBm"),
+    ):
+        _write_dataset(
+            group,
+            name,
+            getattr(multiuser, name),
+            unit=unit,
+            index_order="snapshot,frame,rx",
+        )
+    _write_dataset(
+        group,
+        "active_tx_indices",
+        multiuser.active_tx_indices,
+        unit="index",
+        index_order="frame,active_ue",
+    )
+    _write_dataset(
+        group,
+        "active_tx_global_indices",
+        _multiuser_global_tx_indices(result, multiuser.active_tx_indices),
+        unit="index",
+        index_order="frame,active_ue",
+    )
+    _write_dataset(
+        group,
+        "active_tx_mask",
+        multiuser.active_tx_mask,
+        unit="bool",
+        index_order="frame,active_ue",
+    )
+    _write_dataset(
+        group,
+        "active_tx_positions_m",
+        _multiuser_tx_positions(result, multiuser.active_tx_indices),
+        unit="m",
+        index_order="frame,active_ue,xyz",
+    )
+    for name in ("comb_offset",):
+        _write_dataset(
+            group,
+            name,
+            getattr(multiuser, name),
+            unit="index",
+            index_order="frame,active_ue",
+        )
+    for name in ("prb_start", "prb_count"):
+        _write_dataset(
+            group,
+            name,
+            getattr(multiuser, name),
+            unit="index" if name == "prb_start" else "count",
+            index_order="frame,active_ue,srs_symbol",
+        )
+    for name in ("re_symbol_indices", "re_subcarrier_indices", "re_mask"):
+        _write_dataset(
+            group,
+            name,
+            getattr(multiuser, name),
+            unit="bool" if name == "re_mask" else "index",
+            index_order="frame,active_ue,max_srs_re",
+        )
+    _write_dataset(
+        group,
+        "allocated_subcarrier_indices",
+        multiuser.allocated_subcarrier_indices,
+        unit="index",
+        index_order="frame,active_ue,max_allocated_subcarrier",
+    )
+    _write_dataset(
+        group,
+        "allocated_subcarrier_mask",
+        multiuser.allocated_subcarrier_mask,
+        unit="bool",
+        index_order="frame,active_ue,max_allocated_subcarrier",
+    )
+    _write_dataset(
+        group,
+        "resource_occupancy_count",
+        multiuser.resource_occupancy_count,
+        unit="count",
+        index_order="frame,ofdm_symbol,subcarrier",
+    )
+    _write_dataset(
+        group,
+        "resource_collision_mask",
+        multiuser.resource_collision_mask,
+        unit="bool",
+        index_order="frame,ofdm_symbol,subcarrier",
+    )
+    _write_dataset(
+        group,
+        "cfr_est_resource",
+        multiuser.cfr_est_resource,
+        unit="linear_complex",
+        index_order="snapshot,frame,active_ue,rx,rx_ant,srs_port,max_srs_re",
+    )
+    _write_dataset(
+        group,
+        "cfr_est_allocated",
+        multiuser.cfr_est_allocated,
+        unit="linear_complex",
+        index_order=(
+            "snapshot,frame,active_ue,rx,rx_ant,tx_ant,max_allocated_subcarrier"
+        ),
+    )
+
+
+def _multiuser_global_tx_indices(
+    result: MeasurementSimulationResult,
+    local_indices: np.ndarray,
+) -> np.ndarray:
+    local = np.asarray(local_indices, dtype=np.int64)
+    output = np.full(local.shape, -1, dtype=np.int64)
+    mask = local >= 0
+    if not np.any(mask):
+        return output
+    mapping = (
+        result.shard.global_tx_indices
+        if result.shard is not None
+        else np.arange(result.topology.num_tx, dtype=np.int64)
+    )
+    output[mask] = mapping[local[mask]]
+    return output
+
+
+def _multiuser_tx_positions(
+    result: MeasurementSimulationResult,
+    local_indices: np.ndarray,
+) -> np.ndarray:
+    local = np.asarray(local_indices, dtype=np.int64)
+    positions = np.full((*local.shape, 3), np.nan, dtype=np.float32)
+    mask = local >= 0
+    if np.any(mask):
+        positions[mask] = result.topology.tx_positions_m[local[mask]]
+    return positions
 
 
 def _write_ranging(h5: h5py.File, result: MeasurementSimulationResult) -> None:

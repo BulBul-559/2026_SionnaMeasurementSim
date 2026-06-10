@@ -227,6 +227,11 @@ phy:
       min_tx_power_dbm: -40.0
       max_tx_power_dbm: 23.0
       serving_rx_policy: "strongest_path"
+    multiuser:
+      enabled: false
+      active_ue_count: 2
+      resource_strategy: "comb_offset"
+      frame_policy: "sequential"
 
 impairments:
   awgn:

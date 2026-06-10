@@ -9,7 +9,7 @@
 - SRS/PUSCH 共享的通用 clean channel → impairment/AWGN → receiver 链路
 - NR PUSCH 4x4 SU-MIMO（perfect CSI + DMRS LS 估计，LMMSE/KBest 检测器）
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
-- NR SRS standards-shaped v2 subset（comb/BWP、NR-ZC-like sequence、group/sequence hopping、cyclic-shift port multiplexing、frequency/bandwidth hopping、port/antenna switching、resource LS + full-band interpolation；暂非完整 3GPP SRS）
+- NR SRS standards-shaped v2 subset（comb/BWP、NR-ZC-like sequence、group/sequence hopping、cyclic-shift port multiplexing、frequency/bandwidth hopping、port/antenna switching、resource LS + full-band interpolation；可选 multi-UE 正交 SRS shared observation；暂非完整 3GPP SRS）
 - 协议无关 uplink power/RSSI 模型：`tx_power_dbm` 生效到 SRS/PUSCH TX grid，支持 relative-SNR 与 absolute-thermal 噪声口径
 - 波形级 ranging observation：从 `/observation/cfr_est` 估计 ToA/one-way range，支持 PDP peak 与 phase-slope estimator
 - PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
@@ -22,7 +22,7 @@
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
 - `output.profile` 支持 `full`、`rt_lite`、`rt_labels_only`；labels-only 使用 compact `/labels/link` HDF5 contract，不写 CFR/CIR/path samples
-- HDF5 schema `1.7.0` 强校验（full contract、RT labels-only contract、NR SRS v2 resource/port/power datasets、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
+- HDF5 schema `1.8.0` 强校验（full contract、RT labels-only contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -152,6 +152,14 @@ impairment/AWGN 链路，写出统一 waveform 字段 `/waveform/tx_grid`、
 后不再写 `/waveform/pilot_code` 或 `/waveform/srs_port_index`；schema `1.6.0`
 后 `tx_power_dbm` 生效到 SRS/PUSCH 发射 grid，并写入通用 power/RSSI 字段。
 
+可选 `phy.srs.multiuser.enabled=true` 会生成一个静态 snapshot 的 multi-UE SRS
+shared observation。当前 v1 只建模“资源完全正交、理想 OFDM 下 UE 间不强烈互扰”的
+理想情况：多个 UE 按 sequential frame 分组，在同一 OFDM symbol 上使用互不重叠的
+`comb_offset` 或 PRB 段发射，先在 BS 侧叠加为 `/multiuser/rx_grid_shared`，再从各自
+resource 中提取 `cfr_est_resource` 和 `cfr_est_allocated`。其中实际 SRS RE 上的
+`cfr_est_resource` 是最权威观测；`comb_offset` 场景若补 full allocated band，未观测
+子载波仍来自插值/补全，不应当成真实全频观测。
+
 `phy.tx_power_dbm` 当前会影响 SRS/PUSCH 的发射 grid 幅度。默认
 `phy.power.noise_mode="relative_snr"` 保持历史 SNR 口径：TX power 上调时 RSSI 和
 noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，噪声按 kTB + NF
@@ -226,6 +234,7 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 | `/paths/samples` | 路径采样：顶点、交互、对象 ID、多普勒、延迟 |
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
 | `/waveform` | OFDM/NR 波形；NR PUSCH/SRS 统一保存 `tx_grid/rx_grid/noise_variance` 和 power/RSSI metadata，NR SRS 另写 resource/sequence/port datasets |
+| `/multiuser` | 可选 NR SRS shared observation；多个 UE 正交 SRS 叠加后的 `rx_grid_shared`、资源分配、collision mask 和 per-UE resource/allocated CFR |
 | `/array` | 阵列 snapshot、`aoa_heatmap_label`、truth/estimated/RX-grid Bartlett 空间谱；旧 `spatial_spectrum_label` 和 `spatial_spectrum_srs` 不再写入 |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/ranging` | 从受损后 `cfr_est` 估计的 ToA/range observation；含 `pdp_peak` 与 `phase_slope` |

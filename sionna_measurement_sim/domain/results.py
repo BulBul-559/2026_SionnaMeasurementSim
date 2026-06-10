@@ -27,6 +27,7 @@ from sionna_measurement_sim.domain.derived import DerivedLabels, build_derived_l
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
+from sionna_measurement_sim.domain.multiuser import MultiUserSRSResult
 from sionna_measurement_sim.domain.observation import (
     CalibrationResult,
     DiagnosticsReport,
@@ -447,6 +448,7 @@ class MeasurementSimulationResult:
     waveform_extras: dict | None = None
     array_outputs: dict | None = None
     ranging: RangingResult | None = None
+    multiuser: MultiUserSRSResult | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr
@@ -514,6 +516,22 @@ class MeasurementSimulationResult:
                 if estimator.toa_est_s.shape != link_shape:
                     msg = "ranging estimator link shape must match observation link mask"
                     raise ValueError(msg)
+        if self.multiuser is not None:
+            if self.observation is None:
+                msg = "multiuser SRS results require PHY observation"
+                raise ValueError(msg)
+            if self.multiuser.rx_grid_shared.shape[0] != self.observation.cfr_est.shape[0]:
+                msg = "multiuser snapshot dimension must match observation snapshot dimension"
+                raise ValueError(msg)
+            if self.multiuser.rx_grid_shared.shape[2] != rx:
+                msg = "multiuser RX dimension must match topology RX dimension"
+                raise ValueError(msg)
+            if self.multiuser.rx_grid_shared.shape[3] != rx_ant:
+                msg = "multiuser RX antenna dimension must match antenna spec"
+                raise ValueError(msg)
+            if self.multiuser.rx_grid_shared.shape[-1] != subcarrier:
+                msg = "multiuser subcarrier dimension must match frequency grid"
+                raise ValueError(msg)
         if self.derived is None:
             object.__setattr__(
                 self,

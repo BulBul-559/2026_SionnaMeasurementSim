@@ -412,6 +412,7 @@ def _run_rt_truth_pipeline_single_impl(
             "array_outputs": phy_result.array_outputs,
             "diagnostics": phy_result.diagnostics,
             "metadata": phy_result.metadata,
+            "multiuser": phy_result.multiuser,
             }
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
@@ -590,6 +591,7 @@ def _run_rt_truth_pipeline_single_impl(
         waveform_extras=phy_extra.get("waveform_extras"),
         array_outputs=phy_extra.get("array_outputs"),
         ranging=ranging_result,
+        multiuser=phy_extra.get("multiuser"),
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -1900,6 +1902,7 @@ def _srs_config_snapshot(config: Any | None) -> dict[str, object]:
         "hopping",
         "ports",
         "power_control",
+        "multiuser",
     )
     snapshot: dict[str, object] = {}
     for field_name in fields:

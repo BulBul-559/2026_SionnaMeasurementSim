@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from sionna_measurement_sim.domain.link import LinkConfig
+from sionna_measurement_sim.domain.multiuser import MultiUserSRSResult
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
     ObservationResult,
@@ -240,6 +242,18 @@ def run_nr_srs_observation(
                 srs_resource.re_subcarrier_indices.size
             ),
         }
+        multiuser_result = _run_multiuser_srs_if_enabled(
+            h_ul=h_ul,
+            srs_resource_config=srs_resource_config,
+            power_scale_linear=power_control.power_scale_linear,
+            phy_config=phy_config,
+            power_config=power_config,
+            snr_db=snr_db,
+            sc_spacing_hz=sc_spacing_hz,
+            num_subcarriers=num_subcarriers,
+            default_num_prb=int(getattr(phy_config, "num_prb", max(1, num_subcarriers // 12))),
+            tracer=tracer,
+        )
     return {
         "nr_waveform_spec": waveform,
         "waveform_spec": waveform,
@@ -255,6 +269,7 @@ def run_nr_srs_observation(
         "observation": observation,
         "impairments": impairment_result.impairment_spec,
         "waveform_grids": waveform_grids,
+        "multiuser": multiuser_result,
         "metadata": {
             "srs_scope": "standards_shaped_subset_v2",
             "num_srs_symbols": int(srs_resource.srs_symbol_indices.size),
@@ -338,6 +353,297 @@ def _build_srs_tx_grid(
                 * pilot[np.newaxis, np.newaxis, np.newaxis, :]
             )
     return tx_grid
+
+
+def _run_multiuser_srs_if_enabled(
+    *,
+    h_ul: np.ndarray,
+    srs_resource_config: Any,
+    power_scale_linear: np.ndarray,
+    phy_config: Any,
+    power_config: Any | None,
+    snr_db: float,
+    sc_spacing_hz: float,
+    num_subcarriers: int,
+    default_num_prb: int,
+    tracer: Any | None,
+) -> MultiUserSRSResult | None:
+    multi_cfg = getattr(getattr(phy_config, "srs_config", None), "multiuser", None)
+    if multi_cfg is None:
+        multi_cfg = getattr(getattr(phy_config, "srs", None), "multiuser", None)
+    if multi_cfg is None or not bool(getattr(multi_cfg, "enabled", False)):
+        return None
+    if bool(getattr(srs_resource_config.hopping, "enabled", False)):
+        raise ValueError("multi-UE SRS v1 does not support SRS frequency hopping yet")
+
+    active_count = int(getattr(multi_cfg, "active_ue_count", 2))
+    if active_count < 1:
+        raise ValueError("phy.srs.multiuser.active_ue_count must be positive")
+    strategy = str(getattr(multi_cfg, "resource_strategy", "comb_offset"))
+    if strategy not in ("comb_offset", "prb_split"):
+        raise ValueError("phy.srs.multiuser.resource_strategy must be comb_offset/prb_split")
+    if str(getattr(multi_cfg, "frame_policy", "sequential")) != "sequential":
+        raise ValueError("multi-UE SRS v1 supports sequential frame_policy only")
+    if h_ul.shape[0] != 1:
+        raise ValueError("multi-UE SRS v1 supports one static channel snapshot only")
+
+    with _span(tracer, "nr_srs.multiuser_build", active_ue_count=active_count):
+        return _run_multiuser_srs(
+            h_ul=h_ul,
+            srs_resource_config=srs_resource_config,
+            power_scale_linear=power_scale_linear,
+            strategy=strategy,
+            active_count=active_count,
+            phy_config=phy_config,
+            power_config=power_config,
+            snr_db=snr_db,
+            sc_spacing_hz=sc_spacing_hz,
+            num_subcarriers=num_subcarriers,
+            default_num_prb=default_num_prb,
+        )
+
+
+def _run_multiuser_srs(
+    *,
+    h_ul: np.ndarray,
+    srs_resource_config: Any,
+    power_scale_linear: np.ndarray,
+    strategy: str,
+    active_count: int,
+    phy_config: Any,
+    power_config: Any | None,
+    snr_db: float,
+    sc_spacing_hz: float,
+    num_subcarriers: int,
+    default_num_prb: int,
+) -> MultiUserSRSResult:
+    num_snap, tx_count, rx_count, rx_ant, tx_ant, _ = h_ul.shape
+    frame_count = int(np.ceil(tx_count / active_count))
+    num_symbols = int(srs_resource_config.slot_length_symbols)
+    y_clean_shared = np.zeros(
+        (num_snap, frame_count, rx_count, rx_ant, num_symbols, num_subcarriers),
+        dtype=np.complex64,
+    )
+    active_tx_indices = np.full((frame_count, active_count), -1, dtype=np.int32)
+    active_tx_mask = np.zeros((frame_count, active_count), dtype=np.bool_)
+    resources: list[list[NRSRSResource | None]] = [
+        [None for _ in range(active_count)] for _ in range(frame_count)
+    ]
+    occupancy = np.zeros((frame_count, num_symbols, num_subcarriers), dtype=np.int32)
+    comb_offsets = np.full((frame_count, active_count), -1, dtype=np.int32)
+
+    for frame in range(frame_count):
+        for active_slot in range(active_count):
+            tx_index = frame * active_count + active_slot
+            if tx_index >= tx_count:
+                continue
+            resource_cfg = _multiuser_resource_config(
+                srs_resource_config,
+                strategy=strategy,
+                active_slot=active_slot,
+                active_count=active_count,
+                default_num_prb=default_num_prb,
+            )
+            resource = build_srs_resource(
+                resource_cfg,
+                num_subcarriers=num_subcarriers,
+                num_tx_ant=tx_ant,
+                default_num_prb=default_num_prb,
+            )
+            active_tx_indices[frame, active_slot] = tx_index
+            active_tx_mask[frame, active_slot] = True
+            resources[frame][active_slot] = resource
+            comb_offsets[frame, active_slot] = int(resource_cfg.comb_offset)
+            occupancy[frame] += resource.resource_mask.astype(np.int32)
+
+            tx_grid = _build_srs_tx_grid(
+                link_shape=(num_snap, 1, rx_count),
+                num_ul_tx_ant=tx_ant,
+                srs_resource=resource,
+                power_scale_linear=power_scale_linear[:, tx_index : tx_index + 1, :],
+            )
+            contribution = np.einsum(
+                "...rtf,...tsf->...rsf",
+                h_ul[:, tx_index : tx_index + 1, :, :, :, :],
+                tx_grid,
+                optimize=True,
+            )
+            y_clean_shared[:, frame, :, :, :, :] += contribution[:, 0, :, :, :, :]
+
+    noise_mode = noise_mode_from_config(power_config)
+    thermal_meta = thermal_noise_metadata(
+        power_config=power_config,
+        default_bandwidth_hz=sc_spacing_hz * num_subcarriers,
+    )
+    impairment_chain = ObservationImpairmentChain(
+        fft_size=num_subcarriers,
+        sample_rate_hz=sc_spacing_hz * num_subcarriers,
+        random_seed=int(getattr(phy_config, "observation_seed", 42)) + 10007,
+        impairment_config=getattr(phy_config, "impairment_config", None),
+        noise_mode=noise_mode,
+        thermal_noise_power_mw=thermal_meta["thermal_noise_mw"],
+        thermal_noise_config=thermal_meta,
+    )
+    impairment_result = impairment_chain.apply(y_clean_shared, snr_db=snr_db)
+    rx_grid_shared = (
+        impairment_result.rx_grid.detach().cpu().numpy().astype(np.complex64, copy=False)
+    )
+    chain_scalars = ResultAssembler.chain_scalars_to_numpy(impairment_result)
+
+    max_re = _max_resource_re(resources)
+    max_alloc_sc = _max_allocated_subcarriers(resources)
+    first_resource = next(resource for row in resources for resource in row if resource is not None)
+    num_ports = int(first_resource.pilot_symbols.shape[0])
+    re_symbols = np.full((frame_count, active_count, max_re), -1, dtype=np.int32)
+    re_subcarriers = np.full((frame_count, active_count, max_re), -1, dtype=np.int32)
+    re_mask = np.zeros((frame_count, active_count, max_re), dtype=np.bool_)
+    allocated_indices = np.full((frame_count, active_count, max_alloc_sc), -1, dtype=np.int32)
+    allocated_mask = np.zeros((frame_count, active_count, max_alloc_sc), dtype=np.bool_)
+    prb_start = np.full(
+        (frame_count, active_count, int(srs_resource_config.num_srs_symbols)),
+        -1,
+        dtype=np.int32,
+    )
+    prb_count = np.zeros_like(prb_start)
+    cfr_resource = np.zeros(
+        (num_snap, frame_count, active_count, rx_count, rx_ant, num_ports, max_re),
+        dtype=np.complex64,
+    )
+    cfr_allocated = np.zeros(
+        (num_snap, frame_count, active_count, rx_count, rx_ant, tx_ant, max_alloc_sc),
+        dtype=np.complex64,
+    )
+
+    for frame in range(frame_count):
+        rx_frame = rx_grid_shared[:, frame : frame + 1, :, :, :, :]
+        for active_slot, resource in enumerate(resources[frame]):
+            if resource is None:
+                continue
+            tx_index = int(active_tx_indices[frame, active_slot])
+            re_count = int(resource.re_subcarrier_indices.size)
+            re_symbols[frame, active_slot, :re_count] = resource.re_symbol_indices
+            re_subcarriers[frame, active_slot, :re_count] = resource.re_subcarrier_indices
+            re_mask[frame, active_slot, :re_count] = True
+            symbol_count = int(resource.prb_start_per_symbol.size)
+            prb_start[frame, active_slot, :symbol_count] = resource.prb_start_per_symbol
+            prb_count[frame, active_slot, :symbol_count] = resource.prb_count_per_symbol
+            allocated = _allocated_subcarrier_indices(resource)
+            allocated_count = int(allocated.size)
+            allocated_indices[frame, active_slot, :allocated_count] = allocated
+            allocated_mask[frame, active_slot, :allocated_count] = True
+
+            estimated_resource = _estimate_srs_resource_cfr(
+                rx_grid=rx_frame,
+                srs_resource=resource,
+                power_scale_linear=power_scale_linear[:, tx_index : tx_index + 1, :],
+            )
+            cfr_resource[:, frame, active_slot, :, :, :, :re_count] = estimated_resource[
+                :, 0, :, :, :, :
+            ]
+            estimated_full = _interpolate_resource_cfr(
+                estimated_resource,
+                srs_resource=resource,
+                num_subcarriers=num_subcarriers,
+                num_tx_ant=tx_ant,
+            )
+            cfr_allocated[:, frame, active_slot, :, :, :, :allocated_count] = np.take(
+                estimated_full[:, 0, :, :, :, :],
+                allocated,
+                axis=-1,
+            )
+
+    return MultiUserSRSResult(
+        resource_strategy=strategy,
+        rx_grid_shared=rx_grid_shared,
+        noise_variance=chain_scalars["noise_variance"],
+        snr_db=chain_scalars["snr_db"],
+        rssi_dbm=chain_scalars["rssi_dbm"],
+        noise_power_dbm=chain_scalars["noise_power_dbm"],
+        active_tx_indices=active_tx_indices,
+        active_tx_mask=active_tx_mask,
+        comb_offset=comb_offsets,
+        prb_start=prb_start,
+        prb_count=prb_count,
+        re_symbol_indices=re_symbols,
+        re_subcarrier_indices=re_subcarriers,
+        re_mask=re_mask,
+        allocated_subcarrier_indices=allocated_indices,
+        allocated_subcarrier_mask=allocated_mask,
+        resource_occupancy_count=occupancy,
+        resource_collision_mask=occupancy > 1,
+        cfr_est_resource=cfr_resource,
+        cfr_est_allocated=cfr_allocated,
+    )
+
+
+def _multiuser_resource_config(
+    base: Any,
+    *,
+    strategy: str,
+    active_slot: int,
+    active_count: int,
+    default_num_prb: int,
+) -> Any:
+    if strategy == "comb_offset":
+        if active_count > int(base.comb_size):
+            raise ValueError(
+                "comb_offset multi-UE SRS requires active_ue_count <= comb_size"
+            )
+        comb_offset = (int(base.comb_offset) + active_slot) % int(base.comb_size)
+        return replace(base, comb_offset=comb_offset)
+
+    if strategy != "prb_split":
+        raise ValueError("Unsupported multi-UE SRS resource strategy")
+    base_count = int(base.bwp_num_prb or default_num_prb)
+    if active_count > base_count:
+        raise ValueError("prb_split multi-UE SRS requires active_ue_count <= BWP PRB count")
+    start_offset, count = _split_prb_allocation(base_count, active_slot, active_count)
+    return replace(
+        base,
+        bwp_start_prb=int(base.bwp_start_prb) + start_offset,
+        bwp_num_prb=count,
+    )
+
+
+def _split_prb_allocation(total_prb: int, active_slot: int, active_count: int) -> tuple[int, int]:
+    base = total_prb // active_count
+    remainder = total_prb % active_count
+    count = base + (1 if active_slot < remainder else 0)
+    start = active_slot * base + min(active_slot, remainder)
+    return int(start), int(count)
+
+
+def _max_resource_re(resources: list[list[NRSRSResource | None]]) -> int:
+    return max(
+        int(resource.re_subcarrier_indices.size)
+        for row in resources
+        for resource in row
+        if resource is not None
+    )
+
+
+def _max_allocated_subcarriers(resources: list[list[NRSRSResource | None]]) -> int:
+    return max(
+        int(_allocated_subcarrier_indices(resource).size)
+        for row in resources
+        for resource in row
+        if resource is not None
+    )
+
+
+def _allocated_subcarrier_indices(resource: NRSRSResource) -> np.ndarray:
+    values: list[np.ndarray] = []
+    for start_prb, count_prb in zip(
+        resource.prb_start_per_symbol,
+        resource.prb_count_per_symbol,
+        strict=True,
+    ):
+        start = int(start_prb) * 12
+        stop = start + int(count_prb) * 12
+        values.append(np.arange(start, stop, dtype=np.int32))
+    if not values:
+        return np.zeros((0,), dtype=np.int32)
+    return np.unique(np.concatenate(values)).astype(np.int32, copy=False)
 
 
 def _estimate_srs_resource_cfr(

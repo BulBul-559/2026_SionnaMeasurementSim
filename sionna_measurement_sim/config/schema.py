@@ -288,6 +288,23 @@ class SRSPowerControlConfig(BaseModel):
         return self
 
 
+class SRSMultiUserConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    active_ue_count: int = Field(default=2, ge=1)
+    resource_strategy: str = Field(default="comb_offset")
+    frame_policy: str = Field(default="sequential")
+
+    @model_validator(mode="after")
+    def check_multiuser_values(self) -> SRSMultiUserConfig:
+        if self.resource_strategy not in ("comb_offset", "prb_split"):
+            raise ValueError("phy.srs.multiuser.resource_strategy must be comb_offset/prb_split")
+        if self.frame_policy != "sequential":
+            raise ValueError("phy.srs.multiuser.frame_policy currently supports sequential only")
+        return self
+
+
 class ThermalNoiseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -361,6 +378,7 @@ class SRSConfig(BaseModel):
     hopping: SRSHoppingConfig = Field(default_factory=SRSHoppingConfig)
     ports: SRSPortsConfig = Field(default_factory=SRSPortsConfig)
     power_control: SRSPowerControlConfig = Field(default_factory=SRSPowerControlConfig)
+    multiuser: SRSMultiUserConfig = Field(default_factory=SRSMultiUserConfig)
 
     @model_validator(mode="after")
     def check_supported_values(self) -> SRSConfig:

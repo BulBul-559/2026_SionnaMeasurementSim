@@ -70,11 +70,16 @@ def validate_hdf5_contract(path: str | Path) -> None
    - SRS 专属 `srs_resource_mask`、`srs_pilot_symbols`、`srs_re_symbol_indices`、
      `srs_re_subcarrier_indices`、`srs_port_tx_ant_map`、PRB/cyclic-shift/power metadata
    - schema `1.5.0` 后不再写 `/waveform/pilot_code`、`/waveform/srs_port_index`、`/observation/srs_cfr_est`、`/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`
-9. **BLER 契约**（NR PUSCH）：
+9. **Multi-UE SRS 契约**（当 `/multiuser` 存在）：
+   - 必须是 `standard="nr_srs"`，并写 shared `rx_grid_shared`、active TX index/mask、
+     RE/allocated subcarrier mask、resource occupancy/collision mask 和 per-UE CFR
+   - `resource_collision_mask` 必须等于 `resource_occupancy_count > 1`
+   - active/padding TX index、RX 维度、天线维度和 subcarrier 维度必须与 topology/frequency 一致
+10. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
    - `bler == num_block_errors / num_blocks`
-10. **Ranging 契约**（当 `/ranging` 存在）：
+11. **Ranging 契约**（当 `/ranging` 存在）：
     - 必须已有 `/observation/cfr_est`
     - `pdp_peak` / `phase_slope` 输出 shape 为 `[snapshot, tx, rx]`
     - 成功位置为 finite，失败位置为 NaN，`selected_delay_bin` 失败为 -1
@@ -154,6 +159,7 @@ tests/
 │   ├── test_nr_pusch_config.py           # PUSCHConfig + run_nr_pusch_observation (14 tests)
 │   ├── test_common_link.py               # 通用 impairment/AWGN 链路
 │   ├── test_observation_pipeline.py      # AWGN + LS 估计
+│   ├── test_nr_srs_observation.py        # SRS resource/receiver + multi-UE shared observation
 │   ├── test_impairments.py               # CFO/SFO/相偏/定时偏/削波
 │   ├── test_reciprocity.py               # TDD 互易性 transpose
 │   ├── test_domain_models.py             # domain dataclass 校验

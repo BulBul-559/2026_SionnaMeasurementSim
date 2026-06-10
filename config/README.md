@@ -455,9 +455,21 @@ correlation、estimation success 和 SRS resource quality 指标。
 | `srs.ports.port_tx_ant_map` | list[list[int]]\|null | null | `antenna_switching` 时为 `[srs_port,srs_symbol]`，`-1` 表示该 symbol 不发 |
 | `srs.ports.usage` | str | "non_codebook" | `"codebook"` \| `"non_codebook"` metadata |
 | `srs.power_control.*` | legacy adapter | disabled | 兼容旧 SRS YAML；实现上会映射到通用 `phy.power.uplink_control`，新配置优先使用 `phy.power` |
+| `srs.multiuser.enabled` | bool | false | 是否额外生成 multi-UE SRS shared observation |
+| `srs.multiuser.active_ue_count` | int | 2 | 每个 sequential frame 同时激活的 UE 数；最后一帧不足时 padding |
+| `srs.multiuser.resource_strategy` | str | `"comb_offset"` | `"comb_offset"` 或 `"prb_split"`；当前只支持完全正交资源 |
+| `srs.multiuser.frame_policy` | str | `"sequential"` | 当前仅支持按 UE 顺序分 frame |
 
 当前仍不能称为完整 3GPP NR SRS；v2 是 standards-shaped subset，尚未做 38.211/38.213
 reference 对齐、真实闭环功控或认证级一致性测试。
+
+`srs.multiuser` 当前是研究型观测模式，不替代普通 `/observation/cfr_est`。它假设静态
+channel snapshot、理想 OFDM 正交性和无额外 UE 间非正交干扰；不新增 per-UE CFO/timing
+差异，也暂不与 SRS hopping 组合。`comb_offset` 要求 `active_ue_count <= comb_size`，
+每个 UE 占用同一 BWP 的不同 comb；`prb_split` 会把当前 SRS BWP 按 UE 数切成不重叠
+PRB 段。输出写 `/multiuser/rx_grid_shared`、resource/allocated CFR 和资源 mask；
+实际 SRS RE 上的 `cfr_est_resource` 是最权威观测，`comb_offset` 场景的未观测子载波
+若被补全，只能视作插值派生。
 
 > **MIMO 配置提示：**
 > - 4x4 SU-MIMO: `mimo_mode="su_mimo"`, `num_layers=4`, `num_antenna_ports=4`

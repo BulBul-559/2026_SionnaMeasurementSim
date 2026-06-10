@@ -303,6 +303,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
         if "ranging" in h5:
             _validate_ranging(h5)
+        if "multiuser" in h5:
+            _validate_multiuser_srs(h5)
         _validate_units(h5)
         _validate_values(h5)
 
@@ -1082,6 +1084,33 @@ NR_SRS_REQUIRED_FIELDS = (
 )
 
 
+MULTIUSER_SRS_REQUIRED_FIELDS = (
+    "multiuser/standard",
+    "multiuser/resource_strategy",
+    "multiuser/rx_grid_shared",
+    "multiuser/noise_variance",
+    "multiuser/snr_db",
+    "multiuser/rssi_dbm",
+    "multiuser/noise_power_dbm",
+    "multiuser/active_tx_indices",
+    "multiuser/active_tx_global_indices",
+    "multiuser/active_tx_mask",
+    "multiuser/active_tx_positions_m",
+    "multiuser/comb_offset",
+    "multiuser/prb_start",
+    "multiuser/prb_count",
+    "multiuser/re_symbol_indices",
+    "multiuser/re_subcarrier_indices",
+    "multiuser/re_mask",
+    "multiuser/allocated_subcarrier_indices",
+    "multiuser/allocated_subcarrier_mask",
+    "multiuser/resource_occupancy_count",
+    "multiuser/resource_collision_mask",
+    "multiuser/cfr_est_resource",
+    "multiuser/cfr_est_allocated",
+)
+
+
 def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
     """When waveform/standard == 'nr_srs', enforce stage-2 SRS subset fields."""
 
@@ -1228,6 +1257,133 @@ def _validate_nr_srs_fields_if_applicable(h5: h5py.File) -> None:
         if "unit" not in ds.attrs or "index_order" not in ds.attrs:
             msg = f"Missing unit/index_order attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
+
+
+def _validate_multiuser_srs(h5: h5py.File) -> None:
+    _require_present(h5, ("multiuser",), kind=h5py.Group)
+    _require_present(h5, MULTIUSER_SRS_REQUIRED_FIELDS, kind=h5py.Dataset)
+    standard = _read_string(h5["multiuser/standard"])
+    if standard != "nr_srs":
+        msg = "/multiuser/standard must be nr_srs"
+        raise SchemaValidationError(msg)
+    strategy = _read_string(h5["multiuser/resource_strategy"])
+    if strategy not in ("comb_offset", "prb_split"):
+        msg = "/multiuser/resource_strategy must be comb_offset or prb_split"
+        raise SchemaValidationError(msg)
+    rx_grid = h5["multiuser/rx_grid_shared"]
+    if rx_grid.ndim != 6:
+        msg = "/multiuser/rx_grid_shared must be [snapshot,frame,rx,rx_ant,symbol,subcarrier]"
+        raise SchemaValidationError(msg)
+    snap, frame, rx, rx_ant, symbols, subcarriers = rx_grid.shape
+    if h5["topology/rx_positions_m"].shape[0] != rx:
+        msg = "/multiuser/rx_grid_shared RX dimension must match topology"
+        raise SchemaValidationError(msg)
+    if h5["antenna/rx_num_ant"][()] != rx_ant:
+        msg = "/multiuser/rx_grid_shared rx_ant dimension must match antenna"
+        raise SchemaValidationError(msg)
+    for dataset_path in (
+        "multiuser/noise_variance",
+        "multiuser/snr_db",
+        "multiuser/rssi_dbm",
+        "multiuser/noise_power_dbm",
+    ):
+        if h5[dataset_path].shape != (snap, frame, rx):
+            msg = f"/{dataset_path} must match [snapshot,frame,rx]"
+            raise SchemaValidationError(msg)
+    active_tx = h5["multiuser/active_tx_indices"]
+    active_mask = h5["multiuser/active_tx_mask"]
+    if active_tx.ndim != 2 or active_tx.shape[0] != frame:
+        msg = "/multiuser/active_tx_indices must be [frame,active_ue]"
+        raise SchemaValidationError(msg)
+    if active_mask.shape != active_tx.shape:
+        msg = "/multiuser/active_tx_mask must match active_tx_indices"
+        raise SchemaValidationError(msg)
+    active_ue = active_tx.shape[1]
+    for dataset_path in (
+        "multiuser/active_tx_global_indices",
+        "multiuser/comb_offset",
+    ):
+        if h5[dataset_path].shape != active_tx.shape:
+            msg = f"/{dataset_path} must match [frame,active_ue]"
+            raise SchemaValidationError(msg)
+    if h5["multiuser/active_tx_positions_m"].shape != (*active_tx.shape, 3):
+        msg = "/multiuser/active_tx_positions_m must match [frame,active_ue,3]"
+        raise SchemaValidationError(msg)
+    for dataset_path in ("multiuser/prb_start", "multiuser/prb_count"):
+        ds = h5[dataset_path]
+        if ds.ndim != 3 or ds.shape[:2] != (frame, active_ue):
+            msg = f"/{dataset_path} must be [frame,active_ue,srs_symbol]"
+            raise SchemaValidationError(msg)
+    re_symbols = h5["multiuser/re_symbol_indices"]
+    re_subcarriers = h5["multiuser/re_subcarrier_indices"]
+    re_mask = h5["multiuser/re_mask"]
+    if (
+        re_symbols.ndim != 3
+        or re_symbols.shape[:2] != (frame, active_ue)
+        or re_subcarriers.shape != re_symbols.shape
+        or re_mask.shape != re_symbols.shape
+    ):
+        msg = "/multiuser/re_* datasets must match [frame,active_ue,max_srs_re]"
+        raise SchemaValidationError(msg)
+    allocated = h5["multiuser/allocated_subcarrier_indices"]
+    allocated_mask = h5["multiuser/allocated_subcarrier_mask"]
+    if allocated.ndim != 3 or allocated.shape[:2] != (frame, active_ue):
+        msg = "/multiuser/allocated_subcarrier_indices must be [frame,active_ue,max_alloc]"
+        raise SchemaValidationError(msg)
+    if allocated_mask.shape != allocated.shape:
+        msg = "/multiuser/allocated_subcarrier_mask must match allocated indices"
+        raise SchemaValidationError(msg)
+    occupancy = h5["multiuser/resource_occupancy_count"]
+    collision = h5["multiuser/resource_collision_mask"]
+    if occupancy.shape != (frame, symbols, subcarriers):
+        msg = "/multiuser/resource_occupancy_count must match [frame,symbol,subcarrier]"
+        raise SchemaValidationError(msg)
+    if collision.shape != occupancy.shape:
+        msg = "/multiuser/resource_collision_mask must match occupancy"
+        raise SchemaValidationError(msg)
+    if not np.array_equal(collision[()], occupancy[()] > 1):
+        msg = "/multiuser/resource_collision_mask must equal resource_occupancy_count > 1"
+        raise SchemaValidationError(msg)
+    cfr_resource = h5["multiuser/cfr_est_resource"]
+    if cfr_resource.ndim != 7 or cfr_resource.shape[:5] != (snap, frame, active_ue, rx, rx_ant):
+        msg = (
+            "/multiuser/cfr_est_resource must be "
+            "[snapshot,frame,active_ue,rx,rx_ant,srs_port,max_srs_re]"
+        )
+        raise SchemaValidationError(msg)
+    cfr_allocated = h5["multiuser/cfr_est_allocated"]
+    if cfr_allocated.ndim != 7 or cfr_allocated.shape[:5] != (snap, frame, active_ue, rx, rx_ant):
+        msg = (
+            "/multiuser/cfr_est_allocated must be "
+            "[snapshot,frame,active_ue,rx,rx_ant,tx_ant,max_alloc]"
+        )
+        raise SchemaValidationError(msg)
+    if cfr_allocated.shape[5] != h5["antenna/tx_num_ant"][()]:
+        msg = "/multiuser/cfr_est_allocated tx_ant dimension must match antenna"
+        raise SchemaValidationError(msg)
+    _validate_multiuser_indices(h5, active_tx[()], active_mask[()])
+    for dataset_path in MULTIUSER_SRS_REQUIRED_FIELDS:
+        if dataset_path in ("multiuser/standard", "multiuser/resource_strategy"):
+            continue
+        ds = h5[dataset_path]
+        if "unit" not in ds.attrs or "index_order" not in ds.attrs:
+            msg = f"Missing unit/index_order attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+
+
+def _validate_multiuser_indices(
+    h5: h5py.File,
+    active_tx: np.ndarray,
+    active_mask: np.ndarray,
+) -> None:
+    tx_count = h5["topology/tx_positions_m"].shape[0]
+    valid = active_mask.astype(np.bool_)
+    if np.any(active_tx[valid] < 0) or np.any(active_tx[valid] >= tx_count):
+        msg = "/multiuser/active_tx_indices contains out-of-range active TX index"
+        raise SchemaValidationError(msg)
+    if np.any(active_tx[~valid] != -1):
+        msg = "/multiuser inactive active_tx_indices entries must be -1"
+        raise SchemaValidationError(msg)
 
 
 def _validate_array_outputs_if_present(h5: h5py.File) -> None:

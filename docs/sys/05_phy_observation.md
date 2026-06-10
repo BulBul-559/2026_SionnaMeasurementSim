@@ -39,6 +39,8 @@ PHY_REGISTRY = {
 模块接收 `PHYContext(config, adapter_result)`，返回 `PHYModuleResult`。其中
 `waveform`、`observation`、`receiver`、`evaluation` 等字段最终写入 HDF5；
 `waveform_extras` 用于写 NR PUSCH/SRS 的频域 grid 和专属元数据。
+`multiuser` 用于可选的 NR SRS shared observation，它不替代普通单 UE
+`/observation/cfr_est`，而是额外写入 `/multiuser` group 供多 UE 正交资源研究使用。
 
 ## 一、通用 PHY link (`common_link.py`)
 
@@ -302,6 +304,30 @@ estimation success，以及 SRS resource NMSE / interpolation NMSE / resource SN
 quality 指标。若 `array.spectrum.sources` 包含 `cfr_est`，会从统一
 `/observation/cfr_est` 生成 `/array/spatial_spectrum_cfr_est`；schema 1.5.0 后不再接受
 历史 `srs_cfr_est` source，也不再写 `/array/spatial_spectrum_srs`。
+
+### Multi-UE SRS shared observation
+
+`phy.srs.multiuser.enabled=true` 时，`nr_srs` 会在普通单 UE sounding 之外额外生成一个
+multi-UE shared observation。当前 v1 是理想正交资源模型：
+
+1. 只支持单个静态 channel snapshot，不引入时间变化。
+2. 多个 UE 按 `active_ue_count` 顺序分成 frame；最后一帧不足时 padding。
+3. `resource_strategy="comb_offset"` 时，同一 BWP/OFDM symbol 内给每个 UE 分配不同
+   comb offset，要求 `active_ue_count <= comb_size`。
+4. `resource_strategy="prb_split"` 时，把当前 SRS BWP 切成互不重叠的 PRB 段。
+5. 每个 UE 的 clean `H * tx_grid` 先在 BS 侧相加，形成
+   `/multiuser/rx_grid_shared [snapshot,frame,rx,rx_ant,symbol,subcarrier]`。
+6. 对 shared grid 统一施加 common impairment/AWGN；当前不新增 per-UE CFO/timing 等
+   差异，也不建模非正交碰撞恢复。
+7. receiver 只从各 UE 自己的正交 resource 提取 CFR，写
+   `/multiuser/cfr_est_resource` 和 `/multiuser/cfr_est_allocated`。
+
+因此在理想 OFDM 和完全正交资源下，UE 之间不会强烈互相干扰；若
+`/multiuser/resource_collision_mask` 全 false，则多 UE shared observation 应能在实际
+SRS RE 上恢复各 UE 的 CFR。`cfr_est_resource` 是真实被 sounding 的 RE 观测；
+`cfr_est_allocated` 是该 UE 被分配频带上的 CFR。对于 `comb_offset`，allocated band
+中未 sounding 的子载波来自插值/补全，不应视作真实全频观测。当前 v1 不与 SRS
+frequency/bandwidth hopping 组合，后续若要研究碰撞或异步 UE，应另行扩展干扰模型。
 
 `/array/spatial_spectrum_*` 使用 scene/global 角度网格。实现时先按 Sionna
 `PlanarArray` 的本地 y-z 平面、top-left 起、column-first 编号、第一行 z 为正生成
