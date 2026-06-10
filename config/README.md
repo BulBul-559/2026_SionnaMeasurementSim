@@ -41,6 +41,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR uplink 定位主实验模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
+| `config/tasks/nr_srs_64prb_formal.yaml` | 正式 NR SRS 64 PRB direct-array 仿真任务模板；默认 panel 0p2、`shard_size=5`、23 dBm + absolute thermal noise、基础硬件损伤开启；100 MHz FR1 背景下只仿真 64 PRB occupied bandwidth（768 subcarrier） |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 | `config/perf/nr_srs_7x500_sharded.yaml` | 7×500 NR SRS direct uplink shard 历史确认测试 |
@@ -64,6 +65,9 @@ uv run python -m sionna_measurement_sim.app.cli \
 |------|------|--------|------|
 | `seed` | int (>=0) | 42 | 全局随机种子 |
 | `device` | str | "cpu" | PyTorch 设备；NR PUSCH 支持 `"cpu"`、`"cuda"`、`"cuda:0"` 等 PyTorch 设备字符串 |
+| `require_gpu` | bool | false | 是否要求 GPU；当前主要作为显式配置契约保留 |
+| `precision` | str | `"single"` | 浮点精度配置；当前主要作为显式配置契约保留 |
+| `torch_deterministic` | bool | false | PyTorch deterministic 口径；当前未完整覆盖所有后端 |
 
 项目依赖锁定 PyTorch `2.10.0+cu128`，`uv sync` 会从官方 PyTorch CUDA 12.8 wheel 源安装。若配置为 `runtime.device: "cuda"` 但当前 PyTorch 无法初始化 CUDA，NR PUSCH 会直接报错，避免误以为使用了 GPU。
 
@@ -142,6 +146,8 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 | `scene_file` | str | tests/fixtures/scenes/test/scene.xml | Mitsuba 场景 XML |
 | `scene_id` | str | scene 文件名 stem | 与平面图/地图系统对齐的稳定场景 ID |
 | `map_id` | str | "" | 可选地图版本 ID |
+| `label_schema` | str | `"simplesionna_v1"` | label schema 信息字段；当前标准 label 文件自身可声明 `label_schema: "0.1.0"` |
+| `coordinate_system` | str | `"scene_local_xyz_m"` | 输入坐标系统信息字段 |
 | `max_bs` | int (>=1) | 6 | BS 数量上限 |
 | `max_ue` | int (>=1) | 100 | UE 数量上限 |
 
@@ -157,6 +163,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 |------|------|--------|------|
 | `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract，不写 CFR/CIR/path samples/PHY |
 | `root_dir` | str | "outputs" | 输出根目录 |
+| `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
 | `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none` |
 | `save_full_paths` | bool | false | 是否保存全量路径表 `/paths/full` |
@@ -285,6 +292,9 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
   radio-map 采样点，每个 BS 输出一张图到 `figures/heatmaps/`，并用红色星标标记
   当前图对应的 BS 位置；shard 模式下会在 aggregate manifest 写完后按全量 shard
   聚合生成。默认只写插值图，`radio_map_mode: "both"` 会额外写不插值的采样点图。
+  对于覆盖区域内某个 UE-BS 链路无有效 RSS 的位置，绘图层会按本次 radio map 的
+  全局最小 RSS 渲染为最弱信号，避免 IDW 插值把无链路区域补成看似有覆盖；CSV 与
+  统计仍保留原始 NaN/valid-mask 语义。
 
 嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
 

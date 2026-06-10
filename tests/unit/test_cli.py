@@ -1,4 +1,19 @@
+import tomllib
+from pathlib import Path
+
+from sionna_measurement_sim import __version__
 from sionna_measurement_sim.app.cli import main
+
+
+def test_package_version_matches_project_metadata(capsys):
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    assert __version__ == pyproject["project"]["version"]
+
+    try:
+        main(["--version"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    assert f"sionna-measurement-sim {__version__}" in capsys.readouterr().out
 
 
 def test_cli_help_returns_zero(capsys):

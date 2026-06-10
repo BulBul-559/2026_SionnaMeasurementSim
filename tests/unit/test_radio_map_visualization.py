@@ -6,6 +6,7 @@ import numpy as np
 
 from sionna_measurement_sim.visualization.radio_map import (
     RadioMapRenderConfig,
+    _plot_samples_for_bs,
     generate_radio_map_heatmaps,
     load_radio_map_table,
     resolve_result_files,
@@ -76,7 +77,28 @@ def test_generate_sharded_radio_map_heatmaps(tmp_path):
     np.testing.assert_allclose(table.bs_positions_m[:, :2], [[0.0, 0.0], [3.0, 0.0]])
 
 
-def _write_result(path, *, ue_indices, ue_positions, rss):
+def test_radio_map_plot_samples_render_invalid_links_as_floor_min(tmp_path):
+    result = tmp_path / "result.h5"
+    _write_result(
+        result,
+        ue_indices=[0, 1, 2],
+        ue_positions=[[0.5, 0.5, 1.6], [1.5, 0.5, 1.6], [2.5, 0.5, 1.6]],
+        rss=[[-80.0, -60.0], [-70.0, -30.0], [-90.0, -50.0]],
+        valid=[[True, True], [True, False], [True, True]],
+    )
+
+    table = load_radio_map_table([result], RadioMapRenderConfig())
+    _x, _y, values = _plot_samples_for_bs(table, bs_col=1, missing_value_dbm=-90.0)
+
+    np.testing.assert_allclose(values, [-60.0, -90.0, -50.0])
+
+
+def _write_result(path, *, ue_indices, ue_positions, rss, valid=None):
+    valid_array = (
+        np.ones((len(ue_indices), 2), dtype=np.bool_)
+        if valid is None
+        else np.asarray(valid, dtype=np.bool_)
+    )
     with h5py.File(path, "w") as h5:
         link = h5.create_group("link")
         link.create_dataset("tx_role", data=np.bytes_("ue"))
@@ -94,5 +116,5 @@ def _write_result(path, *, ue_indices, ue_positions, rss):
         observation.create_dataset("rssi_dbm", data=np.asarray(rss, dtype=np.float32)[None, ...])
         observation.create_dataset(
             "valid_mask",
-            data=np.ones((1, len(ue_indices), 2), dtype=np.bool_),
+            data=valid_array[None, ...],
         )

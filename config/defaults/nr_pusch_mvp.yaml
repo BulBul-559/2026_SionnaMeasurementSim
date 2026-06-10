@@ -10,6 +10,9 @@
 runtime:
   seed: 42
   device: "cpu"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
 
 debug:
   enabled: false
@@ -24,12 +27,15 @@ input:
   scene_file: "tests/fixtures/scenes/test/scene.xml"
   scene_id: "scene"
   map_id: ""
+  label_schema: "simplesionna_v1"
+  coordinate_system: "scene_local_xyz_m"
   max_bs: 1               # 1 BS
   max_ue: 1               # 1 UE (SU-MIMO)
 
 output:
   profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
   root_dir: "outputs"
+  run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
   compression: "gzip"
   save_full_paths: false

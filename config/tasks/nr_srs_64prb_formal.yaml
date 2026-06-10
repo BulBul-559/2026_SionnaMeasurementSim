@@ -1,19 +1,17 @@
-# SionnaMeasurementSim – indoor FR1 NR uplink positioning template
-# All physical quantities are in SI units unless stated otherwise.
+# SionnaMeasurementSim - formal NR SRS 64 PRB production task template
 #
-# Target deployment scenario:
-#   - Indoor FR1 private/enterprise 5G positioning
-#   - Nominal NR channel bandwidth: 100 MHz
-#   - SCS: 30 kHz
-#   - Transmission bandwidth configuration: 273 PRB
-#   - Active subcarriers: 273 * 12 = 3276
-#   - BS/gNB array: 4x4 UPA
-#   - UE uplink antenna model: 1x2, matching a 2T-style handset uplink model
+# Intended use:
+#   - Copy this file or override the input/output fields for each scene.
+#   - Keep this as the baseline recipe for 64 PRB NR SRS formal simulations.
+#   - Default density is panel 0p2. Use lighter/heavier panel labels only when
+#     the task explicitly asks for them.
+#   - The scenario is a 100 MHz FR1 indoor setting at 3.5 GHz, but this task
+#     simulates only the occupied 64 PRB SRS bandwidth:
+#       64 PRB * 12 subcarriers/PRB = 768 subcarriers
+#       768 * 30 kHz = 23.04 MHz active simulated bandwidth
 #
-# Note:
-#   This template uses NR PUSCH/DMRS as a CSI proxy. For sounding-style positioning
-#   experiments, compare against nr_srs_indoor_positioning_fr1_100mhz.yaml, which
-#   implements a standards-shaped NR SRS subset (not yet complete 3GPP NR SRS).
+# This is an NR SRS standards-shaped subset, not a complete 3GPP-compliant
+# implementation.
 
 runtime:
   seed: 42
@@ -23,40 +21,44 @@ runtime:
   torch_deterministic: false
 
 debug:
-  enabled: false
-  hardware_interval_s: 1.0
+  enabled: true
+  hardware_interval_s: 2.0
   link_log_interval: 250
   torch_synchronize: true
   write_hardware_samples: true
 
 input:
-  # Replace with a standard label 0.1.0 file. The parser reads top-level
-  # bs_points/ue_points; groups are metadata/subsets only.
-  label_file: "data/bistro_0000/label.json"
-  scene_file: "data/bistro_0000/scene.xml"
-  scene_id: "bistro_0000"
+  # Replace these three fields for each production scene.
+  label_file: "data/front3d_tail20_succ17/front3d_6793/label/label_panel_0p2.json"
+  scene_file: "data/front3d_tail20_succ17/front3d_6793/scene.xml"
+  scene_id: "front3d_6793"
   map_id: ""
   label_schema: "simplesionna_v1"
   coordinate_system: "scene_local_xyz_m"
-  max_bs: 6                 # indoor gNB/TRP count
-  max_ue: 1000              # target UE/sample-position count; run small smoke first
+  # Keep caps high enough to avoid silently clipping dense labels.
+  max_bs: 64
+  max_ue: 20000
 
 output:
-  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
-  root_dir: "outputs/indoor_fr1_100mhz_positioning"
+  profile: "full"
+  root_dir: "outputs/front3d_6793_panel0p2_srs_64prb_formal"
   run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
   compression: "gzip"
-  save_full_paths: false    # set true only for small AoA/path debugging runs
+  save_full_paths: true
+  save_sampled_paths: true
+  save_raw_waveform: false
   sharding:
     enabled: true
     axis: "ue"
-    shard_size: 5           # 100 MHz / 3276 SC needs small shards on 24 GB GPUs
+    # High-BS Front3D scenes are memory-heavy; shard 5 is the current safer
+    # baseline for formal 64 PRB runs. Fallback may split further on OOM.
+    shard_size: 5
     filename_pattern: "result_{shard_index:03d}.h5"
     results_dir: "results"
     manifest_dir: "manifest"
-    parallel_workers: 1
-    gpu_ids: []
+    parallel_workers: 8
+    gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
     visualization_mode: "first_shard"
     fallback:
       enabled: true
@@ -67,14 +69,14 @@ output:
 
 carrier:
   center_frequency_hz: 3500000000.0
-  # Active occupied bandwidth for 273 PRB at 30 kHz SCS.
-  # Nominal NR channel bandwidth is 100 MHz; active BW is 273*12*30 kHz = 98.28 MHz.
-  bandwidth_hz: 98280000.0
-  num_subcarriers: 3276
+  bandwidth_hz: 23040000.0
+  num_subcarriers: 768
+  subcarrier_spacing_hz: 30000.0
 
 antenna:
   bs_array:
-    num_rows: 4             # BS/gNB: 4x4 = 16 receive antennas for UL PUSCH
+    type: "planar"
+    num_rows: 4
     num_cols: 4
     vertical_spacing_lambda: 0.5
     horizontal_spacing_lambda: 0.5
@@ -83,7 +85,8 @@ antenna:
     orientation_mode: "fixed"
     orientation_rad: [0.0, 0.0, 0.0]
   ue_array:
-    num_rows: 1             # UE: 1x2 = 2 uplink transmit antennas
+    type: "planar"
+    num_rows: 1
     num_cols: 2
     vertical_spacing_lambda: 0.5
     horizontal_spacing_lambda: 0.5
@@ -95,7 +98,7 @@ antenna:
 array:
   spectrum:
     enabled: true
-    sources: ["truth_cfr", "cfr_est"]
+    sources: ["truth_cfr", "cfr_est", "rx_grid"]
     method: "bartlett"
     zenith_bins: 91
     azimuth_bins: 181
@@ -118,6 +121,9 @@ visualization:
   max_ue: 5
   dpi: 140
   format: "png"
+  radio_map_mode: "both"
+  radio_map_grid_resolution_m: null
+  radio_map_show_samples: false
   plots:
     - "topology"
     - "link_overview"
@@ -130,17 +136,17 @@ visualization:
     - "spatial_spectrum"
     - "nmse_snr"
     - "path_samples"
+    - "radio_map"
 
 rt:
+  engine: "sionna_rt"
   max_depth: 4
   los: true
   specular_reflection: true
   diffuse_reflection: false
   refraction: true
   diffraction: true
-  # Use synthetic_array for standard array-manifold/AoA experiments.
-  # Set false for element-level visibility/blockage studies.
-  synthetic_array: true
+  synthetic_array: false
   normalize_cfr: false
   normalize_delays: false
   merge_shapes: false
@@ -151,33 +157,35 @@ link:
 
 phy:
   enabled: true
-  standard: "nr_pusch"
+  standard: "nr_srs"
   mimo_mode: "su_mimo"
   channel_backend: "apply_ofdm"
-  # Realistic deployment observation path: estimate CSI from DMRS instead of perfect CSI.
   perfect_csi: false
   snr_db: 30.0
   ebno_db: null
-  num_prb: 273
-  num_layers: 2
-  num_antenna_ports: 2
-  mcs_index: 14
-  mcs_table: 1
   subcarrier_spacing_khz: 30
   num_ofdm_symbols: 14
+  num_prb: 64
+  num_layers: 1
+  num_antenna_ports: 2
+  mcs_index: 0
+  mcs_table: 1
   pusch_dmrs_config_type: 1
   pusch_dmrs_length: 1
   pusch_dmrs_additional_position: 2
   pusch_num_cdm_groups_without_data: 2
-  mimo_detector: "lmmse"
-  channel_estimator: "pusch_ls"
+  mimo_detector: "none"
+  channel_estimator: "srs_ls"
   receiver_failure_policy: "mark_invalid"
-  su_mimo_link_batch_size: 16
-  tx_power_dbm: 0.0
+  su_mimo_link_batch_size: 1
+  # Formal observation default: 23 dBm is a common UE maximum uplink power
+  # class. With absolute thermal noise, TX power changes SNR/RSSI physically
+  # instead of keeping every link at a fixed relative SNR.
+  tx_power_dbm: 23.0
   power:
     reference_tx_power_dbm: 0.0
     apply_tx_power_to_grid: true
-    noise_mode: "relative_snr"
+    noise_mode: "absolute_thermal"
     thermal_noise:
       temperature_k: 290.0
       noise_figure_db: 7.0
@@ -200,15 +208,15 @@ phy:
     comb_size: 2
     comb_offset: 0
     bwp_start_prb: 0
-    bwp_num_prb: null
+    bwp_num_prb: 64
     trigger_mode: "aperiodic"
     periodicity_slots: 1
     slot_offset: 0
     slot_number: 0
-    sequence_type: "zc_like"
+    sequence_type: "nr_zc"
     sequence_id: 0
-    group_hopping: "disabled"
-    sequence_hopping: "disabled"
+    group_hopping: "enabled"
+    sequence_hopping: "enabled"
     cyclic_shift_multiplexing: "cyclic_shift"
     cyclic_shift_indices: null
     hopping:
@@ -232,25 +240,26 @@ impairments:
   awgn:
     enabled: true
   cfo:
-    enabled: false
-    cfo_hz: null
+    enabled: true
+    cfo_hz: 100.0
   sfo:
-    enabled: false
-    sfo_ppm: null
+    enabled: true
+    sfo_ppm: 5.0
   phase_noise:
-    enabled: false
-    phase_offset_rad: null
+    enabled: true
+    phase_offset_rad: 0.5
   timing_offset:
-    enabled: false
-    timing_offset_samples: null
+    enabled: true
+    timing_offset_samples: 1.0
   agc_adc:
-    enabled: false
+    enabled: true
     agc_gain_db: 0.0
+    # Keep clipping disabled until ADC full-scale calibration is modeled.
     clipping_threshold: null
   impairment_seed: 142
 
 ranging:
-  enabled: false
+  enabled: true
   source: "cfr_est"
   estimators: ["pdp_peak", "phase_slope"]
   default_estimator: "pdp_peak"
@@ -269,19 +278,22 @@ ranging:
     min_mean_power: 1.0e-12
 
 receiver:
-  estimator_type: "pusch_ls"
-  channel_estimator: "pusch_ls"
-  mimo_detector: "lmmse"
+  estimator_type: "srs_ls"
+  channel_estimator: "srs_ls"
+  mimo_detector: "none"
   sync_method: "ideal"
-  interpolation_method: "lin"
+  interpolation_method: "none"
   failure_policy: "mark_invalid"
   calibration_profile_id: "synthetic_default"
 
 motion:
-  enabled: false
+  enabled: true
   mobility_mode: "static"
+  # Formal static positioning runs use one snapshot. Increase only for explicit
+  # motion/Doppler experiments; otherwise storage and spectrum cost scale with
+  # this value.
   num_time_steps: 1
-  sampling_frequency_hz: 0.0
+  sampling_frequency_hz: 100.0
   bs_velocity_mps: [0.0, 0.0, 0.0]
   ue_velocity_mps: [0.0, 0.0, 0.0]
 

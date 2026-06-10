@@ -6,6 +6,9 @@
 runtime:
   seed: 42
   device: "cuda"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
 
 debug:
   enabled: false
@@ -21,12 +24,15 @@ input:
   scene_file: "data/bistro_0000/scene.xml"
   scene_id: "bistro_0000"
   map_id: ""
+  label_schema: "simplesionna_v1"
+  coordinate_system: "scene_local_xyz_m"
   max_bs: 7
   max_ue: 2500
 
 output:
   profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
   root_dir: "outputs/bistro_0000_nr_srs_fr1_100mhz"
+  run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
   compression: "gzip"
   save_full_paths: false

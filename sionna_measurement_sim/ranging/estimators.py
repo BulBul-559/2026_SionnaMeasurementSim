@@ -48,6 +48,8 @@ def estimate_pdp_peak(
     for snapshot in range(snapshots):
         for tx in range(tx_count):
             for rx in range(rx_count):
+                if not np.isfinite(truth_range[snapshot, tx, rx]):
+                    continue
                 link_cfr = cfr[snapshot, tx, rx]
                 if not np.any(np.isfinite(link_cfr)):
                     continue
@@ -138,6 +140,8 @@ def estimate_phase_slope(
     for snapshot in range(snapshots):
         for tx in range(tx_count):
             for rx in range(rx_count):
+                if not np.isfinite(truth_range[snapshot, tx, rx]):
+                    continue
                 estimates: list[float] = []
                 estimate_weights: list[float] = []
                 residuals: list[float] = []

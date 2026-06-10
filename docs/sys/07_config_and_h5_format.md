@@ -232,7 +232,9 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
   BS 生成一张覆盖 floorplan 的 radio map，并用红色星标标记当前图对应的 BS 位置。
   shard 模式下该图在 aggregate manifest 写完后聚合所有 shard 输出到
   `figures/heatmaps/`；`interpolated` 使用规则网格 IDW 插值，`samples` 只绘制原始
-  UE 采样点。
+  UE 采样点。无有效 RSS 的 UE-BS 位置只在绘图层按本次 radio map 的全局最小 RSS
+  渲染为最弱信号，避免插值把无链路点补成虚假的可覆盖区域；HDF5、CSV 与统计仍保留
+  原始 NaN/valid-mask 语义。
 
 pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
 全量聚合统计，不逐 link 生成海量细节图。

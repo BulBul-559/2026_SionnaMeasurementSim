@@ -107,6 +107,42 @@ def test_ranging_failure_outputs_nan_and_false_success():
     assert result.selected_delay_bin[0, 0, 0] == -1
 
 
+def test_pdp_peak_masks_links_without_finite_truth_delay():
+    frequency = _grid()
+    cfr = _single_path_cfr(50e-9)
+
+    result = estimate_pdp_peak(
+        cfr,
+        frequency,
+        np.array([[np.nan]], dtype=np.float32),
+        PdpPeakRangingConfig(min_peak_snr_db=0.0),
+    )
+
+    assert not result.detection_success[0, 0, 0]
+    assert np.isnan(result.toa_est_s[0, 0, 0])
+    assert np.isnan(result.one_way_range_est_m[0, 0, 0])
+    assert np.isnan(result.range_error_m[0, 0, 0])
+    assert result.selected_delay_bin[0, 0, 0] == -1
+
+
+def test_phase_slope_masks_links_without_finite_truth_delay():
+    frequency = _grid()
+    cfr = _single_path_cfr(50e-9)
+
+    result = estimate_phase_slope(
+        cfr,
+        frequency,
+        np.array([[np.nan]], dtype=np.float32),
+        PhaseSlopeRangingConfig(),
+    )
+
+    assert not result.detection_success[0, 0, 0]
+    assert np.isnan(result.toa_est_s[0, 0, 0])
+    assert np.isnan(result.one_way_range_est_m[0, 0, 0])
+    assert np.isnan(result.range_error_m[0, 0, 0])
+    assert np.isnan(result.fit_residual_rad[0, 0, 0])
+
+
 def test_ranging_runner_requires_observation_when_enabled():
     with pytest.raises(ValueError, match="/observation/cfr_est"):
         run_ranging_observation(

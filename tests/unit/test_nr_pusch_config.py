@@ -370,6 +370,47 @@ class TestRunNRPUSCHObservation:
         assert "spatial_spectrum_observation" not in arrays
         assert np.all(np.isfinite(arrays["spatial_spectrum_cfr_est"]))
 
+    def test_array_outputs_broadcast_static_truth_spectrum_to_rx_grid_snapshots(self):
+        rx_grid = np.ones((3, 1, 1, 4, 2, 2), dtype=np.complex64)
+        truth_samples = np.ones((1, 1, 1, 4, 1, 2), dtype=np.complex64)
+        config = ArraySpectrumConfig(
+            enabled=True,
+            sources=("truth_cfr",),
+            zenith_bins=7,
+            azimuth_bins=9,
+        )
+
+        arrays = build_array_outputs_from_waveform(
+            rx_grid,
+            spectrum_config=config,
+            rx_num_rows=2,
+            rx_num_cols=2,
+            truth_spectrum_samples=truth_samples,
+        )
+
+        assert arrays["aoa_heatmap_label"].shape == (3, 1, 1, 7, 9)
+        assert arrays["spatial_spectrum_truth"].shape == (3, 1, 1, 7, 9)
+        assert np.all(np.isfinite(arrays["spatial_spectrum_truth"]))
+
+    def test_array_outputs_reject_mismatched_spectrum_sample_links(self):
+        rx_grid = np.ones((3, 1, 1, 4, 2, 2), dtype=np.complex64)
+        truth_samples = np.ones((2, 1, 1, 4, 1, 2), dtype=np.complex64)
+        config = ArraySpectrumConfig(
+            enabled=True,
+            sources=("truth_cfr",),
+            zenith_bins=7,
+            azimuth_bins=9,
+        )
+
+        with pytest.raises(ValueError, match="snapshot dimension"):
+            build_array_outputs_from_waveform(
+                rx_grid,
+                spectrum_config=config,
+                rx_num_rows=2,
+                rx_num_cols=2,
+                truth_spectrum_samples=truth_samples,
+            )
+
     def test_reciprocity_applied_flag(self):
         cir_coeff = np.ones((1, 2, 2, 1, 1, 2), dtype=np.complex64)
         cir_delays = np.ones((1, 2, 2, 1, 1, 2), dtype=np.float32) * 1e-9

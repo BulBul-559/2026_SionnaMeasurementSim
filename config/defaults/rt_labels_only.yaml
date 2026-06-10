@@ -4,18 +4,24 @@
 runtime:
   seed: 42
   device: "cpu"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
 
 input:
   label_file: "tests/fixtures/scenes/test/test5.json"
   scene_file: "tests/fixtures/scenes/test/scene.xml"
   scene_id: "scene"
   map_id: ""
+  label_schema: "simplesionna_v1"
+  coordinate_system: "scene_local_xyz_m"
   max_bs: 6
   max_ue: 100
 
 output:
   profile: "rt_labels_only"
   root_dir: "outputs/rt_labels_only"
+  run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
   compression: "gzip"
   save_full_paths: false
@@ -50,5 +56,14 @@ ranging:
 visualization:
   enabled: false
 
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
+
 calibration:
   enabled: false
+  profile_id: "synthetic_default"

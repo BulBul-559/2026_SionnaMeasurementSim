@@ -16,6 +16,7 @@ import numpy as np
 
 RADIO_MAP_RENDER_MODES = ("interpolated", "samples", "both")
 DEFAULT_RSSI_DATASET = "/observation/rssi_dbm"
+MISSING_SIGNAL_RENDER_POLICY = "render_invalid_links_as_global_min_rss"
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ def generate_radio_map_heatmaps(
         "bs_count": int(table.bs_indices.size),
         "bs_indices": [int(value) for value in table.bs_indices],
         "rss_dbm": _summary_stats(table.rss_dbm[table.valid_mask]),
+        "missing_signal_policy": MISSING_SIGNAL_RENDER_POLICY,
         "generated_files": [path.as_posix() for path in generated],
         "csv": csv_path.as_posix(),
     }
@@ -253,12 +255,9 @@ def _plot_radio_maps(
     modes = ("interpolated", "samples") if config.render_mode == "both" else (config.render_mode,)
     paths: list[Path] = []
     for bs_col, bs_index in enumerate(table.bs_indices):
-        mask = table.valid_mask[:, bs_col] & np.all(np.isfinite(table.positions_m[:, :2]), axis=1)
-        if not np.any(mask):
+        x, y, values = _plot_samples_for_bs(table, bs_col=bs_col, missing_value_dbm=vmin)
+        if x.size == 0:
             continue
-        x = table.positions_m[mask, 0].astype(np.float64, copy=False)
-        y = table.positions_m[mask, 1].astype(np.float64, copy=False)
-        values = table.rss_dbm[mask, bs_col].astype(np.float64, copy=False)
         bs_position = table.bs_positions_m[bs_col]
         for mode in modes:
             filename = f"radio_map_bs_{int(bs_index):03d}_{mode}.png"
@@ -280,6 +279,25 @@ def _plot_radio_maps(
             )
             paths.append(output_path)
     return paths
+
+
+def _plot_samples_for_bs(
+    table: RadioMapTable,
+    *,
+    bs_col: int,
+    missing_value_dbm: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    position_mask = np.all(np.isfinite(table.positions_m[:, :2]), axis=1)
+    if not np.any(position_mask):
+        empty = np.asarray([], dtype=np.float64)
+        return empty, empty, empty
+    x = table.positions_m[position_mask, 0].astype(np.float64, copy=False)
+    y = table.positions_m[position_mask, 1].astype(np.float64, copy=False)
+    raw_values = table.rss_dbm[position_mask, bs_col].astype(np.float64, copy=False)
+    valid_values = table.valid_mask[position_mask, bs_col] & np.isfinite(raw_values)
+    values = np.full(raw_values.shape, float(missing_value_dbm), dtype=np.float64)
+    values[valid_values] = raw_values[valid_values]
+    return x, y, values
 
 
 def _plot_one_radio_map(

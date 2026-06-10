@@ -1804,7 +1804,11 @@ def build_array_outputs_from_waveform(
         )
     if config.enabled and "truth_cfr" in config.sources and truth_spectrum_samples is not None:
         outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
-            truth_spectrum_samples,
+            _align_spectrum_samples_to_link_shape(
+                truth_spectrum_samples,
+                link_shape,
+                name="truth_spectrum_samples",
+            ),
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
@@ -1813,7 +1817,11 @@ def build_array_outputs_from_waveform(
         )
     if config.enabled and "cfr_est" in config.sources and cfr_est_spectrum_samples is not None:
         outputs["spatial_spectrum_cfr_est"] = build_bartlett_spectrum(
-            cfr_est_spectrum_samples,
+            _align_spectrum_samples_to_link_shape(
+                cfr_est_spectrum_samples,
+                link_shape,
+                name="cfr_est_spectrum_samples",
+            ),
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,
@@ -1821,6 +1829,30 @@ def build_array_outputs_from_waveform(
             config=config,
         )
     return outputs
+
+
+def _align_spectrum_samples_to_link_shape(
+    samples: np.ndarray,
+    link_shape: tuple[int, int, int],
+    *,
+    name: str,
+) -> np.ndarray:
+    array = np.asarray(samples, dtype=np.complex64)
+    if array.ndim < 5:
+        raise ValueError(f"{name} must have rank >= 5, got {array.shape}")
+    if array.shape[1:3] != link_shape[1:3]:
+        raise ValueError(
+            f"{name} tx/rx dimensions {array.shape[1:3]} do not match rx_grid "
+            f"dimensions {link_shape[1:3]}"
+        )
+    if array.shape[0] == link_shape[0]:
+        return array
+    if array.shape[0] == 1:
+        return np.broadcast_to(array, (link_shape[0], *array.shape[1:]))
+    raise ValueError(
+        f"{name} snapshot dimension {array.shape[0]} must match rx_grid snapshot "
+        f"dimension {link_shape[0]} or be 1 for static truth broadcasting"
+    )
 
 
 def _fixed_angle_grid_rad() -> np.ndarray:
