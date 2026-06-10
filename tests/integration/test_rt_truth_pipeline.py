@@ -206,9 +206,13 @@ def test_rt_truth_pipeline_can_generate_sample_visualizations(tmp_path: Path):
     validate_hdf5_contract(results_path)
     index_path = output_dir / "figures" / "index.json"
     assert index_path.is_file()
-    assert (output_dir / "figures" / "topology.png").stat().st_size > 0
-    assert (output_dir / "figures" / "cfr_lines_magnitude.png").stat().st_size > 0
-    assert (output_dir / "figures" / "cfr_lines_phase.png").stat().st_size > 0
+    assert (output_dir / "figures" / "standard" / "topology.png").stat().st_size > 0
+    assert (
+        output_dir / "figures" / "standard" / "cfr_lines_magnitude.png"
+    ).stat().st_size > 0
+    assert (
+        output_dir / "figures" / "standard" / "cfr_lines_phase.png"
+    ).stat().st_size > 0
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["visualization"]["selected_bs_indices"] == [0]
     assert len(manifest["visualization"]["selected_ue_indices"]) == 1

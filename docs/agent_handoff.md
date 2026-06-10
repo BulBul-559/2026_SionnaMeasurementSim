@@ -179,6 +179,10 @@ path 可视化、PHY observation、空间谱或 ranging，应使用 `output.prof
 `figures/heatmaps/`。`visualization.radio_map_mode` 默认 `interpolated`，可设为
 `samples` 或 `both`；shard 模式下 radio map 在 aggregate manifest 写完后聚合所有 shard 生成。
 无有效 RSS 的 UE-BS 位置在绘图层按全局最小 RSS 渲染为最弱信号，避免插值补出虚假的覆盖。
+普通采样诊断图写到 `figures/standard/`，multi-UE SRS shared observation 图写到
+`figures/multiuser/`。`multiuser_srs` plot 只在 `/multiuser` group 存在时生成，包含
+resource ownership、shared RX grid、per-UE resource/allocated CFR、误差摘要以及
+shared/separated 空间谱，用于检查多 UE 正交资源拆分和 BS 侧混合观测。
 
 ## 数据目录
 

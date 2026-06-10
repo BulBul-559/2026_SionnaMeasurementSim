@@ -329,6 +329,11 @@ SRS RE 上恢复各 UE 的 CFR。`cfr_est_resource` 是真实被 sounding 的 RE
 中未 sounding 的子载波来自插值/补全，不应视作真实全频观测。当前 v1 不与 SRS
 frequency/bandwidth hopping 组合，后续若要研究碰撞或异步 UE，应另行扩展干扰模型。
 
+可视化入口可通过 `multiuser_srs` plot 检查该 group：P0 图展示 shared resource grid、
+shared RX grid 和 resource CFR；P1 图展示 allocated CFR 与 truth 的误差摘要；P2 图展示
+有限 BS 观测下的 UE 发射示意以及 shared/separated Bartlett 空间谱。图像写到
+`figures/multiuser/`，普通单 UE/链路诊断仍写到 `figures/standard/`。
+
 `/array/spatial_spectrum_*` 使用 scene/global 角度网格。实现时先按 Sionna
 `PlanarArray` 的本地 y-z 平面、top-left 起、column-first 编号、第一行 z 为正生成
 接收阵列元素位置，再用每个 RX 的 `/devices/rx_orientation_rad` 旋转到 scene

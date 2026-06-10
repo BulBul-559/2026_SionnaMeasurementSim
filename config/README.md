@@ -261,7 +261,7 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
 | `max_ue` | int | 5 | 自动图中最多绘制的 UE 数 |
 | `dpi` | int | 140 | PNG 分辨率 |
 | `format` | str | "png" | 第一版仅支持 PNG |
-| `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图 |
+| `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图；NR SRS multi-UE 数据可加 `multiuser_srs` |
 | `radio_map_mode` | str | "interpolated" | `plots` 含 `radio_map` 时的 RSS radio map 输出；可选 `interpolated`、`samples`、`both` |
 | `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样间距推断 |
 | `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
@@ -275,6 +275,8 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
 
 绘图约定：
 
+- `figures/index.json` 是可视化入口索引；普通采样诊断图写到 `figures/standard/`，
+  multi-UE SRS 图写到 `figures/multiuser/`，RSS radio map 写到 `figures/heatmaps/`。
 - 所有涉及子载波的热力图统一把 subcarrier 放在纵轴；CFR 折线图例外，使用 subcarrier 横轴，便于直接看频域曲线。
 - Matplotlib 热力图显式使用 `interpolation="none"`，不做显示层插值或平滑。
 - `path_samples` 只绘制当前采样选择中的第一个 UE-BS 链路，避免多个链路路径叠加后难以判断几何关系；如需对比多条链路，应分别指定 BS/UE 后多次可视化。
@@ -295,6 +297,11 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
   对于覆盖区域内某个 UE-BS 链路无有效 RSS 的位置，绘图层会按本次 radio map 的
   全局最小 RSS 渲染为最弱信号，避免 IDW 插值把无链路区域补成看似有覆盖；CSV 与
   统计仍保留原始 NaN/valid-mask 语义。
+- `multiuser_srs` 只在 HDF5 存在 `/multiuser` group 时出图，面向 NR SRS shared
+  observation：P0 图展示 resource ownership、shared RX grid 和 resource CFR；P1 图对比
+  resource/allocated CFR 并输出 per-frame error summary；P2 图用少量 BS 观测画 UE
+  发射示意和 shared/separated Bartlett 空间谱。该图集用于检查多 UE 正交资源拆分和
+  BS 侧混合观测，不会把插值得到的 allocated/full-band CFR 当作真实全频观测。
 
 嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
 

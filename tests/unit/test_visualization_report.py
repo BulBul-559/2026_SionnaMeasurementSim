@@ -134,6 +134,10 @@ def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
         "spatial_spectrum",
     }
     generated_names = {Path(entry["path"]).name for entry in index["generated_files"]}
+    assert all(
+        Path(entry["path"]).parent.name == "standard"
+        for entry in index["generated_files"]
+    )
     assert {
         "cfr_lines_magnitude.png",
         "cfr_lines_phase.png",
@@ -152,6 +156,53 @@ def test_generate_sample_report_writes_pngs_and_index(tmp_path: Path):
     } <= generated_names
     for entry in index["generated_files"]:
         assert Path(entry["path"]).is_file()
+        assert Path(entry["path"]).stat().st_size > 0
+
+
+def test_generate_multiuser_srs_report_writes_grouped_outputs(tmp_path: Path):
+    h5_path = _write_multiuser_visualization_fixture(tmp_path / "multiuser_fixture.h5")
+    out_dir = tmp_path / "figures"
+    config = VisualizationRunConfig(
+        enabled=True,
+        plots=("multiuser_srs",),
+        max_bs=2,
+        sample_ue_count=3,
+        max_ue=3,
+        dpi=80,
+    )
+
+    report = generate_visualization_report(
+        h5_path,
+        out_dir,
+        config,
+        mode="selected",
+        bs_indices=[0, 1],
+        ue_indices=[0, 1, 2],
+    )
+
+    index = json.loads((out_dir / "index.json").read_text(encoding="utf-8"))
+    generated = {Path(entry["path"]).name for entry in report["generated_files"]}
+    assert index["skipped_plots"] == []
+    assert all(
+        Path(entry["path"]).parent.name == "multiuser"
+        for entry in report["generated_files"]
+    )
+    assert {
+        "multiuser_resource_grid.png",
+        "multiuser_resource_vs_allocated.png",
+        "multiuser_shared_rx_grid.png",
+        "multiuser_cfr_resource_magnitude.png",
+        "multiuser_cfr_resource_phase.png",
+        "multiuser_cfr_allocated_magnitude.png",
+        "multiuser_cfr_allocated_phase.png",
+        "multiuser_cfr_error_summary.png",
+        "multiuser_frame_summary.png",
+        "multiuser_frame_summary.csv",
+        "multiuser_bs_observation_map.png",
+        "multiuser_spatial_spectrum_shared.png",
+        "multiuser_spatial_spectrum_separated.png",
+    } <= generated
+    for entry in report["generated_files"]:
         assert Path(entry["path"]).stat().st_size > 0
 
 
@@ -365,4 +416,98 @@ def _write_visualization_fixture(path: Path) -> Path:
             ),
         )
         h5.create_dataset("paths/samples/vertex_count", data=np.array([[3], [3]], dtype=np.int32))
+    return path
+
+
+def _write_multiuser_visualization_fixture(path: Path) -> Path:
+    rng = np.random.default_rng(321)
+    subcarriers = 24
+    with h5py.File(path, "w") as h5:
+        h5.create_dataset("link/tx_role", data=np.bytes_("ue"))
+        h5.create_dataset("link/rx_role", data=np.bytes_("bs"))
+        h5.create_dataset(
+            "topology/tx_positions_m",
+            data=np.array([[1, 1, 1], [2, 1, 1], [3, 1, 1]], dtype=np.float32),
+        )
+        h5.create_dataset(
+            "topology/rx_positions_m",
+            data=np.array([[0, 0, 2], [5, 0, 2]], dtype=np.float32),
+        )
+        h5.create_dataset(
+            "frequency/frequencies_hz",
+            data=np.linspace(3.49e9, 3.51e9, subcarriers),
+        )
+        h5.create_dataset("antenna/rx_num_rows", data=np.int32(1))
+        h5.create_dataset("antenna/rx_num_cols", data=np.int32(2))
+        h5.create_dataset("antenna/rx_num_ant", data=np.int32(2))
+        h5.create_dataset("antenna/tx_num_ant", data=np.int32(1))
+        h5.create_dataset(
+            "antenna/rx_spacing_lambda",
+            data=np.array([0.5, 0.5], dtype=np.float32),
+        )
+        h5.create_dataset("devices/rx_orientation_rad", data=np.zeros((1, 2, 3), dtype=np.float32))
+        h5.create_dataset(
+            "derived/link_valid_mask",
+            data=np.ones((3, 2), dtype=np.bool_),
+        )
+
+        truth = (
+            rng.normal(size=(3, 2, 2, 1, subcarriers))
+            + 1j * rng.normal(size=(3, 2, 2, 1, subcarriers))
+        ).astype(np.complex64)
+        h5.create_dataset("channel/truth/cfr", data=truth)
+
+        zenith = np.linspace(0.0, np.pi, 5, dtype=np.float32)
+        azimuth = np.linspace(-np.pi, np.pi, 7, dtype=np.float32)
+        angle_grid = np.empty((5, 7, 2), dtype=np.float32)
+        angle_grid[..., 0] = zenith[:, None]
+        angle_grid[..., 1] = azimuth[None, :]
+        h5.create_dataset("array/angle_grid_rad", data=angle_grid)
+
+        active_tx = np.array([[0, 1, 2]], dtype=np.int32)
+        h5.create_dataset("multiuser/active_tx_indices", data=active_tx)
+        h5.create_dataset("multiuser/active_tx_mask", data=np.ones_like(active_tx, dtype=np.bool_))
+        h5.create_dataset("multiuser/comb_offset", data=np.array([[0, 1, 2]], dtype=np.int32))
+        h5.create_dataset("multiuser/prb_start", data=np.zeros((1, 3, 1), dtype=np.int32))
+        h5.create_dataset("multiuser/prb_count", data=np.full((1, 3, 1), 2, dtype=np.int32))
+
+        re_symbols = np.full((1, 3, 6), 12, dtype=np.int32)
+        re_subcarriers = np.zeros((1, 3, 6), dtype=np.int32)
+        re_mask = np.ones((1, 3, 6), dtype=np.bool_)
+        occupancy = np.zeros((1, 14, subcarriers), dtype=np.int32)
+        for ue_idx, offset in enumerate((0, 1, 2)):
+            indices = np.arange(offset, subcarriers, 4, dtype=np.int32)
+            re_subcarriers[0, ue_idx, : indices.size] = indices
+            occupancy[0, 12, indices] += 1
+        h5.create_dataset("multiuser/re_symbol_indices", data=re_symbols)
+        h5.create_dataset("multiuser/re_subcarrier_indices", data=re_subcarriers)
+        h5.create_dataset("multiuser/re_mask", data=re_mask)
+        h5.create_dataset(
+            "multiuser/allocated_subcarrier_indices",
+            data=np.tile(np.arange(subcarriers, dtype=np.int32), (1, 3, 1)),
+        )
+        h5.create_dataset(
+            "multiuser/allocated_subcarrier_mask",
+            data=np.ones((1, 3, subcarriers), dtype=np.bool_),
+        )
+        h5.create_dataset("multiuser/resource_occupancy_count", data=occupancy)
+        h5.create_dataset("multiuser/resource_collision_mask", data=occupancy > 1)
+        rx_grid = (
+            rng.normal(size=(1, 1, 2, 2, 14, subcarriers))
+            + 1j * rng.normal(size=(1, 1, 2, 2, 14, subcarriers))
+        ).astype(np.complex64)
+        h5.create_dataset("multiuser/rx_grid_shared", data=rx_grid)
+
+        cfr_resource = np.zeros((1, 1, 3, 2, 2, 1, 6), dtype=np.complex64)
+        cfr_allocated = np.zeros((1, 1, 3, 2, 2, 1, subcarriers), dtype=np.complex64)
+        for ue_idx in range(3):
+            indices = re_subcarriers[0, ue_idx]
+            cfr_resource[0, 0, ue_idx, :, :, 0, :] = np.take(
+                truth[ue_idx, :, :, 0, :],
+                indices,
+                axis=-1,
+            )
+            cfr_allocated[0, 0, ue_idx, :, :, 0, :] = truth[ue_idx, :, :, 0, :]
+        h5.create_dataset("multiuser/cfr_est_resource", data=cfr_resource)
+        h5.create_dataset("multiuser/cfr_est_allocated", data=cfr_allocated)
     return path

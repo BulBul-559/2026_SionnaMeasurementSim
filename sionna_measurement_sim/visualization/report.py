@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from csv import DictWriter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sionna_measurement_sim.domain.array import ArraySpectrumConfig
+from sionna_measurement_sim.phy.spatial_spectrum import build_bartlett_spectrum
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.radio_map import (
     RadioMapRenderConfig,
@@ -66,9 +69,10 @@ def generate_visualization_report(
 
         for plot_name in selected_plots:
             try:
+                plot_output_dir = _plot_output_dir(output_dir, plot_name)
                 path = _dispatch_plot(
                     h5,
-                    output_dir,
+                    plot_output_dir,
                     plot_name,
                     selection,
                     cfg,
@@ -357,6 +361,7 @@ def _dispatch_plot(
         "spatial_spectrum": _plot_spatial_spectrum,
         "nmse_snr": _plot_nmse_snr,
         "path_samples": _plot_path_samples,
+        "multiuser_srs": _plot_multiuser_srs,
         "radio_map": _plot_radio_map,
         "full_summary": _plot_full_summary,
         "dataset_preview": _plot_dataset_preview,
@@ -371,6 +376,14 @@ def _dispatch_plot(
         dataset_path=dataset_path,
         plot_type=plot_type,
     )
+
+
+def _plot_output_dir(output_dir: Path, plot_name: str) -> Path:
+    if plot_name == "radio_map":
+        return output_dir
+    if plot_name == "multiuser_srs":
+        return output_dir / "multiuser"
+    return output_dir / "standard"
 
 
 def _plot_radio_map(
@@ -395,6 +408,660 @@ def _plot_radio_map(
         ),
     )
     return [Path(path) for path in summary["generated_files"]]
+
+
+def _plot_multiuser_srs(
+    h5: h5py.File,
+    output_dir: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+    **_: Any,
+) -> list[Path]:
+    _require(
+        h5,
+        (
+            "multiuser/rx_grid_shared",
+            "multiuser/active_tx_indices",
+            "multiuser/active_tx_mask",
+            "multiuser/re_symbol_indices",
+            "multiuser/re_subcarrier_indices",
+            "multiuser/re_mask",
+            "multiuser/allocated_subcarrier_indices",
+            "multiuser/allocated_subcarrier_mask",
+            "multiuser/resource_occupancy_count",
+            "multiuser/resource_collision_mask",
+            "multiuser/cfr_est_resource",
+            "multiuser/cfr_est_allocated",
+        ),
+    )
+    entries = _multiuser_selected_entries(h5, selection)
+    if not entries:
+        raise _SkipPlot("no selected active UE appears in /multiuser frames")
+    rx_indices = _multiuser_selected_rx_indices(h5, selection)
+    if not rx_indices:
+        raise _SkipPlot("no selected BS/RX for /multiuser visualization")
+
+    generated = [
+        _plot_multiuser_resource_grid(h5, output_dir, entries, config),
+        _plot_multiuser_resource_vs_allocated(h5, output_dir, entries, config),
+        _plot_multiuser_shared_rx_grid(h5, output_dir, entries, rx_indices, config),
+    ]
+    generated.extend(
+        _plot_multiuser_cfr_lines(
+            h5,
+            output_dir,
+            entries,
+            rx_indices,
+            config,
+            dataset_kind="resource",
+        )
+    )
+    generated.extend(
+        _plot_multiuser_cfr_lines(
+            h5,
+            output_dir,
+            entries,
+            rx_indices,
+            config,
+            dataset_kind="allocated",
+        )
+    )
+    rows = _multiuser_error_rows(h5, entries, rx_indices)
+    generated.extend(_write_multiuser_summary_outputs(output_dir, rows, config))
+    generated.append(
+        _plot_multiuser_bs_observation_map(h5, output_dir, entries, rx_indices, config)
+    )
+    generated.extend(_plot_multiuser_spatial_spectra(h5, output_dir, entries, rx_indices, config))
+    return generated
+
+
+def _multiuser_selected_entries(
+    h5: h5py.File,
+    selection: dict[str, Any],
+) -> list[dict[str, int]]:
+    if str(selection.get("tx_role", "bs")) != "ue" or str(selection.get("rx_role", "ue")) != "bs":
+        raise _SkipPlot("multiuser SRS visualization requires uplink role mapping tx=UE, rx=BS")
+    active_tx = np.asarray(h5["multiuser/active_tx_indices"][()], dtype=np.int64)
+    active_mask = np.asarray(h5["multiuser/active_tx_mask"][()], dtype=np.bool_)
+    selected_tx = set(int(value) for value in selection["ue_indices"])
+    entries: list[dict[str, int]] = []
+    for frame in range(active_tx.shape[0]):
+        for slot in range(active_tx.shape[1]):
+            if not active_mask[frame, slot]:
+                continue
+            tx_idx = int(active_tx[frame, slot])
+            if tx_idx not in selected_tx:
+                continue
+            entries.append({"frame": int(frame), "slot": int(slot), "tx": tx_idx})
+    return entries
+
+
+def _multiuser_selected_rx_indices(
+    h5: h5py.File,
+    selection: dict[str, Any],
+) -> list[int]:
+    rx_count = int(h5["multiuser/rx_grid_shared"].shape[2])
+    if str(selection.get("rx_role", "ue")) != "bs":
+        return []
+    return [idx for idx in (int(value) for value in selection["bs_indices"]) if 0 <= idx < rx_count]
+
+
+def _selected_multiuser_frames(entries: list[dict[str, int]]) -> list[int]:
+    return sorted({int(entry["frame"]) for entry in entries})
+
+
+def _plot_multiuser_resource_grid(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    config: VisualizationRunConfig,
+) -> Path:
+    frames = _selected_multiuser_frames(entries)
+    occupancy = np.asarray(h5["multiuser/resource_occupancy_count"][()])
+    collision = np.asarray(h5["multiuser/resource_collision_mask"][()])
+    active_tx = np.asarray(h5["multiuser/active_tx_indices"][()])
+    active_mask = np.asarray(h5["multiuser/active_tx_mask"][()])
+    re_symbols = np.asarray(h5["multiuser/re_symbol_indices"][()])
+    re_subcarriers = np.asarray(h5["multiuser/re_subcarrier_indices"][()])
+    re_mask = np.asarray(h5["multiuser/re_mask"][()])
+
+    figure, axes = plt.subplots(
+        len(frames),
+        1,
+        figsize=(8.5, 3.1 * len(frames)),
+        squeeze=False,
+    )
+    for row, frame in enumerate(frames):
+        axis = axes[row, 0]
+        assignment = np.full(occupancy.shape[1:], np.nan, dtype=np.float32)
+        for slot in range(active_tx.shape[1]):
+            if not active_mask[frame, slot]:
+                continue
+            mask = re_mask[frame, slot]
+            symbols = re_symbols[frame, slot, mask]
+            subcarriers = re_subcarriers[frame, slot, mask]
+            assignment[symbols, subcarriers] = float(active_tx[frame, slot])
+        cmap = plt.get_cmap("tab20").copy()
+        cmap.set_bad(color="white")
+        image = axis.imshow(
+            assignment.T,
+            aspect="auto",
+            origin="lower",
+            interpolation="none",
+            cmap=cmap,
+        )
+        collision_y, collision_x = np.where(collision[frame].T)
+        if collision_x.size:
+            axis.scatter(
+                collision_x,
+                collision_y,
+                marker="x",
+                s=14,
+                color="black",
+                label="collision",
+            )
+            axis.legend(loc="upper right", fontsize=7)
+        axis.set_xlabel("OFDM symbol")
+        axis.set_ylabel("subcarrier")
+        axis.set_title(f"Frame {frame} SRS resource ownership")
+        figure.colorbar(image, ax=axis, fraction=0.026, pad=0.02, label="local UE/TX index")
+    figure.suptitle("Multi-UE SRS Resource Grid")
+    return _save_figure(figure, output_dir / f"multiuser_resource_grid.{config.format}", config)
+
+
+def _plot_multiuser_resource_vs_allocated(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    config: VisualizationRunConfig,
+) -> Path:
+    subcarrier_count = int(h5["multiuser/resource_occupancy_count"].shape[-1])
+    allocated = np.asarray(h5["multiuser/allocated_subcarrier_indices"][()])
+    allocated_mask = np.asarray(h5["multiuser/allocated_subcarrier_mask"][()])
+    re_subcarriers = np.asarray(h5["multiuser/re_subcarrier_indices"][()])
+    re_mask = np.asarray(h5["multiuser/re_mask"][()])
+    grid = np.zeros((len(entries), subcarrier_count), dtype=np.float32)
+    labels: list[str] = []
+    for row, entry in enumerate(entries):
+        frame = entry["frame"]
+        slot = entry["slot"]
+        alloc_idx = allocated[frame, slot, allocated_mask[frame, slot]]
+        res_idx = re_subcarriers[frame, slot, re_mask[frame, slot]]
+        grid[row, alloc_idx] = 0.45
+        grid[row, res_idx] = 1.0
+        labels.append(f"F{frame}/UE{entry['tx']}")
+    figure, axis = plt.subplots(figsize=(9.0, max(2.6, 0.45 * len(entries) + 1.8)))
+    image = axis.imshow(
+        grid,
+        aspect="auto",
+        origin="lower",
+        interpolation="none",
+        vmin=0.0,
+        vmax=1.0,
+    )
+    axis.set_xlabel("subcarrier")
+    axis.set_ylabel("active UE")
+    axis.set_yticks(range(len(labels)), labels)
+    axis.set_title("Allocated band (dim) vs actual SRS RE (bright)")
+    figure.colorbar(image, ax=axis, fraction=0.026, pad=0.02)
+    return _save_figure(
+        figure,
+        output_dir / f"multiuser_resource_vs_allocated.{config.format}",
+        config,
+    )
+
+
+def _plot_multiuser_shared_rx_grid(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    config: VisualizationRunConfig,
+) -> Path:
+    frames = _selected_multiuser_frames(entries)
+    rx_grid = h5["multiuser/rx_grid_shared"]
+    figure, axes = plt.subplots(
+        len(frames),
+        len(rx_indices),
+        figsize=(4.2 * len(rx_indices), 3.0 * len(frames)),
+        squeeze=False,
+    )
+    for row, frame in enumerate(frames):
+        for col, rx_idx in enumerate(rx_indices):
+            axis = axes[row, col]
+            data = np.asarray(rx_grid[0, frame, rx_idx])
+            power = 10.0 * np.log10(np.mean(np.abs(data) ** 2, axis=0) + _EPS)
+            image = axis.imshow(power.T, aspect="auto", origin="lower", interpolation="none")
+            axis.set_xlabel("OFDM symbol")
+            axis.set_ylabel("subcarrier")
+            axis.set_title(f"Frame {frame} - BS/RX {rx_idx}")
+            figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04, label="power [dB]")
+    figure.suptitle("Multi-UE Shared RX Grid")
+    return _save_figure(figure, output_dir / f"multiuser_shared_rx_grid.{config.format}", config)
+
+
+def _plot_multiuser_cfr_lines(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    config: VisualizationRunConfig,
+    *,
+    dataset_kind: str,
+) -> list[Path]:
+    generated = []
+    for value_kind in ("magnitude", "phase"):
+        figure, axes = plt.subplots(
+            len(entries),
+            len(rx_indices),
+            figsize=(4.4 * len(rx_indices), 2.7 * len(entries)),
+            squeeze=False,
+        )
+        for row, entry in enumerate(entries):
+            for col, rx_idx in enumerate(rx_indices):
+                axis = axes[row, col]
+                subcarriers, values = _multiuser_cfr_values(
+                    h5,
+                    entry,
+                    rx_idx,
+                    dataset_kind=dataset_kind,
+                )
+                _draw_multiuser_cfr_lines(axis, subcarriers, values, value_kind=value_kind)
+                axis.set_title(f"F{entry['frame']} UE {entry['tx']} - BS {rx_idx}", fontsize=8)
+        figure.suptitle(f"Multi-UE {dataset_kind} CFR {value_kind}")
+        generated.append(
+            _save_figure(
+                figure,
+                output_dir / f"multiuser_cfr_{dataset_kind}_{value_kind}.{config.format}",
+                config,
+            )
+        )
+    return generated
+
+
+def _multiuser_cfr_values(
+    h5: h5py.File,
+    entry: dict[str, int],
+    rx_idx: int,
+    *,
+    dataset_kind: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    frame = entry["frame"]
+    slot = entry["slot"]
+    if dataset_kind == "resource":
+        mask = np.asarray(h5["multiuser/re_mask"][frame, slot], dtype=np.bool_)
+        subcarriers = np.asarray(h5["multiuser/re_subcarrier_indices"][frame, slot])[mask]
+        values_full = np.asarray(h5["multiuser/cfr_est_resource"][0, frame, slot, rx_idx])
+        values = np.take(values_full, np.flatnonzero(mask), axis=-1)
+        return subcarriers, values
+    if dataset_kind == "allocated":
+        mask = np.asarray(h5["multiuser/allocated_subcarrier_mask"][frame, slot], dtype=np.bool_)
+        subcarriers = np.asarray(h5["multiuser/allocated_subcarrier_indices"][frame, slot])[mask]
+        values_full = np.asarray(h5["multiuser/cfr_est_allocated"][0, frame, slot, rx_idx])
+        values = np.take(values_full, np.flatnonzero(mask), axis=-1)
+        return subcarriers, values
+    raise ValueError(f"unsupported multiuser CFR dataset kind: {dataset_kind}")
+
+
+def _draw_multiuser_cfr_lines(
+    axis: Any,
+    subcarriers: np.ndarray,
+    values: np.ndarray,
+    *,
+    value_kind: str,
+) -> None:
+    flat = np.asarray(values).reshape(-1, values.shape[-1])
+    if value_kind == "magnitude":
+        plot_values = 20.0 * np.log10(np.abs(flat) + _EPS)
+        axis.set_ylabel("|H| [dB]")
+    elif value_kind == "phase":
+        plot_values = np.angle(flat)
+        axis.set_ylabel("phase [rad]")
+    else:
+        raise ValueError(f"unsupported value_kind: {value_kind}")
+    for row in plot_values:
+        axis.plot(subcarriers, row, alpha=0.65, linewidth=0.8)
+    axis.set_xlabel("subcarrier")
+    axis.grid(True, alpha=0.25)
+
+
+def _multiuser_error_rows(
+    h5: h5py.File,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+) -> list[dict[str, float | int]]:
+    truth = h5["channel/truth/cfr"] if "channel/truth/cfr" in h5 else None
+    active_tx = np.asarray(h5["multiuser/active_tx_indices"][()])
+    comb_offset = np.asarray(h5["multiuser/comb_offset"][()])
+    prb_start = np.asarray(h5["multiuser/prb_start"][()])
+    prb_count = np.asarray(h5["multiuser/prb_count"][()])
+    collision = np.asarray(h5["multiuser/resource_collision_mask"][()])
+    rows: list[dict[str, float | int]] = []
+    for entry in entries:
+        frame = entry["frame"]
+        slot = entry["slot"]
+        tx_idx = int(active_tx[frame, slot])
+        resource_re = int(np.count_nonzero(h5["multiuser/re_mask"][frame, slot]))
+        allocated_sc = int(np.count_nonzero(h5["multiuser/allocated_subcarrier_mask"][frame, slot]))
+        collision_count = int(np.count_nonzero(collision[frame]))
+        for rx_idx in rx_indices:
+            resource_nmse = np.nan
+            allocated_nmse = np.nan
+            if truth is not None:
+                resource_nmse = _multiuser_resource_nmse_db(h5, truth, entry, rx_idx)
+                allocated_nmse = _multiuser_allocated_nmse_db(h5, truth, entry, rx_idx)
+            rows.append(
+                {
+                    "frame": frame,
+                    "active_slot": slot,
+                    "tx_index": tx_idx,
+                    "rx_index": int(rx_idx),
+                    "comb_offset": int(comb_offset[frame, slot]),
+                    "prb_start": int(prb_start[frame, slot, 0]),
+                    "prb_count": int(prb_count[frame, slot, 0]),
+                    "resource_re": resource_re,
+                    "allocated_subcarriers": allocated_sc,
+                    "frame_collision_count": collision_count,
+                    "resource_nmse_db": float(resource_nmse),
+                    "allocated_nmse_db": float(allocated_nmse),
+                }
+            )
+    return rows
+
+
+def _multiuser_resource_nmse_db(
+    h5: h5py.File,
+    truth: h5py.Dataset,
+    entry: dict[str, int],
+    rx_idx: int,
+) -> float:
+    frame = entry["frame"]
+    slot = entry["slot"]
+    tx_idx = entry["tx"]
+    mask = np.asarray(h5["multiuser/re_mask"][frame, slot], dtype=np.bool_)
+    subcarriers = np.asarray(h5["multiuser/re_subcarrier_indices"][frame, slot])[mask]
+    est_full = np.asarray(h5["multiuser/cfr_est_resource"][0, frame, slot, rx_idx])
+    est = np.take(est_full, np.flatnonzero(mask), axis=-1)
+    truth_slice = np.asarray(truth[tx_idx, rx_idx])
+    pair_count = min(est.shape[1], truth_slice.shape[1])
+    truth_values = np.take(truth_slice[:, :pair_count, :], subcarriers, axis=-1)
+    return _nmse_db(est[:, :pair_count, :], truth_values)
+
+
+def _multiuser_allocated_nmse_db(
+    h5: h5py.File,
+    truth: h5py.Dataset,
+    entry: dict[str, int],
+    rx_idx: int,
+) -> float:
+    frame = entry["frame"]
+    slot = entry["slot"]
+    tx_idx = entry["tx"]
+    mask = np.asarray(h5["multiuser/allocated_subcarrier_mask"][frame, slot], dtype=np.bool_)
+    subcarriers = np.asarray(h5["multiuser/allocated_subcarrier_indices"][frame, slot])[mask]
+    est_full = np.asarray(h5["multiuser/cfr_est_allocated"][0, frame, slot, rx_idx])
+    est = np.take(est_full, np.flatnonzero(mask), axis=-1)
+    truth_slice = np.asarray(truth[tx_idx, rx_idx])
+    pair_count = min(est.shape[1], truth_slice.shape[1])
+    truth_values = np.take(truth_slice[:, :pair_count, :], subcarriers, axis=-1)
+    return _nmse_db(est[:, :pair_count, :], truth_values)
+
+
+def _nmse_db(estimate: np.ndarray, truth: np.ndarray) -> float:
+    denom = float(np.sum(np.abs(truth) ** 2))
+    if denom <= 0.0:
+        return float("nan")
+    value = float(np.sum(np.abs(estimate - truth) ** 2) / denom)
+    return 10.0 * np.log10(max(value, _EPS))
+
+
+def _write_multiuser_summary_outputs(
+    output_dir: Path,
+    rows: list[dict[str, float | int]],
+    config: VisualizationRunConfig,
+) -> list[Path]:
+    csv_path = output_dir / "multiuser_frame_summary.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    if rows:
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        csv_path.write_text("", encoding="utf-8")
+
+    labels = [f"F{row['frame']}/UE{row['tx_index']}/BS{row['rx_index']}" for row in rows]
+    resource = np.array([float(row["resource_nmse_db"]) for row in rows], dtype=np.float32)
+    allocated = np.array([float(row["allocated_nmse_db"]) for row in rows], dtype=np.float32)
+    x = np.arange(len(rows))
+    figure, axis = plt.subplots(figsize=(max(7.0, 0.55 * len(rows)), 4.5))
+    axis.bar(x - 0.18, resource, width=0.36, label="resource")
+    axis.bar(x + 0.18, allocated, width=0.36, label="allocated")
+    axis.set_xticks(x, labels, rotation=45, ha="right")
+    axis.set_ylabel("NMSE [dB]")
+    axis.set_title("Multi-UE CFR Error Summary")
+    axis.grid(True, axis="y", alpha=0.3)
+    axis.legend(loc="best")
+    png_path = _save_figure(
+        figure,
+        output_dir / f"multiuser_cfr_error_summary.{config.format}",
+        config,
+    )
+
+    table_rows = rows[: min(len(rows), 16)]
+    figure, axis = plt.subplots(figsize=(12.0, max(2.6, 0.42 * len(table_rows) + 1.3)))
+    axis.axis("off")
+    if table_rows:
+        columns = (
+            "frame",
+            "active_slot",
+            "tx_index",
+            "rx_index",
+            "comb_offset",
+            "prb_start",
+            "prb_count",
+            "resource_re",
+            "allocated_subcarriers",
+            "frame_collision_count",
+        )
+        cell_text = [[str(row[column]) for column in columns] for row in table_rows]
+        table = axis.table(cellText=cell_text, colLabels=columns, loc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(7)
+        table.scale(1.0, 1.3)
+    axis.set_title("Multi-UE Frame Summary")
+    table_path = _save_figure(
+        figure,
+        output_dir / f"multiuser_frame_summary.{config.format}",
+        config,
+    )
+    return [csv_path, png_path, table_path]
+
+
+def _plot_multiuser_bs_observation_map(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    config: VisualizationRunConfig,
+) -> Path:
+    bs_positions = _role_positions(
+        h5,
+        "bs",
+        {"tx_role": "ue", "rx_role": "bs", "bs_indices": rx_indices, "ue_indices": []},
+    )
+    if bs_positions.size == 0:
+        raise _SkipPlot("missing BS positions for multiuser BS observation map")
+    rows = len(entries)
+    figure, axes = plt.subplots(rows, 1, figsize=(7.0, max(3.0, 2.7 * rows)), squeeze=False)
+    for row, entry in enumerate(entries):
+        axis = axes[row, 0]
+        values = []
+        for rx_idx in rx_indices:
+            _, cfr = _multiuser_cfr_values(h5, entry, rx_idx, dataset_kind="resource")
+            values.append(10.0 * np.log10(float(np.mean(np.abs(cfr) ** 2)) + _EPS))
+        values_array = np.asarray(values, dtype=np.float32)
+        xy = bs_positions[np.asarray(rx_indices, dtype=np.int64), :2]
+        image = axis.scatter(xy[:, 0], xy[:, 1], c=values_array, s=90, cmap="viridis")
+        for idx, rx_idx in enumerate(rx_indices):
+            axis.text(xy[idx, 0], xy[idx, 1], f"BS {rx_idx}", fontsize=8, color="black")
+        axis.set_aspect("equal", adjustable="box")
+        axis.set_xlabel("x [m]")
+        axis.set_ylabel("y [m]")
+        axis.set_title(f"UE {entry['tx']} separated CFR power proxy at BSs")
+        figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04, label="mean |H|^2 [dB]")
+    figure.suptitle("Multi-UE UE-to-BS Observation Map")
+    return _save_figure(
+        figure,
+        output_dir / f"multiuser_bs_observation_map.{config.format}",
+        config,
+    )
+
+
+def _plot_multiuser_spatial_spectra(
+    h5: h5py.File,
+    output_dir: Path,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    config: VisualizationRunConfig,
+) -> list[Path]:
+    if "array/angle_grid_rad" not in h5:
+        return []
+    try:
+        spectrum_config = _array_spectrum_config_from_h5(h5)
+        shared = _multiuser_shared_spectrum(h5, entries, rx_indices, spectrum_config)
+        separated = _multiuser_separated_spectrum(h5, entries, rx_indices, spectrum_config)
+    except ValueError:
+        return []
+    angle_grid = np.asarray(h5["array/angle_grid_rad"][()])
+    return [
+        _plot_multiuser_spectrum_grid(
+            shared,
+            angle_grid,
+            output_dir / f"multiuser_spatial_spectrum_shared.{config.format}",
+            [f"F{frame}" for frame in _selected_multiuser_frames(entries)],
+            rx_indices,
+            "Shared RX-grid Bartlett spectrum",
+            config,
+        ),
+        _plot_multiuser_spectrum_grid(
+            separated,
+            angle_grid,
+            output_dir / f"multiuser_spatial_spectrum_separated.{config.format}",
+            [f"F{entry['frame']}/UE{entry['tx']}" for entry in entries],
+            rx_indices,
+            "Separated resource-CFR Bartlett spectrum",
+            config,
+        ),
+    ]
+
+
+def _array_spectrum_config_from_h5(h5: h5py.File) -> ArraySpectrumConfig:
+    angle_grid = np.asarray(h5["array/angle_grid_rad"][()])
+    return ArraySpectrumConfig(
+        enabled=True,
+        zenith_bins=int(angle_grid.shape[0]),
+        azimuth_bins=int(angle_grid.shape[1]),
+        zenith_min_rad=float(angle_grid[0, 0, 0]),
+        zenith_max_rad=float(angle_grid[-1, 0, 0]),
+        azimuth_min_rad=float(angle_grid[0, 0, 1]),
+        azimuth_max_rad=float(angle_grid[0, -1, 1]),
+        link_chunk_size=64,
+    )
+
+
+def _rx_orientation_for_indices(h5: h5py.File, rx_indices: list[int]) -> np.ndarray | None:
+    if "devices/rx_orientation_rad" not in h5:
+        return None
+    orientation = np.asarray(h5["devices/rx_orientation_rad"][()])
+    if orientation.ndim == 2:
+        orientation = orientation[np.newaxis, ...]
+    return orientation[:, np.asarray(rx_indices, dtype=np.int64), :]
+
+
+def _multiuser_shared_spectrum(
+    h5: h5py.File,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    spectrum_config: ArraySpectrumConfig,
+) -> np.ndarray:
+    frames = _selected_multiuser_frames(entries)
+    samples = np.asarray(h5["multiuser/rx_grid_shared"][:, frames, :, :, :, :])
+    samples = samples[:, :, np.asarray(rx_indices, dtype=np.int64), :, :, :]
+    return build_bartlett_spectrum(
+        samples,
+        rx_num_rows=int(h5["antenna/rx_num_rows"][()]),
+        rx_num_cols=int(h5["antenna/rx_num_cols"][()]),
+        rx_spacing_lambda=tuple(float(v) for v in h5["antenna/rx_spacing_lambda"][()]),
+        rx_orientation_rad=_rx_orientation_for_indices(h5, rx_indices),
+        config=spectrum_config,
+    )
+
+
+def _multiuser_separated_spectrum(
+    h5: h5py.File,
+    entries: list[dict[str, int]],
+    rx_indices: list[int],
+    spectrum_config: ArraySpectrumConfig,
+) -> np.ndarray:
+    resource = h5["multiuser/cfr_est_resource"]
+    snap = int(resource.shape[0])
+    rx_ant = int(resource.shape[4])
+    port = int(resource.shape[5])
+    max_re = int(resource.shape[6])
+    samples = np.zeros(
+        (snap, len(entries), len(rx_indices), rx_ant, port, max_re),
+        dtype=np.complex64,
+    )
+    for entry_idx, entry in enumerate(entries):
+        for col, rx_idx in enumerate(rx_indices):
+            samples[:, entry_idx, col] = resource[:, entry["frame"], entry["slot"], rx_idx]
+    return build_bartlett_spectrum(
+        samples,
+        rx_num_rows=int(h5["antenna/rx_num_rows"][()]),
+        rx_num_cols=int(h5["antenna/rx_num_cols"][()]),
+        rx_spacing_lambda=tuple(float(v) for v in h5["antenna/rx_spacing_lambda"][()]),
+        rx_orientation_rad=_rx_orientation_for_indices(h5, rx_indices),
+        config=spectrum_config,
+    )
+
+
+def _plot_multiuser_spectrum_grid(
+    spectrum: np.ndarray,
+    angle_grid: np.ndarray,
+    output_path: Path,
+    row_labels: list[str],
+    rx_indices: list[int],
+    title: str,
+    config: VisualizationRunConfig,
+) -> Path:
+    _ = angle_grid
+    rows = max(len(row_labels), 1)
+    cols = max(len(rx_indices), 1)
+    figure, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 3.0 * rows), squeeze=False)
+    for row, row_label in enumerate(row_labels):
+        row_values = spectrum[0, row]
+        finite = row_values[np.isfinite(row_values)]
+        if finite.size:
+            vmin, vmax = _stable_color_limits(float(np.min(finite)), float(np.max(finite)))
+        else:
+            vmin, vmax = (0.0, 1.0)
+        for col, rx_idx in enumerate(rx_indices):
+            axis = axes[row, col]
+            image = axis.imshow(
+                spectrum[0, row, col],
+                aspect="auto",
+                origin="lower",
+                interpolation="none",
+                vmin=vmin,
+                vmax=vmax,
+            )
+            axis.set_xlabel("azimuth bin")
+            axis.set_ylabel("zenith bin")
+            axis.set_title(f"{row_label} - BS {rx_idx}", fontsize=8)
+            figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+    figure.suptitle(title)
+    return _save_figure(figure, output_path, config)
 
 
 def _plot_topology(

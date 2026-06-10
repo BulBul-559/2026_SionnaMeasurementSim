@@ -198,7 +198,7 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 | `max_ue` | int | 5 | 自动图中最多 UE 数 |
 | `dpi` | int | 140 | PNG DPI |
 | `format` | str | `"png"` | 第一版仅支持 PNG |
-| `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图 |
+| `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图；NR SRS multi-UE 数据可加 `multiuser_srs` |
 | `radio_map_mode` | str | `"interpolated"` | `plots` 含 `radio_map` 时的 RSS radio map 输出模式：`interpolated`、`samples` 或 `both` |
 | `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样点间距推断 |
 | `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
@@ -212,6 +212,8 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 
 绘图输出约定：
 
+- `figures/index.json` 是索引文件；普通采样诊断图写在 `figures/standard/`，
+  multi-UE SRS 图写在 `figures/multiuser/`，RSS radio map 写在 `figures/heatmaps/`。
 - 涉及子载波的热力图统一把 subcarrier 放在纵轴；CFR 折线图例外，把 subcarrier 放在横轴。
 - 热力图绘制时显式关闭显示插值，使用原始采样网格直接画图。
 - `cfr_lines` 输出 `cfr_lines_magnitude.png` 和 `cfr_lines_phase.png`。
@@ -235,6 +237,11 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
   UE 采样点。无有效 RSS 的 UE-BS 位置只在绘图层按本次 radio map 的全局最小 RSS
   渲染为最弱信号，避免插值把无链路点补成虚假的可覆盖区域；HDF5、CSV 与统计仍保留
   原始 NaN/valid-mask 语义。
+- `multiuser_srs` 只在 `/multiuser` group 存在时生成。P0 图包含 resource ownership、
+  shared RX grid 和 resource CFR 幅度/相位；P1 图包含 resource-vs-allocated CFR 对比、
+  per-frame summary CSV/PNG 和误差分布；P2 图包含基于有限 BS 观测的 UE 发射示意以及
+  shared/separated Bartlett 空间谱。它用于诊断多 UE 正交 SRS shared observation，不改变
+  HDF5 数据语义。
 
 pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
 全量聚合统计，不逐 link 生成海量细节图。

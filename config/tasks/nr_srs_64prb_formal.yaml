@@ -137,6 +137,7 @@ visualization:
     - "nmse_snr"
     - "path_samples"
     - "radio_map"
+    - "multiuser_srs"
 
 rt:
   engine: "sionna_rt"
