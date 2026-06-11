@@ -122,8 +122,10 @@ class OutputConfig(BaseModel):
     def check_output_values(self) -> OutputConfig:
         if self.compression not in ("gzip", "lzf", "none"):
             raise ValueError("output.compression must be gzip/lzf/none")
-        if self.profile not in ("full", "rt_lite", "rt_labels_only"):
-            raise ValueError("output.profile must be full/rt_lite/rt_labels_only")
+        if self.profile not in ("full", "rt_lite", "rt_labels_only", "iq_link_library"):
+            raise ValueError(
+                "output.profile must be full/rt_lite/rt_labels_only/iq_link_library"
+            )
         return self
 
 
@@ -747,6 +749,22 @@ class MeasurementConfig(BaseModel):
                 raise ValueError("noncooperative.enabled=true requires phy.enabled=true")
             if self.phy.standard != "nr_srs":
                 raise ValueError("noncooperative.enabled=true currently requires nr_srs")
+        if self.output.profile == "iq_link_library":
+            if not self.phy.enabled:
+                raise ValueError("output.profile=iq_link_library requires phy.enabled=true")
+            if self.phy.standard != "nr_srs":
+                raise ValueError("output.profile=iq_link_library currently requires nr_srs")
+            if self.noncooperative.enabled:
+                raise ValueError(
+                    "output.profile=iq_link_library stores per-link clean IQ; "
+                    "disable noncooperative.enabled"
+                )
+            if self.phy.iq.enabled and (
+                self.phy.iq.save_frequency_observed or self.phy.iq.save_time_observed
+            ):
+                raise ValueError(
+                    "output.profile=iq_link_library only permits clean IQ save flags"
+                )
         if self.motion.enabled and self.motion.mobility_mode == "doppler_synthetic":
             if self.motion.sampling_frequency_hz <= 0:
                 raise ValueError(

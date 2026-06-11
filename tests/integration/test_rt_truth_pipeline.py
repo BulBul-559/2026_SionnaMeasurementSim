@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -145,6 +146,79 @@ def test_rt_truth_pipeline_can_write_rt_labels_only_profile(tmp_path: Path):
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["output_profile"] == "rt_labels_only"
     assert manifest["raw_cfr_shape"] == []
+
+
+def test_rt_truth_pipeline_can_write_iq_link_library_profile(tmp_path: Path):
+    output_dir = tmp_path / "iq_link_library"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=3,
+            max_bs=1,
+            max_ue=2,
+            bs_num_rows=1,
+            bs_num_cols=2,
+            ue_num_rows=1,
+            ue_num_cols=1,
+            max_depth=1,
+            phy_standard="nr_srs",
+            output_profile="iq_link_library",
+            num_prb=1,
+            num_ofdm_symbols=14,
+            cp_length=2,
+            srs_config=SimpleNamespace(
+                slot_length_symbols=14,
+                start_symbol=12,
+                num_srs_symbols=1,
+                comb_size=1,
+                comb_offset=0,
+                bwp_start_prb=0,
+                bwp_num_prb=1,
+                trigger_mode="aperiodic",
+                periodicity_slots=1,
+                slot_offset=0,
+                slot_number=0,
+                sequence_type="zc_like",
+                sequence_id=0,
+                group_hopping="disabled",
+                sequence_hopping="disabled",
+                cyclic_shift_multiplexing="cyclic_shift",
+                cyclic_shift_indices=None,
+            ),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert h5["meta/contract_name"][()].decode("utf-8") == (
+            "sionna_measurement_iq_link_library"
+        )
+        assert h5["meta/output_profile"][()].decode("utf-8") == "iq_link_library"
+        assert "iq/link/time_clean" in h5
+        assert h5["iq/link/time_clean"].shape == (1, 2, 1, 2, 14 * 10)
+        assert "iq/link/time_observed" not in h5
+        assert "iq/noncooperative" not in h5
+        for absent_group in (
+            "channel",
+            "paths",
+            "derived",
+            "waveform",
+            "observation",
+            "array",
+            "ranging",
+            "multiuser",
+            "impairments",
+            "receiver",
+            "evaluation",
+        ):
+            assert absent_group not in h5
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["output_profile"] == "iq_link_library"
 
 
 def test_rt_truth_pipeline_can_write_truth_spatial_spectrum(tmp_path: Path):

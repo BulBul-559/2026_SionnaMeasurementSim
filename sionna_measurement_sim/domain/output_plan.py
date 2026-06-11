@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from sionna_measurement_sim.domain.constants import (
     FULL_CONTRACT_NAME,
+    IQ_LINK_LIBRARY_CONTRACT_NAME,
     OUTPUT_PROFILES,
     RT_LABELS_CONTRACT_NAME,
 )
@@ -23,6 +24,7 @@ class RTOutputPlan:
     compute_nlos_truth: bool = True
     write_full_contract: bool = True
     write_compact_link_labels: bool = False
+    write_iq_link_library: bool = False
 
 
 def build_rt_output_plan(profile: str) -> RTOutputPlan:
@@ -43,6 +45,17 @@ def build_rt_output_plan(profile: str) -> RTOutputPlan:
             compute_nlos_truth=False,
             write_full_contract=False,
             write_compact_link_labels=True,
+        )
+    if profile == "iq_link_library":
+        return RTOutputPlan(
+            profile=profile,
+            contract_name=IQ_LINK_LIBRARY_CONTRACT_NAME,
+            compute_cfr=True,
+            compute_cir=False,
+            compute_path_samples=False,
+            compute_nlos_truth=False,
+            write_full_contract=False,
+            write_iq_link_library=True,
         )
     # ``rt_lite`` keeps the full HDF5 contract in this phase, but the CLI/pipeline
     # uses the profile to disable PHY/ranging/spectrum/viz/calibration presets.

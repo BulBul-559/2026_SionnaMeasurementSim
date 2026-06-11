@@ -39,9 +39,12 @@ YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目
 | `full` | 保持完整配置，按 YAML/CLI 启用 RT、PHY、ranging、array、visualization |
 | `rt_lite` | 关闭 PHY/ranging/spectrum/visualization/calibration/full paths，仍写 full HDF5 contract |
 | `rt_labels_only` | 同样关闭下游重活，并让 pipeline 跳过 CFR/CIR/path samples，写 compact `/labels/link/*` contract |
+| `iq_link_library` | 要求 NR SRS，只保留 RT CFR、SRS clean channel apply 和 clean `/iq/link` 写盘，关闭 observed IQ、noncooperative、ranging、array、visualization、calibration 和 full paths |
 
 `rt_lite` 和 `rt_labels_only` 也会关闭 `phy.iq` 与 `noncooperative`，避免轻量标签
 或 RT-only 输出意外写入大体积 IQ 数据。
+`iq_link_library` 会强制 `/iq/link` 为 clean-only：默认写 `time_clean`，若 YAML 中
+`phy.iq.save_frequency_clean=true` 则额外写 `frequency_clean`。
 
 关键参数：
 ```

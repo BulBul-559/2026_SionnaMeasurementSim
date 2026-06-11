@@ -15,6 +15,7 @@ import h5py
 import numpy as np
 
 from sionna_measurement_sim.domain.results import (
+    IQLinkLibraryResult,
     MeasurementSimulationResult,
     RTLabelsOnlyResult,
 )
@@ -111,6 +112,44 @@ def write_rt_labels_result(
             _write_frequency(h5, result)
             _write_derived(h5, result)
             _write_rt_link_labels(h5, result)
+            _write_link(h5, result)
+            _write_runtime(h5, result)
+    finally:
+        _ACTIVE_TRACER.reset(tracer_token)
+        _ACTIVE_COMPRESSION.reset(compression_token)
+
+    return output_path
+
+
+def write_iq_link_library_result(
+    path: str | Path,
+    result: IQLinkLibraryResult,
+    *,
+    compression: str = "gzip",
+    tracer: Any | None = None,
+) -> Path:
+    """Write compact clean per-link IQ HDF5 output."""
+
+    if compression not in ("gzip", "lzf", "none"):
+        msg = f"Unsupported HDF5 compression: {compression!r}"
+        raise ValueError(msg)
+
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    compression_token = _ACTIVE_COMPRESSION.set(compression)
+    tracer_token = _ACTIVE_TRACER.set(tracer)
+    try:
+        with h5py.File(output_path, "w") as h5:
+            _write_meta(h5, result)
+            _write_input(h5, result)
+            _write_shard(h5, result)
+            _write_topology(h5, result)
+            _write_devices(h5, result)
+            _write_antenna(h5, result)
+            _write_scene(h5, result)
+            _write_frequency(h5, result)
+            _write_iq(h5, result)
             _write_link(h5, result)
             _write_runtime(h5, result)
     finally:

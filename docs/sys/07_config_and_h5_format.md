@@ -112,7 +112,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `profile` | str | `"full"` | 输出 profile：`full`、`rt_lite` 或 `rt_labels_only` |
+| `profile` | str | `"full"` | 输出 profile：`full`、`rt_lite`、`rt_labels_only` 或 `iq_link_library` |
 | `root_dir` | str | `"outputs"` | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | `"results.h5"` | HDF5 文件名 |
@@ -125,6 +125,9 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 `profile="rt_lite"` 会保留 full HDF5 contract，但默认关闭 PHY/ranging/spectrum/viz/full paths。
 `profile="rt_labels_only"` 写 compact RT link-level label contract，不写 CFR/CIR/path samples、
 waveform/observation/array/ranging，适合大规模视觉预训练标签生成。
+`profile="iq_link_library"` 写 compact clean per-link IQ contract，不写 full-contract
+重型组、CFR estimate、损伤、空间谱或 ranging，适合离线保存逐链路 clean IQ 并在线组合多 UE
+非合作样本。
 
 `output.sharding` 子段控制 UE shard：`enabled`、`axis`、`shard_size`、`filename_pattern`、`results_dir`、`manifest_dir`、`parallel_workers`、`gpu_ids`、`visualization_mode` 和 `fallback`。当前生产化的是 UE range shard，`axis: "ue"`，输出文件写到 `results/result_000.h5`。CLI 会把最终 YAML 写到输出根目录 `run_config.yaml`；aggregate manifest 和 JSON config snapshot 写到 `manifest/`。队列/验收 wrapper 的附加日志与汇总应写在同一个 run 目录：`logs/run.log`、`logs/heatmap.log`、`summary.json`。
 
@@ -625,11 +628,21 @@ results.h5
 但不写 `/channel`、`/paths`、`/waveform`、`/observation`、`/array` 或 `/ranging`。
 紧凑监督字段统一放在 `/labels/link`。
 
+`output.profile="iq_link_library"` 使用独立 contract
+`sionna_measurement_iq_link_library`。该 contract 只写 `/meta`、`/input`、`/topology`、
+`/devices`、`/antenna`、`/scene`、`/frequency`、`/iq/link`、`/link` 和 `/runtime`。
+它不写 `/channel`、`/paths`、`/derived`、`/waveform`、`/observation`、`/array`、
+`/ranging`、`/multiuser`、`/impairments`、`/receiver` 或 `/evaluation`。当前实现用于
+NR SRS clean per-link IQ 库：pipeline 仍计算 RT CFR 和 `rx_grid_clean = H*x`，但不运行
+common impairment/AWGN、SRS receiver、resource LS、full-band `cfr_est`、空间谱或 ranging。
+该 contract 禁止 `/iq/link/*_observed` 和 `/iq/noncooperative`，确保保存的数据可作为
+后续在线线性叠加的 clean IQ 源。
+
 ### 2.3 `/meta` — 元数据
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.9.0` |
+| `schema_version` | string | Schema 版本号，当前为 `2.0.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -642,7 +655,7 @@ results.h5
 | `truth_branch_enabled` | bool | RT 真值分支是否启用 |
 | `observation_branch_enabled` | bool | PHY 观测分支是否启用 |
 | `measurement_realism_level` | string | 测量真实度等级 |
-| `output_profile` | string | 输出 profile：`full`、`rt_lite` 或 `rt_labels_only` |
+| `output_profile` | string | 输出 profile：`full`、`rt_lite`、`rt_labels_only` 或 `iq_link_library` |
 | `config_snapshot` | string | 完整 YAML 配置快照 |
 | `software_versions` | string | 软件版本摘要 |
 
@@ -670,6 +683,22 @@ results.h5
 
 该 compact table 是 link-level 监督标签，不是信道观测；下游 reader 可用
 `sionna_measurement_sim.io.hdf5_reader.iter_link_labels()` 遍历单文件或 sharded run 目录。
+
+### 2.3.2 `/iq/link` — IQ link-library compact contract
+
+仅当 `/meta/contract_name = "sionna_measurement_iq_link_library"` 时，`/iq/link` 是核心
+payload。所有数据是 clean channel apply 后、损伤/AWGN/AGC/clipping 前的 per-link
+复数基带 IQ，维度仍按 resolved link-view 使用 `[snapshot, tx, rx, rx_ant, ...]`。
+
+| Dataset | Shape | Unit | 说明 |
+|---------|-------|------|------|
+| `frequency_clean` | complex64 [snap, tx, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | 可选；clean 频域 IQ，开启 `phy.iq.save_frequency_clean=true` 时写入 |
+| `time_clean` | complex64 [snap, tx, rx, rx_ant, sample] | linear_complex | 可选；clean 频域 grid 经 OFDM IFFT 与可选 CP 拼接后得到；模板默认写入 |
+
+该 compact contract 要求至少存在 `frequency_clean` 或 `time_clean` 之一，并禁止
+`frequency_observed`、`time_observed` 和 `/iq/noncooperative`。因此它保存的是“链路库”，
+不是“已经混合好的非合作帧”。下游可以按 UE 组合在线相加这些 clean IQ，再统一加入
+AWGN、CFO/SFO、timing offset、AGC/clipping、设备 bias 或其它前端模型。
 
 ### 2.4 `/shard` — Shard 元数据
 
@@ -984,7 +1013,9 @@ schema `1.8.0` 起会校验 `/multiuser/resource_collision_mask == resource_occu
 
 ### 2.17.2 `/iq` — 协议无关 IQ observation（可选）
 
-schema `1.9.0` 后，当 `phy.iq.enabled=true` 或 `noncooperative.enabled=true` 时写入。
+schema `1.9.0` 后，当 `phy.iq.enabled=true` 或 `noncooperative.enabled=true` 时写入；
+schema `2.0.0` 后，`iq_link_library` compact contract 也使用同一 `/iq` group，但只允许
+clean `/iq/link`。
 `/iq` 是 observation payload，不改变 `/waveform`、`/observation/cfr_est`、`/multiuser`
 或 `/ranging` 的语义。
 

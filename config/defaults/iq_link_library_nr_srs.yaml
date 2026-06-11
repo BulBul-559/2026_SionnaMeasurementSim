@@ -1,0 +1,157 @@
+# SionnaMeasurementSim - compact clean per-link IQ library template.
+#
+# This profile is intended for non-cooperative dataset construction by online
+# mixing. It writes clean per-UE/BS link IQ and necessary metadata only; it does
+# not write waveform, CFR estimate, impairment, ranging, array spectrum, or path
+# sample groups.
+
+runtime:
+  seed: 42
+  device: "cuda"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
+
+input:
+  label_file: "data/front3d_20/front3d_0000/label/panel0p5.json"
+  scene_file: "data/front3d_20/front3d_0000/scene.xml"
+  scene_id: "front3d_0000"
+  map_id: "panel0p5"
+  max_bs: 7
+  max_ue: 100
+
+output:
+  profile: "iq_link_library"
+  root_dir: "outputs/front3d_0000_panel0p5_srs_iq_link_library"
+  hdf5_filename: "results.h5"
+  compression: "gzip"
+  save_full_paths: false
+  sharding:
+    enabled: true
+    axis: "ue"
+    shard_size: 20
+    filename_pattern: "result_{shard_index:03d}.h5"
+    results_dir: "results"
+    manifest_dir: "manifest"
+    parallel_workers: 1
+    gpu_ids: []
+    visualization_mode: "none"
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 23040000.0
+  num_subcarriers: 768
+
+antenna:
+  bs_array:
+    num_rows: 4
+    num_cols: 4
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+  ue_array:
+    num_rows: 1
+    num_cols: 2
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+
+rt:
+  max_depth: 4
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: true
+  diffraction: true
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+
+phy:
+  enabled: true
+  standard: "nr_srs"
+  snr_db: 30.0
+  subcarrier_spacing_khz: 30
+  num_ofdm_symbols: 14
+  num_prb: 64
+  num_antenna_ports: 2
+  tx_power_dbm: 0.0
+  power:
+    reference_tx_power_dbm: 0.0
+    apply_tx_power_to_grid: true
+    noise_mode: "relative_snr"
+  iq:
+    enabled: true
+    save_frequency_clean: false
+    save_frequency_observed: false
+    save_time_clean: true
+    save_time_observed: false
+    cp_length: 0
+  srs:
+    slot_length_symbols: 14
+    start_symbol: 12
+    num_srs_symbols: 2
+    comb_size: 2
+    comb_offset: 0
+    bwp_start_prb: 0
+    bwp_num_prb: 64
+    trigger_mode: "aperiodic"
+    periodicity_slots: 1
+    slot_offset: 0
+    slot_number: 0
+    sequence_type: "nr_zc"
+    sequence_id: 0
+    group_hopping: "enabled"
+    sequence_hopping: "enabled"
+    cyclic_shift_multiplexing: "cyclic_shift"
+    cyclic_shift_indices: null
+    hopping:
+      enabled: false
+      frequency_offsets_prb: []
+      bandwidth_num_prb: []
+    ports:
+      num_srs_ports: null
+      mapping: "one_to_one"
+      port_tx_ant_map: null
+      usage: "non_codebook"
+    power_control:
+      enabled: false
+    multiuser:
+      enabled: false
+      active_ue_count: 2
+      resource_strategy: "comb_offset"
+      frame_policy: "sequential"
+
+array:
+  spectrum:
+    enabled: false
+    sources: []
+
+ranging:
+  enabled: false
+
+noncooperative:
+  enabled: false
+
+visualization:
+  enabled: false
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+
+calibration:
+  enabled: false

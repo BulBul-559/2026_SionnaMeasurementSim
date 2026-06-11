@@ -18,6 +18,7 @@ from sionna_measurement_sim.domain.cir import CIRTruth
 from sionna_measurement_sim.domain.constants import (
     CONTRACT_NAME,
     INDEX_ORDER,
+    IQ_LINK_LIBRARY_CONTRACT_NAME,
     PRODUCER,
     RT_LABELS_CONTRACT_NAME,
     SCHEMA_VERSION,
@@ -416,6 +417,57 @@ class RTLabelsOnlyResult:
             self.link_labels.link_index,
             (link_shape[0] * link_shape[1],),
         )
+
+
+@dataclass(frozen=True)
+class IQLinkLibraryResult:
+    """Compact clean-IQ-per-link result for online non-cooperative mixing."""
+
+    metadata: Metadata
+    input_spec: InputSpec
+    topology: Topology
+    devices: DeviceState
+    antenna: AntennaSpec
+    scene: SceneSpec
+    frequency: FrequencyGrid
+    runtime: RuntimeInfo
+    iq: IQObservationResult
+    link: LinkConfig | None = None
+    shard: ShardMetadata | None = None
+
+    def __post_init__(self) -> None:
+        if self.metadata.contract_name != IQ_LINK_LIBRARY_CONTRACT_NAME:
+            msg = "IQLinkLibraryResult metadata.contract_name must be IQ link library contract"
+            raise ValueError(msg)
+        if self.metadata.output_profile != "iq_link_library":
+            msg = "IQLinkLibraryResult metadata.output_profile must be iq_link_library"
+            raise ValueError(msg)
+        if self.iq.link is None or self.iq.link.is_empty:
+            msg = "IQ link library requires at least one /iq/link clean capture"
+            raise ValueError(msg)
+        if self.iq.noncooperative is not None:
+            msg = "IQ link library stores per-link clean IQ, not mixed noncooperative frames"
+            raise ValueError(msg)
+        if self.iq.link.frequency_observed is not None or self.iq.link.time_observed is not None:
+            msg = "IQ link library must not contain observed/impaired IQ"
+            raise ValueError(msg)
+        if self.iq.link.frequency_clean is None and self.iq.link.time_clean is None:
+            msg = "IQ link library requires frequency_clean or time_clean"
+            raise ValueError(msg)
+        link_prefix = (self.topology.num_tx, self.topology.num_rx, self.antenna.rx_num_ant)
+        if self.iq.link.frequency_clean is not None:
+            freq = np.asarray(self.iq.link.frequency_clean)
+            if freq.ndim != 6 or freq.shape[1:4] != link_prefix:
+                msg = "frequency_clean must have [snapshot,tx,rx,rx_ant,symbol,subcarrier]"
+                raise ValueError(msg)
+            if freq.shape[-1] != self.frequency.num_subcarriers:
+                msg = "frequency_clean subcarrier dimension must match frequency grid"
+                raise ValueError(msg)
+        if self.iq.link.time_clean is not None:
+            time = np.asarray(self.iq.link.time_clean)
+            if time.ndim != 5 or time.shape[1:4] != link_prefix:
+                msg = "time_clean must have [snapshot,tx,rx,rx_ant,sample]"
+                raise ValueError(msg)
 
 
 @dataclass(frozen=True)

@@ -81,7 +81,7 @@ class RTTruthRunConfig:
     # ── 其他 ──
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
-    output_profile: str = "full"   # "full" | "rt_lite" | "rt_labels_only"
+    output_profile: str = "full"   # "full" | "rt_lite" | "rt_labels_only" | "iq_link_library"
     save_full_paths: bool = False
     debug_config: Any | None = None
     output_sharding_config: Any | None = None
@@ -114,9 +114,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
    ├── CIRTruth
    ├── PathSamples
    └── PathTable (if save_full_paths)
-5. if observation_snr_db is not None:
+5. if observation_snr_db is not None or output_profile == "iq_link_library":
    └── get_phy_module(phy_standard).run(PHYContext(...))
        → PHYModuleResult → ObservationResult + Evaluation
+       → iq_link_library 时只返回 WaveformSpec + rx_grid_clean extras
 6. DiagnosticsReport.from_evaluation()
 7. write_measurement_result()        → HDF5
 8. validate_hdf5_contract()          → schema check
@@ -130,10 +131,14 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 | `full` | 当前完整 contract，计算并写 CFR、CIR、path samples，可选 PHY/ranging/array/viz |
 | `rt_lite` | 保留完整 HDF5 contract，但作为 preset 关闭 PHY/ranging/spectrum/viz/calibration/full paths |
 | `rt_labels_only` | 使用 `sionna_measurement_rt_labels` contract，只从 PathSolver/path table 生成 `/derived` 和 `/labels/link/*`，跳过 `paths.cfr()`、`paths.cir()`、path samples、PHY 和所有下游观测 |
+| `iq_link_library` | 使用 `sionna_measurement_iq_link_library` contract，要求 NR SRS；计算 RT CFR 与 `rx_grid_clean=H*x` 后直接写 clean `/iq/link`，跳过 SRS receiver、CFR estimate、impairment/AWGN、ranging、array/viz 和 full-contract 重型组 |
 
 `rt_labels_only` 的目标是大规模视觉预训练或场景筛选标签；它不是信道数据，不能用于
 需要 CFR/CIR/路径顶点可视化的流程。compact table 可通过
 `io.hdf5_reader.iter_link_labels()` 读取单文件或 sharded run。
+
+`iq_link_library` 的目标是构建“逐链路 clean IQ 库”，下游按 UE 组合在线相加并统一添加
+噪声/同步偏差/前端损伤；它不是已经混合好的非合作帧。
 
 **Shard 外壳：**
 

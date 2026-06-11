@@ -30,6 +30,12 @@ uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/rt_labels_only.yaml \
     run-full \
     --output-dir outputs/my_rt_labels
+
+# 使用 clean IQ link-library 配置，生成可在线混合的 per-link IQ
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/defaults/iq_link_library_nr_srs.yaml \
+    run-full \
+    --output-dir outputs/my_iq_link_library
 ```
 
 ## 配置模板
@@ -38,6 +44,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
 | `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，不写 CFR/CIR/path samples/PHY |
+| `config/defaults/iq_link_library_nr_srs.yaml` | 紧凑 NR SRS clean IQ link library；写 `/iq/link/time_clean`，不写 CFR estimate/损伤/空间谱/full contract 重型组 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR uplink 定位主实验模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
@@ -161,12 +168,20 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract，不写 CFR/CIR/path samples/PHY |
+| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract，不写 CFR/CIR/path samples/PHY；`iq_link_library` 写 compact clean `/iq/link` contract，不写 CFR estimate/损伤/空间谱/full contract 重型组 |
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
 | `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none` |
 | `save_full_paths` | bool | false | 是否保存全量路径表 `/paths/full` |
+
+`output.profile: "iq_link_library"` 当前要求 `phy.enabled=true` 且
+`phy.standard: "nr_srs"`。CLI/pipeline 会把该 profile 归一化为 clean link IQ
+library：保留 RT CFR 与 SRS clean channel apply，自动关闭 ranging、array spectrum、
+visualization、calibration、noncooperative mixed IQ、observed IQ 和 full paths。若
+`phy.iq.save_frequency_clean=true`，会额外写 `/iq/link/frequency_clean`；否则模板默认只写
+`/iq/link/time_clean`。该模式的文件用于后续在线组合多 UE clean IQ，噪声、CFO/timing、
+AGC/clipping 等应在在线混合后统一添加。
 
 #### `output.sharding`
 

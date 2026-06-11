@@ -9,6 +9,7 @@ import numpy as np
 
 from sionna_measurement_sim.domain.constants import (
     FULL_CONTRACT_NAME,
+    IQ_LINK_LIBRARY_CONTRACT_NAME,
     RT_LABELS_CONTRACT_NAME,
 )
 
@@ -263,6 +264,51 @@ RT_LABELS_REQUIRED_DATASETS = (
     "link/rx_role",
 )
 
+IQ_LINK_LIBRARY_REQUIRED_GROUPS = (
+    "meta",
+    "input",
+    "topology",
+    "devices",
+    "antenna",
+    "scene",
+    "frequency",
+    "iq",
+    "iq/link",
+    "runtime",
+    "link",
+)
+
+IQ_LINK_LIBRARY_REQUIRED_DATASETS = (
+    "meta/schema_version",
+    "meta/contract_name",
+    "meta/index_order",
+    "meta/unit_convention",
+    "meta/output_profile",
+    "meta/config_snapshot",
+    "topology/tx_positions_m",
+    "topology/rx_positions_m",
+    "devices/tx_velocity_mps",
+    "devices/rx_velocity_mps",
+    "devices/tx_orientation_rad",
+    "devices/rx_orientation_rad",
+    "antenna/tx_num_ant",
+    "antenna/rx_num_ant",
+    "antenna/tx_polarization",
+    "antenna/rx_polarization",
+    "scene/scene_id",
+    "scene/map_id",
+    "frequency/frequencies_hz",
+    "iq/sample_rate_hz",
+    "iq/fft_size",
+    "iq/cp_length",
+    "iq/num_ofdm_symbols",
+    "iq/time_domain_convention",
+    "link/duplex_mode",
+    "link/phy_link_direction",
+    "link/tx_role",
+    "link/rx_role",
+)
+
 
 def validate_hdf5_contract(path: str | Path) -> None:
     """Validate the minimal truth HDF5 contract."""
@@ -278,6 +324,9 @@ def validate_hdf5_contract(path: str | Path) -> None:
         contract_name = _read_string(h5["meta/contract_name"])
         if contract_name == RT_LABELS_CONTRACT_NAME:
             _validate_rt_labels_contract(h5)
+            return
+        if contract_name == IQ_LINK_LIBRARY_CONTRACT_NAME:
+            _validate_iq_link_library_contract(h5)
             return
         if contract_name != FULL_CONTRACT_NAME:
             msg = f"Unsupported HDF5 contract_name: {contract_name!r}"
@@ -335,6 +384,98 @@ def _validate_rt_labels_contract(h5: h5py.File) -> None:
     _validate_rt_link_labels_shapes(h5)
     _validate_rt_labels_units(h5)
     _validate_rt_labels_values(h5)
+
+
+def _validate_iq_link_library_contract(h5: h5py.File) -> None:
+    for group_path in (
+        "channel",
+        "paths",
+        "derived",
+        "waveform",
+        "observation",
+        "array",
+        "ranging",
+        "multiuser",
+        "impairments",
+        "receiver",
+        "evaluation",
+        "calibration",
+        "motion",
+    ):
+        _require_absent(h5, group_path)
+    _require_present(h5, IQ_LINK_LIBRARY_REQUIRED_GROUPS, kind=h5py.Group)
+    _require_present(h5, IQ_LINK_LIBRARY_REQUIRED_DATASETS, kind=h5py.Dataset)
+    if _read_string(h5["meta/output_profile"]) != "iq_link_library":
+        msg = "/meta/output_profile must be iq_link_library for IQ link library contract"
+        raise SchemaValidationError(msg)
+    if "iq/noncooperative" in h5:
+        msg = "IQ link library contract must not contain /iq/noncooperative"
+        raise SchemaValidationError(msg)
+    link_group = h5["iq/link"]
+    if "time_clean" not in link_group and "frequency_clean" not in link_group:
+        msg = "IQ link library contract requires /iq/link/time_clean or frequency_clean"
+        raise SchemaValidationError(msg)
+    for forbidden in ("time_observed", "frequency_observed"):
+        if forbidden in link_group:
+            msg = f"IQ link library contract forbids /iq/link/{forbidden}"
+            raise SchemaValidationError(msg)
+    _validate_shard_if_present(h5)
+    _validate_iq(h5)
+    _validate_iq_link_library_shapes(h5)
+    _validate_iq_link_library_units(h5)
+    _validate_iq_link_library_values(h5)
+
+
+def _validate_iq_link_library_shapes(h5: h5py.File) -> None:
+    tx_count = h5["topology/tx_positions_m"].shape[0]
+    rx_count = h5["topology/rx_positions_m"].shape[0]
+    rx_ant = int(h5["antenna/rx_num_ant"][()])
+    fft_size = int(h5["iq/fft_size"][()])
+    num_symbols = int(h5["iq/num_ofdm_symbols"][()])
+    link_group = h5["iq/link"]
+    if "frequency_clean" in link_group:
+        ds = link_group["frequency_clean"]
+        if ds.shape[1:4] != (tx_count, rx_count, rx_ant):
+            msg = "/iq/link/frequency_clean leading dims must match topology/antenna"
+            raise SchemaValidationError(msg)
+        if ds.shape[-2:] != (num_symbols, fft_size):
+            msg = "/iq/link/frequency_clean symbol/subcarrier dims must match /iq metadata"
+            raise SchemaValidationError(msg)
+    if "time_clean" in link_group:
+        ds = link_group["time_clean"]
+        if ds.shape[1:4] != (tx_count, rx_count, rx_ant):
+            msg = "/iq/link/time_clean leading dims must match topology/antenna"
+            raise SchemaValidationError(msg)
+
+
+def _validate_iq_link_library_units(h5: h5py.File) -> None:
+    for dataset_path in (
+        "topology/tx_positions_m",
+        "topology/rx_positions_m",
+        "frequency/frequencies_hz",
+    ):
+        if "unit" not in h5[dataset_path].attrs:
+            msg = f"Missing unit attribute on /{dataset_path}"
+            raise SchemaValidationError(msg)
+    for dataset_name in ("frequency_clean", "time_clean"):
+        dataset_path = f"iq/link/{dataset_name}"
+        if dataset_path in h5:
+            _require_unit_order(h5[dataset_path], dataset_path)
+
+
+def _validate_iq_link_library_values(h5: h5py.File) -> None:
+    frequencies = h5["frequency/frequencies_hz"][()]
+    if not np.all(np.isfinite(frequencies)) or np.any(np.diff(frequencies) <= 0):
+        msg = "/frequency/frequencies_hz must be finite and strictly increasing"
+        raise SchemaValidationError(msg)
+    link_group = h5["iq/link"]
+    for dataset_name in ("frequency_clean", "time_clean"):
+        if dataset_name not in link_group:
+            continue
+        values = link_group[dataset_name][()]
+        if not np.all(np.isfinite(values)):
+            msg = f"/iq/link/{dataset_name} must contain finite values"
+            raise SchemaValidationError(msg)
 
 
 def _validate_rt_link_labels_shapes(h5: h5py.File) -> None:

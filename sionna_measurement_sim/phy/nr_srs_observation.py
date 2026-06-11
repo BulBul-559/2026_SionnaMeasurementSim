@@ -43,6 +43,7 @@ def run_nr_srs_observation(
     has_signal: np.ndarray | None = None,
     path_power_db: np.ndarray | None = None,
     tracer: Any | None = None,
+    clean_iq_only: bool = False,
 ) -> dict[str, Any]:
     """Run standards-shaped NR SRS resource sounding and LS CFR estimation.
 
@@ -86,11 +87,10 @@ def run_nr_srs_observation(
         power_config=power_config,
         legacy_power_control=srs_resource_config.power_control,
     )
-    snr_db = float(
-        getattr(phy_config, "snr_db", None)
-        if getattr(phy_config, "snr_db", None) is not None
-        else getattr(phy_config, "observation_snr_db", 30.0)
-    )
+    raw_snr_db = getattr(phy_config, "snr_db", None)
+    if raw_snr_db is None:
+        raw_snr_db = getattr(phy_config, "observation_snr_db", None)
+    snr_db = float(30.0 if raw_snr_db is None else raw_snr_db)
 
     with _span(
         tracer,
@@ -111,6 +111,39 @@ def run_nr_srs_observation(
     with _span(tracer, "nr_srs.channel_apply_einsum"):
         y_clean = np.einsum("...rtf,...tsf->...rsf", h_ul, tx_grid, optimize=True)
     _record_array_event(tracer, "nr_srs.array_shape", "y_clean", y_clean)
+
+    waveform = _build_srs_waveform_spec(
+        phy_config=phy_config,
+        sample_rate_hz=sc_spacing_hz * num_subcarriers,
+        num_subcarriers=num_subcarriers,
+        num_symbols=num_symbols,
+        srs_resource=srs_resource,
+    )
+    if clean_iq_only:
+        return {
+            "nr_waveform_spec": waveform,
+            "waveform_spec": waveform,
+            "receiver_spec": None,
+            "evaluation": None,
+            "observation": None,
+            "impairments": None,
+            "waveform_grids": {
+                "rx_grid_clean": y_clean.astype(np.complex64, copy=False),
+            },
+            "multiuser": None,
+            "metadata": {
+                "srs_scope": "standards_shaped_subset_v2_clean_iq_only",
+                "clean_iq_only": True,
+                "num_srs_symbols": int(srs_resource.srs_symbol_indices.size),
+                "num_ul_tx_ant": num_ul_tx_ant,
+                "num_ul_rx_ant": num_ul_rx_ant,
+                "comb_size": int(srs_resource_config.comb_size),
+                "comb_offset": int(srs_resource_config.comb_offset),
+                "start_symbol": int(srs_resource_config.start_symbol),
+                "slot_length_symbols": int(srs_resource_config.slot_length_symbols),
+            },
+        }
+
     with _span(tracer, "nr_srs.common_impairments_and_awgn", snr_db=float(snr_db)):
         noise_mode = noise_mode_from_config(power_config)
         thermal_meta = thermal_noise_metadata(
@@ -174,17 +207,6 @@ def run_nr_srs_observation(
         noise_dbm = chain_scalars["noise_power_dbm"]
 
     with _span(tracer, "nr_srs.domain_models"):
-        waveform = WaveformSpec(
-            standard="nr_srs",
-            sample_rate_hz=sc_spacing_hz * num_subcarriers,
-            fft_size=num_subcarriers,
-            cp_length=0,
-            num_ofdm_symbols=num_symbols,
-            pilot_indices=srs_resource.re_subcarrier_indices.copy(),
-            data_subcarrier_indices=np.zeros((0,), dtype=np.int32),
-            pilot_symbols=_reference_pilot_symbols(srs_resource),
-            tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
-        )
         observation = ObservationResult(
             cfr_est=cfr_est,
             valid_mask=valid_mask,
@@ -293,6 +315,27 @@ def run_nr_srs_observation(
             ),
         },
     }
+
+
+def _build_srs_waveform_spec(
+    *,
+    phy_config: Any,
+    sample_rate_hz: float,
+    num_subcarriers: int,
+    num_symbols: int,
+    srs_resource: NRSRSResource,
+) -> WaveformSpec:
+    return WaveformSpec(
+        standard="nr_srs",
+        sample_rate_hz=sample_rate_hz,
+        fft_size=num_subcarriers,
+        cp_length=0,
+        num_ofdm_symbols=num_symbols,
+        pilot_indices=srs_resource.re_subcarrier_indices.copy(),
+        data_subcarrier_indices=np.zeros((0,), dtype=np.int32),
+        pilot_symbols=_reference_pilot_symbols(srs_resource),
+        tx_power_dbm=float(getattr(phy_config, "tx_power_dbm", 0.0)),
+    )
 
 
 def _span(tracer: Any | None, name: str, **metadata: Any) -> Any:

@@ -11,6 +11,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,7 @@ from sionna_measurement_sim.domain.path import build_nlos_path_truth
 from sionna_measurement_sim.domain.results import (
     DeviceState,
     InputSpec,
+    IQLinkLibraryResult,
     MeasurementSimulationResult,
     Metadata,
     RTCompactLinkLabels,
@@ -52,7 +54,11 @@ from sionna_measurement_sim.domain.topology import (
     resolve_role_topology,
     resolved_global_indices,
 )
-from sionna_measurement_sim.io.hdf5_writer import write_measurement_result, write_rt_labels_result
+from sionna_measurement_sim.io.hdf5_writer import (
+    write_iq_link_library_result,
+    write_measurement_result,
+    write_rt_labels_result,
+)
 from sionna_measurement_sim.io.label_parser import (
     STANDARD_LABEL_SCHEMA_VERSION,
     count_topology_points,
@@ -199,7 +205,54 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
                 "save_full_paths": False,
             }
         )
+    if plan.profile == "iq_link_library":
+        if config.phy_standard != "nr_srs":
+            msg = "output.profile='iq_link_library' currently requires phy.standard='nr_srs'"
+            raise ValueError(msg)
+        updates.update(
+            {
+                "calibration_enabled": False,
+                "spectrum_config": replace(config.spectrum_config, enabled=False),
+                "ranging_config": replace(config.ranging_config, enabled=False),
+                "iq_config": _clean_iq_link_library_config(
+                    config.iq_config,
+                    cp_length=config.cp_length,
+                ),
+                "noncooperative_config": None,
+                "visualization_config": replace(config.visualization_config, enabled=False),
+                "save_full_paths": False,
+            }
+        )
     return replace(config, **updates)
+
+
+def _clean_iq_link_library_config(iq_config: Any | None, *, cp_length: int) -> Any:
+    clean_frequency = bool(getattr(iq_config, "save_frequency_clean", False))
+    clean_time = bool(getattr(iq_config, "save_time_clean", False))
+    if not clean_frequency and not clean_time:
+        clean_time = True
+    resolved_cp_length = getattr(iq_config, "cp_length", None)
+    if resolved_cp_length is None:
+        resolved_cp_length = cp_length
+    updates = {
+        "enabled": True,
+        "save_frequency_clean": clean_frequency,
+        "save_frequency_observed": False,
+        "save_time_clean": clean_time,
+        "save_time_observed": False,
+        "cp_length": resolved_cp_length,
+    }
+    if iq_config is None:
+        return SimpleNamespace(**updates)
+    if hasattr(iq_config, "model_copy"):
+        return iq_config.model_copy(update=updates)
+    values = {
+        name: getattr(iq_config, name)
+        for name in dir(iq_config)
+        if not name.startswith("_") and not callable(getattr(iq_config, name))
+    }
+    values.update(updates)
+    return SimpleNamespace(**values)
 
 
 def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -397,8 +450,10 @@ def _run_rt_truth_pipeline_single_impl(
     elapsed_seconds = time.perf_counter() - start
     environment = collect_basic_environment()
     observation_bundle = None
+    phy_waveform = None
     phy_extra: dict = {}
-    if config.observation_snr_db is not None:
+    should_run_phy = config.observation_snr_db is not None or output_plan.write_iq_link_library
+    if should_run_phy:
         if adapter_result.truth is None:
             msg = "PHY observation requires RT output plan with compute_cfr=true"
             raise ValueError(msg)
@@ -412,6 +467,7 @@ def _run_rt_truth_pipeline_single_impl(
                 )
             )
         observation_bundle = phy_result.to_bundle()
+        phy_waveform = phy_result.waveform
         phy_extra = {
             "waveform_extras": phy_result.waveform_extras,
             "array_outputs": phy_result.array_outputs,
@@ -419,7 +475,11 @@ def _run_rt_truth_pipeline_single_impl(
             "metadata": phy_result.metadata,
             "multiuser": phy_result.multiuser,
         }
-    phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
+    phase = (
+        5
+        if output_plan.write_iq_link_library and phy_waveform is not None
+        else 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
+    )
 
     scene_id = config.scene_id or config.scene_file.stem
     truth_summary = adapter_result.truth or adapter_result.link_summary
@@ -481,27 +541,27 @@ def _run_rt_truth_pipeline_single_impl(
                 topology=topology,
                 shard=shard_metadata,
                 sample_rate_hz=(
-                    observation_bundle.waveform.sample_rate_hz
-                    if observation_bundle and observation_bundle.waveform
+                    phy_waveform.sample_rate_hz
+                    if phy_waveform
                     else frequency.bandwidth_hz
                 ),
                 fft_size=(
-                    observation_bundle.waveform.fft_size
-                    if observation_bundle and observation_bundle.waveform
+                    phy_waveform.fft_size
+                    if phy_waveform
                     else frequency.num_subcarriers
                 ),
                 cp_length=(
-                    observation_bundle.waveform.cp_length
-                    if observation_bundle and observation_bundle.waveform
+                    phy_waveform.cp_length
+                    if phy_waveform
                     else config.cp_length
                 ),
                 num_ofdm_symbols=(
-                    observation_bundle.waveform.num_ofdm_symbols
-                    if observation_bundle and observation_bundle.waveform
+                    phy_waveform.num_ofdm_symbols
+                    if phy_waveform
                     else config.num_ofdm_symbols
                 ),
             )
-            if observation_bundle
+            if phy_waveform is not None
             else None
         )
     common_metadata = Metadata(
@@ -545,6 +605,54 @@ def _run_rt_truth_pipeline_single_impl(
         command_line="run-rt-truth",
         elapsed_seconds=elapsed_seconds,
     )
+    if output_plan.write_iq_link_library:
+        if iq_result is None:
+            msg = "iq_link_library output requires clean link IQ capture"
+            raise ValueError(msg)
+        iq_library_result = IQLinkLibraryResult(
+            metadata=common_metadata,
+            input_spec=input_spec,
+            topology=topology,
+            devices=devices,
+            antenna=antenna,
+            scene=scene,
+            frequency=frequency,
+            runtime=runtime,
+            iq=iq_result,
+            link=link_config,
+            shard=shard_metadata,
+        )
+        with tracer.span("hdf5_write"):
+            results_path = write_iq_link_library_result(
+                output_dir / config.hdf5_filename,
+                iq_library_result,
+                compression=config.hdf5_compression,
+                tracer=tracer,
+            )
+        with tracer.span("schema_validate"):
+            validate_hdf5_contract(results_path)
+        manifest_path = _write_single_manifest(
+            config=config,
+            output_dir=output_dir,
+            scene_id=scene_id,
+            adapter_result=adapter_result,
+            results_path=results_path,
+            phase=phase,
+            elapsed_seconds=elapsed_seconds,
+            shard_metadata=shard_metadata,
+            tracer=tracer,
+        )
+        _write_run_log(
+            logs_dir,
+            config=config,
+            shard_metadata=shard_metadata,
+            phase=phase,
+            results_path=results_path,
+            manifest_path=manifest_path,
+            adapter_result=adapter_result,
+            path_count=int(adapter_result.link_summary.geometric_path_count.sum()),
+        )
+        return results_path
     if output_plan.write_compact_link_labels:
         labels_result = RTLabelsOnlyResult(
             metadata=common_metadata,

@@ -205,7 +205,7 @@ def test_nr_srs_pipeline_writes_multiuser_shared_frame(tmp_path: Path):
 
     validate_hdf5_contract(path)
     with h5py.File(path, "r") as h5:
-        assert h5["meta/schema_version"][()].decode("utf-8") == "1.9.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "2.0.0"
         assert h5["multiuser/standard"][()].decode("utf-8") == "nr_srs"
         assert h5["multiuser/resource_strategy"][()].decode("utf-8") == "comb_offset"
         assert h5["multiuser/rx_grid_shared"].shape == (1, 1, 1, 2, 14, 24)
@@ -290,7 +290,7 @@ def test_nr_srs_pipeline_writes_iq_link_and_noncooperative_time_iq(tmp_path: Pat
 
     validate_hdf5_contract(path)
     with h5py.File(path, "r") as h5:
-        assert h5["meta/schema_version"][()].decode("utf-8") == "1.9.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "2.0.0"
         assert h5["iq/cp_length"][()] == 2
         assert h5["iq/link/frequency_clean"].shape == h5["waveform/rx_grid"].shape
         assert h5["iq/link/frequency_observed"].shape == h5["waveform/rx_grid"].shape

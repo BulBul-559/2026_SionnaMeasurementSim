@@ -36,6 +36,16 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 该 compact contract 不写 `/channel`、`/paths`、`/waveform`、`/observation`、
 `/array` 或 `/ranging`。
 
+`output.profile="iq_link_library"` 使用 `write_iq_link_library_result()`，顶层 group 是：
+
+```text
+/meta /input /topology /devices /antenna /scene /frequency
+/iq/link /link /runtime
+```
+
+该 compact contract 只保存 clean per-link IQ 和必要元数据，不写 `/channel`、`/paths`、
+`/derived`、`/waveform`、`/observation`、`/array`、`/ranging`、`/multiuser` 或损伤/评估组。
+
 ### `schema_validator.py` — HDF5 契约校验
 
 ```python
@@ -44,7 +54,8 @@ def validate_hdf5_contract(path: str | Path) -> None
 
 在 HDF5 写入后自动调用（也在测试中独立使用）。validator 会先读取
 `/meta/contract_name` 分流：`sionna_measurement_sim_hdf5` 走 full contract，
-`sionna_measurement_rt_labels` 走 compact RT labels-only contract。full contract 检查：
+`sionna_measurement_rt_labels` 走 compact RT labels-only contract，
+`sionna_measurement_iq_link_library` 走 compact clean IQ contract。full contract 检查：
 
 1. **必填 group**：`meta`、`channel/truth`、`paths/samples`、`runtime`、`link` 等
 2. **必填 dataset**（truth）：

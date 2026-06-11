@@ -177,6 +177,7 @@ class NRSRSModule:
             phy_config=config,
             carrier_config=config,
             tracer=context.tracer,
+            clean_iq_only=getattr(config, "output_profile", "") == "iq_link_library",
         )
         waveform_extras = {
             "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
