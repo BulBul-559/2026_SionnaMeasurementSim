@@ -13,7 +13,7 @@ runtime:
   torch_deterministic: false
 
 input:
-  label_file: "data/front3d_20/front3d_0000/label/panel0p5.json"
+  label_file: "data/front3d_20/front3d_0000/label/label_panel_0p5.json"
   scene_file: "data/front3d_20/front3d_0000/scene.xml"
   scene_id: "front3d_0000"
   map_id: "panel0p5"
