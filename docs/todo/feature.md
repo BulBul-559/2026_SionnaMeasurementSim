@@ -18,6 +18,7 @@
 | 9 | FEAT-SRS-006 | 完整 ports / layers / antenna switching | 对齐 NR SRS port、antenna switching procedure 和 codebook/non-codebook uplink。 |
 | 10 | FEAT-SRS-008 | 标准化 SRS receiver quality | 强化 interpolation、delay-spread 检测、quality 指标和 reference validation。 |
 | 11 | FEAT-RNG-004 | NLoS bias detection / correction | 基于 path truth、PDP、SNR、AoA/空间谱或 learned feature 做 NLoS 判别和偏差修正。 |
+| 12 | FEAT-IQ-001 | 非合作 raw-IQ 前端模型 | 在当前 `/iq/noncooperative` v1 基础上增加 per-UE 异步、非正交碰撞、连续时间前端和 ADC 语义。 |
 
 ## Details
 
@@ -165,3 +166,20 @@ full-band NMSE、resource SNR、failure reason；真实 smoke 输出 summary CSV
 失败或低置信度样本不被静默当成正常估计。
 
 重点提醒：可以先做基于 path truth 的 oracle analysis，再逐步替换成 observation-only feature。
+
+### FEAT-IQ-001: 非合作 raw-IQ 前端模型
+
+目的：把当前 `/iq/noncooperative` 从“由 NR SRS shared frequency grid 合成的时域 IQ”
+推进到更真实的非合作 RF 观测模型，支持 per-UE 独立 CFO/timing/asynchrony、随机接入式
+非正交碰撞、连续时间前端滤波、ADC 量化和可配置采样窗口。
+
+涉及模块：`sionna_measurement_sim/phy/iq_observation.py`、`common_link.py` 或后续
+raw-IQ 前端模块、config `noncooperative`、HDF5 `/iq/noncooperative` schema、可视化
+`figures/iq/`、非合作数据验收脚本。
+
+验收标准：能配置每个 active UE 的 timing/CFO/phase/功率偏差并在 shared time IQ 中体现；
+支持正交资源和故意非正交碰撞两类 case；合成单元测试验证线性叠加、损伤顺序和 ADC/clip
+语义；真实小场景 smoke 能输出 active target 标签、collision mask 和 IQ 统计图。
+
+重点提醒：不要把 raw-IQ 前端逻辑塞进 NR SRS receiver。`/observation/cfr_est` 仍是合作式
+接收机产物；非合作模型应以 BS 侧 shared IQ 为主输入，必要时另行设计检测/解混 estimator。

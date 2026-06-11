@@ -15,6 +15,7 @@ phy/
 ├── modules.py                # PHYContext / PHYModuleResult / registry / built-in adapters
 ├── common_link.py            # 通用 clean grid → impairment → AWGN 链路
 ├── power.py                  # 协议无关 uplink power/RSSI 标定和 thermal noise
+├── iq_observation.py         # 协议无关 IQ observation (/iq/link, /iq/noncooperative)
 ├── observation_pipeline.py   # custom OFDM: AWGN + LS 估计
 ├── impairments.py            # 基带损伤模型
 ├── reciprocity.py            # TDD 互易性 transpose
@@ -41,6 +42,8 @@ PHY_REGISTRY = {
 `waveform_extras` 用于写 NR PUSCH/SRS 的频域 grid 和专属元数据。
 `multiuser` 用于可选的 NR SRS shared observation，它不替代普通单 UE
 `/observation/cfr_est`，而是额外写入 `/multiuser` group 供多 UE 正交资源研究使用。
+`iq_observation.py` 在 PHY module 返回后读取 waveform/multiuser 产物，构造可选
+`/iq` group；它不属于任何标准 receiver，也不参与 CFR/ranging/BER/NMSE 计算。
 
 ## 一、通用 PHY link (`common_link.py`)
 
@@ -76,6 +79,29 @@ waveform-level ranging 不属于 SRS/PUSCH 私有逻辑。pipeline 会在 PHY ob
 完成后读取统一的 `/observation/cfr_est`，由 `sionna_measurement_sim.ranging`
 中的 estimator 生成 `/ranging`。因此后续 WiFi-like 只要能产出同口径 `cfr_est`
 和频率网格，就可以复用同一套 PDP peak / phase-slope ToA 估计。
+
+## 一点五、IQ Observation (`iq_observation.py`)
+
+`phy.iq.enabled=true` 时，pipeline 会从标准模块导出的 waveform extras 中读取
+`rx_grid_clean` 和/或 `rx_grid`，写入协议无关 `/iq/link`：
+
+- `frequency_clean`：clean channel apply 后、损伤/AWGN 前的频域复数基带观测。
+- `frequency_observed`：common impairment/AWGN 后的频域复数基带观测。
+- `time_clean` / `time_observed`：对对应频域 grid 按 OFDM symbol 做 IFFT，按需拼接
+  CP 后展平为 sample 轴。
+
+`noncooperative.enabled=true` 时，pipeline 会基于 NR SRS multi-UE shared source 写
+`/iq/noncooperative`。这里保存的是 BS 侧 shared time-domain IQ 以及每个 frame 的
+active UE index、全局 index、位置标签、资源占用和 collision mask。第一版只支持
+`signal_standard="nr_srs"`，且只输出时域 IQ，方便非合作多目标检测/定位模型直接读取
+BS 侧混合观测。
+
+当前 IQ time-domain convention 是
+`ofdm_ifft_per_symbol_cp_appended_contiguous_symbols`：它是从频域 OFDM grid 合成的
+复数基带 IQ，不是连续 RF passband 或真实 ADC 采样流。若需要非合作场景中的 per-UE
+独立 CFO/timing/asynchrony、随机接入碰撞、连续时间前端滤波或 ADC 量化，应在后续
+扩展一个更靠近时域前端的 raw-IQ observation model，而不要把这些逻辑写进 SRS
+receiver。
 
 `custom_ofdm` 仍保留在旧 `observation_pipeline.py` 中作为 legacy 路径，用于历史
 测试和快速 sanity check；它暂不迁移到通用链路，后续单独移除或重写。

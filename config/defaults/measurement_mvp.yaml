@@ -185,6 +185,13 @@ phy:
       accumulation_db: 0.0
       min_tx_power_dbm: -40.0
       max_tx_power_dbm: 23.0
+  iq:
+    enabled: false
+    save_frequency_clean: false
+    save_frequency_observed: false
+    save_time_clean: false
+    save_time_observed: false
+    cp_length: null
   srs:
     slot_length_symbols: 14
     start_symbol: 12
@@ -224,6 +231,16 @@ phy:
       active_ue_count: 2
       resource_strategy: "comb_offset"
       frame_policy: "sequential"
+
+noncooperative:
+  enabled: false
+  signal_standard: "nr_srs"
+  active_tx_count: 2
+  frame_policy: "sequential"
+  resource_strategy: "comb_offset"
+  save_time_clean: true
+  save_time_observed: true
+  cp_length: null
 
 impairments:
   awgn:

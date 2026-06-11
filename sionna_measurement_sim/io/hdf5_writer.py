@@ -64,6 +64,7 @@ def write_measurement_result(
             _write_waveform(h5, result)
             _write_array(h5, result)
             _write_observation(h5, result)
+            _write_iq(h5, result)
             _write_multiuser(h5, result)
             _write_ranging(h5, result)
             _write_impairments(h5, result)
@@ -867,6 +868,116 @@ def _write_multiuser(h5: h5py.File, result: MeasurementSimulationResult) -> None
             "snapshot,frame,active_ue,rx,rx_ant,tx_ant,max_allocated_subcarrier"
         ),
     )
+
+
+def _write_iq(h5: h5py.File, result: MeasurementSimulationResult) -> None:
+    iq = result.iq
+    if iq is None:
+        return
+    group = h5.require_group("iq")
+    _write_scalar(group, "sample_rate_hz", np.float64(iq.sample_rate_hz))
+    _write_scalar(group, "fft_size", np.int32(iq.fft_size))
+    _write_scalar(group, "cp_length", np.int32(iq.cp_length))
+    _write_scalar(group, "num_ofdm_symbols", np.int32(iq.num_ofdm_symbols))
+    _write_scalar(group, "time_domain_convention", iq.time_domain_convention)
+
+    if iq.link is not None:
+        link = group.require_group("link")
+        for name, value, order in (
+            (
+                "frequency_clean",
+                iq.link.frequency_clean,
+                "snapshot,tx,rx,rx_ant,ofdm_symbol,subcarrier",
+            ),
+            (
+                "frequency_observed",
+                iq.link.frequency_observed,
+                "snapshot,tx,rx,rx_ant,ofdm_symbol,subcarrier",
+            ),
+            (
+                "time_clean",
+                iq.link.time_clean,
+                "snapshot,tx,rx,rx_ant,sample",
+            ),
+            (
+                "time_observed",
+                iq.link.time_observed,
+                "snapshot,tx,rx,rx_ant,sample",
+            ),
+        ):
+            if value is not None:
+                _write_dataset(link, name, value, unit="linear_complex", index_order=order)
+
+    if iq.noncooperative is not None:
+        noncoop = iq.noncooperative
+        nc_group = group.require_group("noncooperative")
+        for name, value in (
+            ("rx_time_clean", noncoop.rx_time_clean),
+            ("rx_time_observed", noncoop.rx_time_observed),
+        ):
+            if value is not None:
+                _write_dataset(
+                    nc_group,
+                    name,
+                    value,
+                    unit="linear_complex",
+                    index_order="snapshot,frame,rx,rx_ant,sample",
+                )
+        for name, unit in (
+            ("noise_variance", "linear"),
+            ("snr_db", "dB"),
+            ("rssi_dbm", "dBm"),
+            ("noise_power_dbm", "dBm"),
+        ):
+            _write_dataset(
+                nc_group,
+                name,
+                getattr(noncoop, name),
+                unit=unit,
+                index_order="snapshot,frame,rx",
+            )
+        _write_dataset(
+            nc_group,
+            "active_tx_indices",
+            noncoop.active_tx_indices,
+            unit="index",
+            index_order="frame,active_tx",
+        )
+        _write_dataset(
+            nc_group,
+            "active_tx_global_indices",
+            noncoop.active_tx_global_indices,
+            unit="index",
+            index_order="frame,active_tx",
+        )
+        _write_dataset(
+            nc_group,
+            "active_tx_mask",
+            noncoop.active_tx_mask,
+            unit="bool",
+            index_order="frame,active_tx",
+        )
+        _write_dataset(
+            nc_group,
+            "active_tx_positions_m",
+            noncoop.active_tx_positions_m,
+            unit="m",
+            index_order="frame,active_tx,xyz",
+        )
+        _write_dataset(
+            nc_group,
+            "resource_occupancy_count",
+            noncoop.resource_occupancy_count,
+            unit="count",
+            index_order="frame,ofdm_symbol,subcarrier",
+        )
+        _write_dataset(
+            nc_group,
+            "resource_collision_mask",
+            noncoop.resource_collision_mask,
+            unit="bool",
+            index_order="frame,ofdm_symbol,subcarrier",
+        )
 
 
 def _multiuser_global_tx_indices(

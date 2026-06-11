@@ -40,7 +40,7 @@
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `1.8.0`；`output.profile` 支持 `full`、`rt_lite` 和
+- 当前 schema 版本是 `1.9.0`；`output.profile` 支持 `full`、`rt_lite` 和
   `rt_labels_only`，其中 labels-only 使用 `sionna_measurement_rt_labels` compact
   HDF5 contract 并只写 `/labels/link/*` link-level 标签，不写 CFR/CIR/path samples。
 - NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
@@ -60,6 +60,9 @@
 - 可选 `phy.srs.multiuser.enabled=true` 会写 `/multiuser` shared observation；当前只支持
   静态 snapshot 下 `comb_offset` 或 `prb_split` 的完全正交 SRS 资源，不建模额外 UE 间
   非正交干扰。
+- 可选 `phy.iq.enabled=true` 会写协议无关 `/iq/link` per-link 频域/时域 IQ；
+  `noncooperative.enabled=true` 会基于 NR SRS shared source 写 `/iq/noncooperative`
+  BS 侧 shared time-domain IQ 和 active UE 标签。IQ 层独立于 SRS/PUSCH receiver。
 
 ## 注意
 

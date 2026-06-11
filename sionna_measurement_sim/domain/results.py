@@ -25,6 +25,7 @@ from sionna_measurement_sim.domain.constants import (
 )
 from sionna_measurement_sim.domain.derived import DerivedLabels, build_derived_labels
 from sionna_measurement_sim.domain.frequency import FrequencyGrid
+from sionna_measurement_sim.domain.iq import IQObservationResult
 from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.motion import MotionSpec
 from sionna_measurement_sim.domain.multiuser import MultiUserSRSResult
@@ -449,6 +450,7 @@ class MeasurementSimulationResult:
     array_outputs: dict | None = None
     ranging: RangingResult | None = None
     multiuser: MultiUserSRSResult | None = None
+    iq: IQObservationResult | None = None
 
     def __post_init__(self) -> None:
         cfr = self.truth.cfr
@@ -532,6 +534,9 @@ class MeasurementSimulationResult:
             if self.multiuser.rx_grid_shared.shape[-1] != subcarrier:
                 msg = "multiuser subcarrier dimension must match frequency grid"
                 raise ValueError(msg)
+        if self.iq is not None and self.observation is None:
+            msg = "IQ observations require PHY observation"
+            raise ValueError(msg)
         if self.derived is None:
             object.__setattr__(
                 self,

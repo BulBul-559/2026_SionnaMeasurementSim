@@ -210,6 +210,40 @@ def test_generate_multiuser_srs_report_writes_grouped_outputs(tmp_path: Path):
         assert Path(entry["path"]).stat().st_size > 0
 
 
+def test_generate_iq_report_writes_grouped_outputs(tmp_path: Path):
+    h5_path = _write_iq_visualization_fixture(tmp_path / "iq_fixture.h5")
+    out_dir = tmp_path / "figures"
+    config = VisualizationRunConfig(
+        enabled=True,
+        plots=("iq",),
+        max_bs=1,
+        sample_ue_count=1,
+        max_ue=1,
+        dpi=80,
+    )
+
+    report = generate_visualization_report(
+        h5_path,
+        out_dir,
+        config,
+        mode="selected",
+        bs_indices=[0],
+        ue_indices=[0],
+    )
+
+    generated = {Path(entry["path"]).name for entry in report["generated_files"]}
+    assert report["skipped_plots"] == []
+    assert all(Path(entry["path"]).parent.name == "iq" for entry in report["generated_files"])
+    assert {
+        "iq_link_frequency.png",
+        "iq_link_time.png",
+        "iq_noncooperative_time.png",
+        "iq_noncooperative_targets.png",
+    } <= generated
+    for entry in report["generated_files"]:
+        assert Path(entry["path"]).stat().st_size > 0
+
+
 def test_dataset_mode_and_cli_visualize(tmp_path: Path):
     h5_path = _write_visualization_fixture(tmp_path / "fixture.h5")
     out_dir = tmp_path / "dataset"
@@ -514,4 +548,60 @@ def _write_multiuser_visualization_fixture(path: Path) -> Path:
             cfr_allocated[0, 0, ue_idx, :, :, 0, :] = truth[ue_idx, :, :, 0, :]
         h5.create_dataset("multiuser/cfr_est_resource", data=cfr_resource)
         h5.create_dataset("multiuser/cfr_est_allocated", data=cfr_allocated)
+    return path
+
+
+def _write_iq_visualization_fixture(path: Path) -> Path:
+    rng = np.random.default_rng(123)
+    symbols = 4
+    subcarriers = 8
+    cp = 1
+    samples = symbols * (subcarriers + cp)
+    with h5py.File(path, "w") as h5:
+        h5.create_dataset("link/tx_role", data=np.bytes_("ue"))
+        h5.create_dataset("link/rx_role", data=np.bytes_("bs"))
+        h5.create_dataset(
+            "topology/tx_positions_m",
+            data=np.array([[1.0, 2.0, 1.5], [3.0, 4.0, 1.5]], dtype=np.float32),
+        )
+        h5.create_dataset(
+            "topology/rx_positions_m",
+            data=np.array([[0.0, 0.0, 2.0]], dtype=np.float32),
+        )
+        h5.create_dataset("derived/link_valid_mask", data=np.ones((2, 1), dtype=np.bool_))
+        h5.create_dataset("iq/sample_rate_hz", data=np.float64(240000.0))
+        h5.create_dataset("iq/fft_size", data=np.int32(subcarriers))
+        h5.create_dataset("iq/cp_length", data=np.int32(cp))
+        h5.create_dataset("iq/num_ofdm_symbols", data=np.int32(symbols))
+        h5.create_dataset(
+            "iq/time_domain_convention",
+            data=np.bytes_("ofdm_ifft_per_symbol_cp_appended_contiguous_symbols"),
+        )
+        frequency = (
+            rng.normal(size=(1, 2, 1, 2, symbols, subcarriers))
+            + 1j * rng.normal(size=(1, 2, 1, 2, symbols, subcarriers))
+        ).astype(np.complex64)
+        time = (
+            rng.normal(size=(1, 2, 1, 2, samples))
+            + 1j * rng.normal(size=(1, 2, 1, 2, samples))
+        ).astype(np.complex64)
+        h5.create_dataset("iq/link/frequency_clean", data=frequency)
+        h5.create_dataset("iq/link/time_clean", data=time)
+        shared_time = (
+            rng.normal(size=(1, 1, 1, 2, samples))
+            + 1j * rng.normal(size=(1, 1, 1, 2, samples))
+        ).astype(np.complex64)
+        h5.create_dataset("iq/noncooperative/rx_time_clean", data=shared_time)
+        h5.create_dataset(
+            "iq/noncooperative/active_tx_indices",
+            data=np.array([[0, 1]], dtype=np.int32),
+        )
+        h5.create_dataset(
+            "iq/noncooperative/active_tx_mask",
+            data=np.array([[True, True]], dtype=np.bool_),
+        )
+        h5.create_dataset(
+            "iq/noncooperative/active_tx_positions_m",
+            data=np.array([[[1.0, 2.0, 1.5], [3.0, 4.0, 1.5]]], dtype=np.float32),
+        )
     return path

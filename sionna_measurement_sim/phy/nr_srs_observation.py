@@ -211,6 +211,7 @@ def run_nr_srs_observation(
         )
         waveform_grids = {
             "tx_grid": tx_grid.astype(np.complex64, copy=False),
+            "rx_grid_clean": y_clean.astype(np.complex64, copy=False),
             "rx_grid": rx_grid,
             "noise_variance": chain_scalars["noise_variance"],
             "tx_power_dbm_per_port": power_control.tx_power_dbm,
@@ -368,21 +369,49 @@ def _run_multiuser_srs_if_enabled(
     default_num_prb: int,
     tracer: Any | None,
 ) -> MultiUserSRSResult | None:
+    noncoop_cfg = getattr(phy_config, "noncooperative_config", None)
+    noncoop_enabled = bool(getattr(noncoop_cfg, "enabled", False))
     multi_cfg = getattr(getattr(phy_config, "srs_config", None), "multiuser", None)
     if multi_cfg is None:
         multi_cfg = getattr(getattr(phy_config, "srs", None), "multiuser", None)
-    if multi_cfg is None or not bool(getattr(multi_cfg, "enabled", False)):
+    multi_enabled = multi_cfg is not None and bool(getattr(multi_cfg, "enabled", False))
+    if not multi_enabled and not noncoop_enabled:
         return None
     if bool(getattr(srs_resource_config.hopping, "enabled", False)):
         raise ValueError("multi-UE SRS v1 does not support SRS frequency hopping yet")
 
-    active_count = int(getattr(multi_cfg, "active_ue_count", 2))
+    active_count = int(
+        getattr(
+            multi_cfg,
+            "active_ue_count",
+            getattr(noncoop_cfg, "active_tx_count", 2),
+        )
+        if multi_enabled
+        else getattr(noncoop_cfg, "active_tx_count", 2)
+    )
     if active_count < 1:
         raise ValueError("phy.srs.multiuser.active_ue_count must be positive")
-    strategy = str(getattr(multi_cfg, "resource_strategy", "comb_offset"))
+    strategy = str(
+        getattr(
+            multi_cfg,
+            "resource_strategy",
+            getattr(noncoop_cfg, "resource_strategy", "comb_offset"),
+        )
+        if multi_enabled
+        else getattr(noncoop_cfg, "resource_strategy", "comb_offset")
+    )
     if strategy not in ("comb_offset", "prb_split"):
         raise ValueError("phy.srs.multiuser.resource_strategy must be comb_offset/prb_split")
-    if str(getattr(multi_cfg, "frame_policy", "sequential")) != "sequential":
+    frame_policy = str(
+        getattr(
+            multi_cfg,
+            "frame_policy",
+            getattr(noncoop_cfg, "frame_policy", "sequential"),
+        )
+        if multi_enabled
+        else getattr(noncoop_cfg, "frame_policy", "sequential")
+    )
+    if frame_policy != "sequential":
         raise ValueError("multi-UE SRS v1 supports sequential frame_policy only")
     if h_ul.shape[0] != 1:
         raise ValueError("multi-UE SRS v1 supports one static channel snapshot only")
@@ -554,6 +583,7 @@ def _run_multiuser_srs(
 
     return MultiUserSRSResult(
         resource_strategy=strategy,
+        rx_grid_clean_shared=y_clean_shared,
         rx_grid_shared=rx_grid_shared,
         noise_variance=chain_scalars["noise_variance"],
         snr_db=chain_scalars["snr_db"],

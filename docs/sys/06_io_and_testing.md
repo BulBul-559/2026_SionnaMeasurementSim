@@ -23,7 +23,7 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 /meta /input /topology /devices /antenna /scene /frequency
 /channel/truth /paths/samples /paths/full /link
 /waveform /observation /ranging /impairments /receiver /evaluation
-/derived /array /calibration /motion /runtime
+/derived /array /iq /calibration /motion /runtime
 ```
 
 `output.profile="rt_labels_only"` 使用独立 writer，顶层 group 是：
@@ -75,11 +75,18 @@ def validate_hdf5_contract(path: str | Path) -> None
      RE/allocated subcarrier mask、resource occupancy/collision mask 和 per-UE CFR
    - `resource_collision_mask` 必须等于 `resource_occupancy_count > 1`
    - active/padding TX index、RX 维度、天线维度和 subcarrier 维度必须与 topology/frequency 一致
-10. **BLER 契约**（NR PUSCH）：
+10. **IQ 契约**（当 `/iq` 存在）：
+    - root 必须写 `sample_rate_hz`、`fft_size`、`cp_length`、`num_ofdm_symbols` 和
+      `time_domain_convention`
+    - `/iq/link` 的 frequency dataset 维度为 `[snapshot,tx,rx,rx_ant,ofdm_symbol,subcarrier]`，
+      time dataset 维度为 `[snapshot,tx,rx,rx_ant,sample]`
+    - `/iq/noncooperative` 的 time IQ 维度为 `[snapshot,frame,rx,rx_ant,sample]`，
+      并校验 active TX 标签、RSS/noise/SNR 标量和 `resource_collision_mask == occupancy > 1`
+11. **BLER 契约**（NR PUSCH）：
    - `num_blocks > 0`
    - `0 <= num_block_errors <= num_blocks`
    - `bler == num_block_errors / num_blocks`
-11. **Ranging 契约**（当 `/ranging` 存在）：
+12. **Ranging 契约**（当 `/ranging` 存在）：
     - 必须已有 `/observation/cfr_est`
     - `pdp_peak` / `phase_slope` 输出 shape 为 `[snapshot, tx, rx]`
     - 成功位置为 finite，失败位置为 NaN，`selected_delay_bin` 失败为 -1

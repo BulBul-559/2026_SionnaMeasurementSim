@@ -362,6 +362,7 @@ def _dispatch_plot(
         "nmse_snr": _plot_nmse_snr,
         "path_samples": _plot_path_samples,
         "multiuser_srs": _plot_multiuser_srs,
+        "iq": _plot_iq,
         "radio_map": _plot_radio_map,
         "full_summary": _plot_full_summary,
         "dataset_preview": _plot_dataset_preview,
@@ -381,6 +382,8 @@ def _dispatch_plot(
 def _plot_output_dir(output_dir: Path, plot_name: str) -> Path:
     if plot_name == "radio_map":
         return output_dir
+    if plot_name == "iq":
+        return output_dir / "iq"
     if plot_name == "multiuser_srs":
         return output_dir / "multiuser"
     return output_dir / "standard"
@@ -408,6 +411,224 @@ def _plot_radio_map(
         ),
     )
     return [Path(path) for path in summary["generated_files"]]
+
+
+def _plot_iq(
+    h5: h5py.File,
+    output_dir: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+    **_: Any,
+) -> list[Path]:
+    if "iq" not in h5:
+        raise _SkipPlot("missing /iq group")
+    generated: list[Path] = []
+    if "iq/link" in h5:
+        if "iq/link/frequency_clean" in h5 or "iq/link/frequency_observed" in h5:
+            generated.append(_plot_iq_link_frequency(h5, output_dir, selection, config))
+        if "iq/link/time_clean" in h5 or "iq/link/time_observed" in h5:
+            generated.append(_plot_iq_link_time(h5, output_dir, selection, config))
+    if "iq/noncooperative" in h5:
+        generated.append(_plot_iq_noncooperative_time(h5, output_dir, config))
+        generated.append(_plot_iq_noncooperative_targets(h5, output_dir, config))
+    if not generated:
+        raise _SkipPlot("/iq contains no plottable datasets")
+    return generated
+
+
+def _plot_iq_link_frequency(
+    h5: h5py.File,
+    output_dir: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+) -> Path:
+    dataset_path = (
+        "iq/link/frequency_clean"
+        if "iq/link/frequency_clean" in h5
+        else "iq/link/frequency_observed"
+    )
+    tx_idx, rx_idx = _iq_selected_link(h5[dataset_path].shape, selection)
+    values = np.asarray(h5[dataset_path][0, tx_idx, rx_idx, 0], dtype=np.complex64)
+    figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.2), squeeze=False)
+    panels = (
+        ("I / real", np.real(values), "coolwarm"),
+        ("Q / imag", np.imag(values), "coolwarm"),
+        ("Magnitude dB", 20.0 * np.log10(np.abs(values) + _EPS), "viridis"),
+        ("Phase rad", np.angle(values), "twilight"),
+    )
+    for axis, (title, image, cmap) in zip(axes.ravel(), panels, strict=True):
+        mesh = axis.imshow(
+            image.T,
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap=cmap,
+        )
+        axis.set_title(title)
+        axis.set_xlabel("OFDM symbol")
+        axis.set_ylabel("Subcarrier")
+        figure.colorbar(mesh, ax=axis, shrink=0.82)
+    figure.suptitle(f"{dataset_path} TX {tx_idx} - RX {rx_idx} - RX ant 0")
+    return _save_figure(figure, output_dir / f"iq_link_frequency.{config.format}", config)
+
+
+def _plot_iq_link_time(
+    h5: h5py.File,
+    output_dir: Path,
+    selection: dict[str, Any],
+    config: VisualizationRunConfig,
+) -> Path:
+    dataset_path = (
+        "iq/link/time_clean"
+        if "iq/link/time_clean" in h5
+        else "iq/link/time_observed"
+    )
+    tx_idx, rx_idx = _iq_selected_link(h5[dataset_path].shape, selection)
+    values = np.asarray(h5[dataset_path][0, tx_idx, rx_idx, 0], dtype=np.complex64)
+    return _plot_time_iq_series(
+        values,
+        output_dir / f"iq_link_time.{config.format}",
+        config,
+        title=f"{dataset_path} TX {tx_idx} - RX {rx_idx} - RX ant 0",
+    )
+
+
+def _plot_iq_noncooperative_time(
+    h5: h5py.File,
+    output_dir: Path,
+    config: VisualizationRunConfig,
+) -> Path:
+    dataset_path = (
+        "iq/noncooperative/rx_time_clean"
+        if "iq/noncooperative/rx_time_clean" in h5
+        else "iq/noncooperative/rx_time_observed"
+    )
+    values = np.asarray(h5[dataset_path][0, 0, 0, 0], dtype=np.complex64)
+    return _plot_time_iq_series(
+        values,
+        output_dir / f"iq_noncooperative_time.{config.format}",
+        config,
+        title=f"{dataset_path} frame 0 - RX 0 - RX ant 0",
+    )
+
+
+def _plot_time_iq_series(
+    values: np.ndarray,
+    path: Path,
+    config: VisualizationRunConfig,
+    *,
+    title: str,
+) -> Path:
+    sliced, start_sample = _select_time_iq_window(values, max_samples=4096)
+    x_axis = np.arange(start_sample, start_sample + sliced.size)
+    figure, axes = plt.subplots(3, 1, figsize=(11.0, 7.0), sharex=True)
+    axes[0].plot(x_axis, np.real(sliced), linewidth=0.8)
+    axes[0].set_ylabel("I")
+    axes[1].plot(x_axis, np.imag(sliced), linewidth=0.8, color="tab:orange")
+    axes[1].set_ylabel("Q")
+    axes[2].plot(x_axis, np.abs(sliced), linewidth=0.8, color="tab:green")
+    axes[2].set_ylabel("|IQ|")
+    axes[2].set_xlabel("Sample")
+    for axis in axes:
+        axis.grid(True, alpha=0.25)
+    figure.suptitle(f"{title} (window start {start_sample})")
+    return _save_figure(figure, path, config)
+
+
+def _select_time_iq_window(
+    values: np.ndarray,
+    *,
+    max_samples: int,
+) -> tuple[np.ndarray, int]:
+    """Select a compact time window that contains the strongest IQ energy."""
+
+    series = np.asarray(values, dtype=np.complex64).reshape(-1)
+    if series.size <= max_samples:
+        return series, 0
+    power = np.abs(series).astype(np.float64) ** 2
+    if not np.any(np.isfinite(power)) or float(np.nanmax(power)) <= 0.0:
+        return series[:max_samples], 0
+    finite_power = np.nan_to_num(power, nan=0.0, posinf=0.0, neginf=0.0)
+    prefix = np.concatenate(([0.0], np.cumsum(finite_power)))
+    window_energy = prefix[max_samples:] - prefix[:-max_samples]
+    start = int(np.argmax(window_energy))
+    return series[start : start + max_samples], start
+
+
+def _plot_iq_noncooperative_targets(
+    h5: h5py.File,
+    output_dir: Path,
+    config: VisualizationRunConfig,
+) -> Path:
+    positions = np.asarray(
+        h5["iq/noncooperative/active_tx_positions_m"][0],
+        dtype=np.float32,
+    )
+    mask = np.asarray(h5["iq/noncooperative/active_tx_mask"][0], dtype=np.bool_)
+    rx_positions = (
+        np.asarray(h5["topology/rx_positions_m"][:, :2], dtype=np.float32)
+        if "topology/rx_positions_m" in h5
+        else np.empty((0, 2), dtype=np.float32)
+    )
+    figure, axis = plt.subplots(figsize=(7.0, 5.8))
+    if rx_positions.size:
+        axis.scatter(
+            rx_positions[:, 0],
+            rx_positions[:, 1],
+            marker="^",
+            s=80,
+            label="RX/BS",
+            color="tab:blue",
+        )
+        for idx, xy in enumerate(rx_positions):
+            axis.text(float(xy[0]), float(xy[1]), f" RX {idx}", fontsize=8)
+    if np.any(mask):
+        active_xy = positions[mask, :2]
+        axis.scatter(
+            active_xy[:, 0],
+            active_xy[:, 1],
+            marker="o",
+            s=70,
+            label="Active TX/UE",
+            color="tab:red",
+        )
+        active_indices = np.asarray(h5["iq/noncooperative/active_tx_indices"][0])[mask]
+        for idx, xy in zip(active_indices, active_xy, strict=True):
+            axis.text(float(xy[0]), float(xy[1]), f" UE {int(idx)}", fontsize=8)
+    axis.set_xlabel("x [m]")
+    axis.set_ylabel("y [m]")
+    axis.set_title("Non-Cooperative IQ Frame 0 Active Targets")
+    axis.grid(True, alpha=0.25)
+    axis.legend(loc="best")
+    axis.set_aspect("equal", adjustable="box")
+    return _save_figure(
+        figure,
+        output_dir / f"iq_noncooperative_targets.{config.format}",
+        config,
+    )
+
+
+def _iq_selected_link(
+    shape: tuple[int, ...],
+    selection: dict[str, Any],
+) -> tuple[int, int]:
+    tx_count = int(shape[1])
+    rx_count = int(shape[2])
+    tx_role = str(selection.get("tx_role", "tx"))
+    rx_role = str(selection.get("rx_role", "rx"))
+    tx_candidates = (
+        selection.get("ue_indices", [])
+        if tx_role == "ue"
+        else selection.get("bs_indices", [])
+    )
+    rx_candidates = (
+        selection.get("bs_indices", [])
+        if rx_role == "bs"
+        else selection.get("ue_indices", [])
+    )
+    tx_idx = int(tx_candidates[0]) if tx_candidates else 0
+    rx_idx = int(rx_candidates[0]) if rx_candidates else 0
+    return min(max(tx_idx, 0), tx_count - 1), min(max(rx_idx, 0), rx_count - 1)
 
 
 def _plot_multiuser_srs(

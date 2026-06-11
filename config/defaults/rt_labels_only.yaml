@@ -46,6 +46,16 @@ rt:
 phy:
   enabled: false
 
+noncooperative:
+  enabled: false
+  signal_standard: "nr_srs"
+  active_tx_count: 2
+  frame_policy: "sequential"
+  resource_strategy: "comb_offset"
+  save_time_clean: true
+  save_time_observed: true
+  cp_length: null
+
 array:
   spectrum:
     enabled: false

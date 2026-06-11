@@ -303,6 +303,8 @@ def validate_hdf5_contract(path: str | Path) -> None:
                 _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
         if "ranging" in h5:
             _validate_ranging(h5)
+        if "iq" in h5:
+            _validate_iq(h5)
         if "multiuser" in h5:
             _validate_multiuser_srs(h5)
         _validate_units(h5)
@@ -1369,6 +1371,161 @@ def _validate_multiuser_srs(h5: h5py.File) -> None:
         if "unit" not in ds.attrs or "index_order" not in ds.attrs:
             msg = f"Missing unit/index_order attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
+
+
+def _validate_iq(h5: h5py.File) -> None:
+    _require_present(
+        h5,
+        (
+            "iq/sample_rate_hz",
+            "iq/fft_size",
+            "iq/cp_length",
+            "iq/num_ofdm_symbols",
+            "iq/time_domain_convention",
+        ),
+        kind=h5py.Dataset,
+    )
+    fft_size = int(h5["iq/fft_size"][()])
+    cp_length = int(h5["iq/cp_length"][()])
+    num_symbols = int(h5["iq/num_ofdm_symbols"][()])
+    if fft_size < 2:
+        raise SchemaValidationError("/iq/fft_size must be >= 2")
+    if cp_length < 0:
+        raise SchemaValidationError("/iq/cp_length must be non-negative")
+    if num_symbols < 1:
+        raise SchemaValidationError("/iq/num_ofdm_symbols must be positive")
+    if "link" in h5["iq"]:
+        _validate_iq_link(h5, fft_size, cp_length, num_symbols)
+    if "noncooperative" in h5["iq"]:
+        _validate_iq_noncooperative(h5, fft_size, cp_length, num_symbols)
+
+
+def _validate_iq_link(
+    h5: h5py.File,
+    fft_size: int,
+    cp_length: int,
+    num_symbols: int,
+) -> None:
+    link = h5["iq/link"]
+    frequency_shape = None
+    for name in ("frequency_clean", "frequency_observed"):
+        if name not in link:
+            continue
+        ds = link[name]
+        if ds.ndim != 6:
+            raise SchemaValidationError(f"/iq/link/{name} must be rank 6")
+        if ds.shape[-2:] != (num_symbols, fft_size):
+            msg = f"/iq/link/{name} symbol/subcarrier dimensions must match /iq metadata"
+            raise SchemaValidationError(msg)
+        if frequency_shape is None:
+            frequency_shape = ds.shape
+        elif ds.shape != frequency_shape:
+            raise SchemaValidationError("/iq/link frequency datasets must share shape")
+        _require_unit_order(ds, f"iq/link/{name}")
+
+    time_shape = None
+    expected_samples = num_symbols * (fft_size + cp_length)
+    for name in ("time_clean", "time_observed"):
+        if name not in link:
+            continue
+        ds = link[name]
+        if ds.ndim != 5:
+            raise SchemaValidationError(f"/iq/link/{name} must be rank 5")
+        if ds.shape[-1] != expected_samples:
+            msg = f"/iq/link/{name} sample dimension must be {expected_samples}"
+            raise SchemaValidationError(msg)
+        if time_shape is None:
+            time_shape = ds.shape
+        elif ds.shape != time_shape:
+            raise SchemaValidationError("/iq/link time datasets must share shape")
+        _require_unit_order(ds, f"iq/link/{name}")
+    if frequency_shape is not None and time_shape is not None:
+        if frequency_shape[:4] != time_shape[:4]:
+            raise SchemaValidationError("/iq/link frequency/time leading dims must match")
+
+
+def _validate_iq_noncooperative(
+    h5: h5py.File,
+    fft_size: int,
+    cp_length: int,
+    num_symbols: int,
+) -> None:
+    group = h5["iq/noncooperative"]
+    _require_present(
+        h5,
+        (
+            "iq/noncooperative/noise_variance",
+            "iq/noncooperative/snr_db",
+            "iq/noncooperative/rssi_dbm",
+            "iq/noncooperative/noise_power_dbm",
+            "iq/noncooperative/active_tx_indices",
+            "iq/noncooperative/active_tx_global_indices",
+            "iq/noncooperative/active_tx_mask",
+            "iq/noncooperative/active_tx_positions_m",
+            "iq/noncooperative/resource_occupancy_count",
+            "iq/noncooperative/resource_collision_mask",
+        ),
+        kind=h5py.Dataset,
+    )
+    expected_samples = num_symbols * (fft_size + cp_length)
+    time_shape = None
+    for name in ("rx_time_clean", "rx_time_observed"):
+        if name not in group:
+            continue
+        ds = group[name]
+        if ds.ndim != 5:
+            raise SchemaValidationError(f"/iq/noncooperative/{name} must be rank 5")
+        if ds.shape[-1] != expected_samples:
+            msg = f"/iq/noncooperative/{name} sample dimension must be {expected_samples}"
+            raise SchemaValidationError(msg)
+        if time_shape is None:
+            time_shape = ds.shape
+        elif ds.shape != time_shape:
+            raise SchemaValidationError("/iq/noncooperative time datasets must share shape")
+        _require_unit_order(ds, f"iq/noncooperative/{name}")
+    if time_shape is None:
+        raise SchemaValidationError("/iq/noncooperative requires rx_time_clean or rx_time_observed")
+    snap, frame, rx, _rx_ant, _samples = time_shape
+    for name in ("noise_variance", "snr_db", "rssi_dbm", "noise_power_dbm"):
+        ds = group[name]
+        if ds.shape != (snap, frame, rx):
+            msg = f"/iq/noncooperative/{name} must be [snapshot,frame,rx]"
+            raise SchemaValidationError(msg)
+        _require_unit_order(ds, f"iq/noncooperative/{name}")
+    active_tx = group["active_tx_indices"]
+    if active_tx.ndim != 2 or active_tx.shape[0] != frame:
+        raise SchemaValidationError(
+            "/iq/noncooperative/active_tx_indices must be [frame,active_tx]"
+        )
+    active_shape = active_tx.shape
+    for name in ("active_tx_global_indices", "active_tx_mask"):
+        if group[name].shape != active_shape:
+            msg = f"/iq/noncooperative/{name} must match active_tx_indices"
+            raise SchemaValidationError(msg)
+    if group["active_tx_positions_m"].shape != (*active_shape, 3):
+        raise SchemaValidationError(
+            "/iq/noncooperative/active_tx_positions_m must be [frame,active_tx,3]"
+        )
+    occupancy = group["resource_occupancy_count"]
+    collision = group["resource_collision_mask"]
+    if occupancy.shape != (frame, num_symbols, fft_size):
+        raise SchemaValidationError(
+            "/iq/noncooperative/resource_occupancy_count must be "
+            "[frame,ofdm_symbol,subcarrier]"
+        )
+    if collision.shape != occupancy.shape:
+        raise SchemaValidationError(
+            "/iq/noncooperative/resource_collision_mask must match occupancy"
+        )
+    if not np.array_equal(collision[()], occupancy[()] > 1):
+        raise SchemaValidationError(
+            "/iq/noncooperative/resource_collision_mask must equal occupancy > 1"
+        )
+
+
+def _require_unit_order(dataset: h5py.Dataset, path: str) -> None:
+    if "unit" not in dataset.attrs or "index_order" not in dataset.attrs:
+        raise SchemaValidationError(f"Missing unit/index_order attribute on /{path}")
 
 
 def _validate_multiuser_indices(

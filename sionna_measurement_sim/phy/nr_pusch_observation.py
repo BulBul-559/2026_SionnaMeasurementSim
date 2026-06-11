@@ -674,6 +674,9 @@ def _process_su_mimo_per_link(
                 waveform_grids["rx_grid"][
                     snap_idx, ul_tx_idx, ul_rx_idx, ...
                 ] = link_result["rx_grid_slice"]
+                waveform_grids["rx_grid_clean"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = link_result["rx_grid_clean_slice"]
                 waveform_grids["noise_variance"][
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = link_result["noise_variance"]
@@ -860,6 +863,9 @@ def _process_su_mimo_batched(
             waveform_grids["rx_grid"][snap_idx, ul_tx_idx, ul_rx_idx, ...] = (
                 link_result["rx_grid_slice"]
             )
+            waveform_grids["rx_grid_clean"][snap_idx, ul_tx_idx, ul_rx_idx, ...] = (
+                link_result["rx_grid_clean_slice"]
+            )
             waveform_grids["noise_variance"][snap_idx, ul_tx_idx, ul_rx_idx] = (
                 link_result["noise_variance"]
             )
@@ -1005,6 +1011,14 @@ def _process_pusch_link_batch(
             pusch_rx_idx=0,
             batch_idx=batch_idx,
         )
+        _tx_grid_clean_slice, rx_grid_clean_slice, _ = _extract_waveform_link_slices(
+            tx_signal=tx_signal,
+            y=channel_result.y,
+            no=impairment_result.noise_variance[:, 0, 0],
+            pusch_tx_idx=0,
+            pusch_rx_idx=0,
+            batch_idx=batch_idx,
+        )
         link_metadata = _extract_batch_item_metadata(impairment_result, batch_idx)
         cfr_est_slice = cfr_est_batch[batch_idx]
 
@@ -1024,6 +1038,7 @@ def _process_pusch_link_batch(
         results.append({
             "cfr_est_slice": cfr_est_slice,
             "tx_grid_slice": tx_grid_slice,
+            "rx_grid_clean_slice": rx_grid_clean_slice,
             "rx_grid_slice": rx_grid_slice,
             "noise_variance": noise_variance,
             "link_metadata": link_metadata,
@@ -1215,12 +1230,22 @@ def _process_mu_mimo(
                     pusch_tx_idx=ul_tx_idx,
                     pusch_rx_idx=ul_rx_idx,
                 )
+                _tx_clean_slice, rx_clean_slice, _ = _extract_waveform_link_slices(
+                    tx_signal=tx_signal,
+                    y=channel_result.y,
+                    no=impairment_result.noise_variance[0, 0, :],
+                    pusch_tx_idx=ul_tx_idx,
+                    pusch_rx_idx=ul_rx_idx,
+                )
                 waveform_grids["tx_grid"][
                     snap_idx, ul_tx_idx, ul_rx_idx, ...
                 ] = tx_slice
                 waveform_grids["rx_grid"][
                     snap_idx, ul_tx_idx, ul_rx_idx, ...
                 ] = rx_slice
+                waveform_grids["rx_grid_clean"][
+                    snap_idx, ul_tx_idx, ul_rx_idx, ...
+                ] = rx_clean_slice
                 waveform_grids["noise_variance"][
                     snap_idx, ul_tx_idx, ul_rx_idx
                 ] = no_value
@@ -1411,6 +1436,13 @@ def _process_one_pusch_link(
         pusch_tx_idx=0,
         pusch_rx_idx=0,
     )
+    _tx_grid_clean_slice, rx_grid_clean_slice, _ = _extract_waveform_link_slices(
+        tx_signal=tx_signal,
+        y=channel_result.y,
+        no=impairment_result.noise_variance[:, 0, 0],
+        pusch_tx_idx=0,
+        pusch_rx_idx=0,
+    )
     link_metadata = _extract_batch_item_metadata(impairment_result, 0)
     # y: [batch, num_rx, num_rx_ant, num_ofdm_symbols, fft_size]
     # h_perfect: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, ...]
@@ -1505,6 +1537,7 @@ def _process_one_pusch_link(
     return {
         "cfr_est_slice": cfr_est_slice,
         "tx_grid_slice": tx_grid_slice,
+        "rx_grid_clean_slice": rx_grid_clean_slice,
         "rx_grid_slice": rx_grid_slice,
         "noise_variance": noise_variance,
         "link_metadata": link_metadata,
@@ -1547,6 +1580,17 @@ def _empty_waveform_grids(
             dtype=np.complex64,
         ),
         "rx_grid": np.zeros(
+            (
+                num_snap,
+                num_ul_tx,
+                num_ul_rx,
+                num_ul_rx_ant,
+                num_ofdm_symbols,
+                num_subcarriers,
+            ),
+            dtype=np.complex64,
+        ),
+        "rx_grid_clean": np.zeros(
             (
                 num_snap,
                 num_ul_tx,

@@ -17,6 +17,7 @@ DEFAULT_VISUALIZATION_PLOTS: tuple[str, ...] = (
     "nmse_snr",
     "path_samples",
     "multiuser_srs",
+    "iq",
 )
 
 ALLOWED_VISUALIZATION_PLOTS = DEFAULT_VISUALIZATION_PLOTS + (

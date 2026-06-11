@@ -40,6 +40,9 @@ YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目
 | `rt_lite` | 关闭 PHY/ranging/spectrum/visualization/calibration/full paths，仍写 full HDF5 contract |
 | `rt_labels_only` | 同样关闭下游重活，并让 pipeline 跳过 CFR/CIR/path samples，写 compact `/labels/link/*` contract |
 
+`rt_lite` 和 `rt_labels_only` 也会关闭 `phy.iq` 与 `noncooperative`，避免轻量标签
+或 RT-only 输出意外写入大体积 IQ 数据。
+
 关键参数：
 ```
 --config PATH         YAML 配置文件
@@ -89,6 +92,7 @@ class MeasurementConfig(BaseModel):
     rt: RTConfig                  # max_depth, los, specular_reflection, ...
     link: LinkConfig              # duplex_mode, phy_link_direction
     phy: PHYConfig                # standard, snr_db, NR-family fields
+    noncooperative: NonCooperativeConfig # shared time-domain IQ mode
     array: ArrayConfig            # AoA heatmap / Bartlett spectrum
     ranging: RangingConfig        # waveform-level ToA/range observation
     impairments: ImpairmentsConfig # awgn, cfo, sfo, phase_noise, timing, agc_adc
@@ -126,12 +130,15 @@ class PHYConfig(BaseModel):
     mimo_detector: str = "lmmse"
     channel_estimator: str = "pusch_ls"
     receiver_failure_policy: str = "fail_fast"
+    iq: PHYIQConfig               # optional /iq/link export
 ```
 
 Pydantic 的 `@model_validator` 在加载时自动校验：
 - `subcarrier_spacing_hz` 与 `bandwidth_hz / num_subcarriers` 一致
 - `fft_size >= 2`
 - 速度向量必须是 3 分量
+- `phy.iq.enabled=true` 时必须启用 PHY 且至少选择一个 IQ save flag
+- `noncooperative.enabled=true` 时必须启用 PHY，并且当前只允许 `phy.standard="nr_srs"`
 
 ## 配置加载 (`config/loader.py`)
 
@@ -179,9 +186,12 @@ render 和 Matplotlib 开销拖慢全量仿真。
 
 可视化入口会按图的语义分目录写入：普通采样诊断图在 `figures/standard/`，
 multi-UE SRS shared observation 图在 `figures/multiuser/`，RSS radio map 在
-`figures/heatmaps/`，根目录保留 `index.json` 作为索引。`multiuser_srs` plot
+`figures/heatmaps/`，IQ 图在 `figures/iq/`，根目录保留 `index.json` 作为索引。
+`multiuser_srs` plot
 只在 HDF5 存在 `/multiuser` group 时生成，用于检查资源占用、shared RX grid、
 per-UE CFR 拆分、error summary 以及 shared/separated 空间谱。
+`iq` plot 只在 HDF5 存在 `/iq` group 时生成，用于检查 per-link frequency/time IQ、
+非合作 shared time-domain IQ 和 active UE/BS 标签。
 
 独立 CLI 入口：
 
@@ -214,3 +224,5 @@ label、truth CFR Bartlett、estimated CFR Bartlett、RX grid Bartlett 四类矩
 `multiuser_srs` 会生成 resource ownership、shared RX grid、resource/allocated
 CFR 折线与幅度/相位热力图、误差摘要、BS 观测示意和 shared/separated 空间谱，图像写在
 `figures/multiuser/`。
+`iq` 会生成 per-link IQ 频域热力图、时域 I/Q 曲线、非合作 shared time IQ 曲线和
+active target map，图像写在 `figures/iq/`。

@@ -355,6 +355,30 @@ class PHYPowerConfig(BaseModel):
         return self
 
 
+class PHYIQConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    save_frequency_clean: bool = False
+    save_frequency_observed: bool = False
+    save_time_clean: bool = False
+    save_time_observed: bool = False
+    cp_length: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def check_iq_values(self) -> PHYIQConfig:
+        if self.enabled and not any(
+            (
+                self.save_frequency_clean,
+                self.save_frequency_observed,
+                self.save_time_clean,
+                self.save_time_observed,
+            )
+        ):
+            raise ValueError("phy.iq.enabled=true requires at least one save_* flag")
+        return self
+
+
 class SRSConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -439,6 +463,7 @@ class PHYConfig(BaseModel):
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = Field(default=1, ge=1)
     power: PHYPowerConfig = Field(default_factory=PHYPowerConfig)
+    iq: PHYIQConfig = Field(default_factory=PHYIQConfig)
     srs: SRSConfig = Field(default_factory=SRSConfig)
 
     @model_validator(mode="after")
@@ -609,6 +634,36 @@ class CalibrationConfig(BaseModel):
     profile_id: str = Field(default="synthetic_default")
 
 
+class NonCooperativeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    signal_standard: str = Field(default="nr_srs")
+    active_tx_count: int = Field(default=2, ge=1)
+    frame_policy: str = Field(default="sequential")
+    resource_strategy: str = Field(default="comb_offset")
+    save_time_clean: bool = True
+    save_time_observed: bool = True
+    cp_length: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def check_noncooperative_values(self) -> NonCooperativeConfig:
+        if self.signal_standard != "nr_srs":
+            raise ValueError("noncooperative.signal_standard currently supports nr_srs")
+        if self.frame_policy != "sequential":
+            raise ValueError("noncooperative.frame_policy currently supports sequential")
+        if self.resource_strategy not in ("comb_offset", "prb_split"):
+            raise ValueError(
+                "noncooperative.resource_strategy must be comb_offset/prb_split"
+            )
+        if self.enabled and not (self.save_time_clean or self.save_time_observed):
+            raise ValueError(
+                "noncooperative.enabled=true requires save_time_clean or "
+                "save_time_observed"
+            )
+        return self
+
+
 class VisualizationConfig(BaseModel):
     enabled: bool = False
     output_dir: str = Field(default="figures")
@@ -669,6 +724,7 @@ class MeasurementConfig(BaseModel):
     motion: MotionConfig = Field(default_factory=MotionConfig)
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
     link: LinkConfig = Field(default_factory=LinkConfig)
+    noncooperative: NonCooperativeConfig = Field(default_factory=NonCooperativeConfig)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
 
     @model_validator(mode="after")
@@ -684,6 +740,13 @@ class MeasurementConfig(BaseModel):
             raise ValueError(
                 "ranging.enabled=true requires phy.enabled=true and /observation/cfr_est"
             )
+        if self.output.profile == "full" and self.phy.iq.enabled and not self.phy.enabled:
+            raise ValueError("phy.iq.enabled=true requires phy.enabled=true")
+        if self.output.profile == "full" and self.noncooperative.enabled:
+            if not self.phy.enabled:
+                raise ValueError("noncooperative.enabled=true requires phy.enabled=true")
+            if self.phy.standard != "nr_srs":
+                raise ValueError("noncooperative.enabled=true currently requires nr_srs")
         if self.motion.enabled and self.motion.mobility_mode == "doppler_synthetic":
             if self.motion.sampling_frequency_hz <= 0:
                 raise ValueError(

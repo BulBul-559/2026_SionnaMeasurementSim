@@ -261,7 +261,7 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
 | `max_ue` | int | 5 | 自动图中最多绘制的 UE 数 |
 | `dpi` | int | 140 | PNG 分辨率 |
 | `format` | str | "png" | 第一版仅支持 PNG |
-| `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图；NR SRS multi-UE 数据可加 `multiuser_srs` |
+| `plots` | list[str] | 核心诊断集 | topology/link/CFR/waveform/AoA/NLoS/spectrum/NMSE/path 图；NR SRS multi-UE 数据可加 `multiuser_srs`，IQ 输出可加 `iq` |
 | `radio_map_mode` | str | "interpolated" | `plots` 含 `radio_map` 时的 RSS radio map 输出；可选 `interpolated`、`samples`、`both` |
 | `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样间距推断 |
 | `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
@@ -302,6 +302,10 @@ HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
   resource/allocated CFR 折线与幅度/相位热力图，并输出 per-frame error summary；P2 图用少量 BS 观测画 UE
   发射示意和 shared/separated Bartlett 空间谱。该图集用于检查多 UE 正交资源拆分和
   BS 侧混合观测，不会把插值得到的 allocated/full-band CFR 当作真实全频观测。
+- `iq` 只在 HDF5 存在 `/iq` group 时出图。合作式 per-link IQ 输出
+  `figures/iq/iq_link_frequency.png` 和 `iq_link_time.png`；非合作 shared time-domain
+  IQ 输出 `iq_noncooperative_time.png` 和 active UE/BS 示意图
+  `iq_noncooperative_targets.png`。
 
 嵌入 pipeline 的可视化只做示意采样，不做逐链路全量出图。独立入口支持：
 
@@ -392,6 +396,26 @@ NR PUSCH 与 NR SRS 共享 `common_link.py` 的 clean channel → impairment/AWG
 | `power.uplink_control.accumulation_db` | float | 0.0 | 静态累积 offset |
 | `power.uplink_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
 
+#### `phy.iq` — 合作式 per-link IQ 落盘
+
+`phy.iq` 是协议无关的可选 IQ observation 层，读取已有 SRS/PUSCH waveform
+产物后单独写 `/iq/link`，不参与 receiver、CFR 估计或 BER/NMSE 计算。它适合在正常
+PHY 仿真里额外保存干净或受损后的频域/时域复数基带观测，用于后续信号模型训练。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `iq.enabled` | bool | false | 是否写 `/iq/link` |
+| `iq.save_frequency_clean` | bool | false | 写损伤/AWGN 前频域 IQ `/iq/link/frequency_clean` |
+| `iq.save_frequency_observed` | bool | false | 写损伤/AWGN 后频域 IQ `/iq/link/frequency_observed` |
+| `iq.save_time_clean` | bool | false | 从 clean 频域 grid 做 OFDM IFFT 后写 `/iq/link/time_clean` |
+| `iq.save_time_observed` | bool | false | 从 observed 频域 grid 做 OFDM IFFT 后写 `/iq/link/time_observed` |
+| `iq.cp_length` | int\|null | null | null 时使用 `phy.cp_length`；非 null 时在每个 OFDM symbol 前拼接 CP |
+
+启用 `phy.iq.enabled=true` 时至少要打开一个 save flag。时域 IQ 的约定是
+`ofdm_ifft_per_symbol_cp_appended_contiguous_symbols`：每个 OFDM symbol 逐个 IFFT，
+可选拼接 CP，再按 symbol 顺序展平成 sample 轴。当前它是由频域 grid 合成的基带 IQ，
+不是包含模拟前端连续采样、异步采样时钟或 RF passband 的原始 ADC 波形。
+
 #### custom OFDM 字段
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -477,6 +501,30 @@ channel snapshot、理想 OFDM 正交性和无额外 UE 间非正交干扰；不
 PRB 段。输出写 `/multiuser/rx_grid_shared`、resource/allocated CFR 和资源 mask；
 实际 SRS RE 上的 `cfr_est_resource` 是最权威观测，`comb_offset` 场景的未观测子载波
 若被补全，只能视作插值派生。
+
+### `noncooperative` — 非合作 shared time-domain IQ
+
+`noncooperative` 是独立于 SRS/PUSCH receiver 的非合作观测模式。第一版只支持
+`signal_standard: "nr_srs"`，会强制生成或复用 NR SRS multi-UE shared source，然后只把
+BS 侧 shared time-domain IQ 和 active UE 标签写入 `/iq/noncooperative`。它不导出每个
+UE 的独立 CFR，也不假设接收端已经知道每个目标的身份；适合做“有限 BS 观测下的多目标
+检测/定位”数据入口。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写 `/iq/noncooperative` |
+| `signal_standard` | str | `"nr_srs"` | 当前仅支持 NR SRS shared waveform |
+| `active_tx_count` | int | 2 | 每个 frame 同时激活的 UE 数 |
+| `frame_policy` | str | `"sequential"` | 当前仅支持按 UE 顺序分 frame |
+| `resource_strategy` | str | `"comb_offset"` | `"comb_offset"` 或 `"prb_split"`，与 `phy.srs.multiuser` 一致 |
+| `save_time_clean` | bool | true | 写损伤/AWGN 前 shared time IQ |
+| `save_time_observed` | bool | true | 写损伤/AWGN 后 shared time IQ |
+| `cp_length` | int\|null | null | null 时使用 `phy.cp_length` |
+
+`noncooperative.enabled=true` 要求 `phy.enabled=true` 且 `phy.standard="nr_srs"`。当前
+非合作 v1 仍是 OFDM 正交资源上的 shared observation：多个 UE 会在 BS 侧先线性叠加，
+再统一经过 common impairment/AWGN；尚未建模 per-UE 独立 CFO/timing/asynchrony、
+随机接入碰撞恢复、连续时间 ADC 流或协议级身份发现。这些应作为后续非合作增强 TODO。
 
 > **MIMO 配置提示：**
 > - 4x4 SU-MIMO: `mimo_mode="su_mimo"`, `num_layers=4`, `num_antenna_ports=4`

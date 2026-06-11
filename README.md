@@ -11,6 +11,7 @@
 - NR PUSCH MU-MIMO（多 UE 联合 PUSCH，独立 DMRS port set）
 - NR SRS standards-shaped v2 subset（comb/BWP、NR-ZC-like sequence、group/sequence hopping、cyclic-shift port multiplexing、frequency/bandwidth hopping、port/antenna switching、resource LS + full-band interpolation；可选 multi-UE 正交 SRS shared observation；暂非完整 3GPP SRS）
 - 协议无关 uplink power/RSSI 模型：`tx_power_dbm` 生效到 SRS/PUSCH TX grid，支持 relative-SNR 与 absolute-thermal 噪声口径
+- 协议无关 IQ observation 层：可选保存合作式 per-link clean/observed 频域 IQ、时域 IQ，并支持非合作 multi-UE shared time-domain IQ 输出
 - 波形级 ranging observation：从 `/observation/cfr_est` 估计 ToA/one-way range，支持 PDP peak 与 phase-slope estimator
 - PHY module registry：`custom_ofdm`、`nr_pusch`、`nr_srs` 通过统一接口接入 pipeline
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
@@ -22,7 +23,7 @@
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
 - `output.profile` 支持 `full`、`rt_lite`、`rt_labels_only`；labels-only 使用 compact `/labels/link` HDF5 contract，不写 CFR/CIR/path samples
-- HDF5 schema `1.8.0` 强校验（full contract、RT labels-only contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
+- HDF5 schema `1.9.0` 强校验（full contract、RT labels-only contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -160,6 +161,12 @@ resource 中提取 `cfr_est_resource` 和 `cfr_est_allocated`。其中实际 SRS
 `cfr_est_resource` 是最权威观测；`comb_offset` 场景若补 full allocated band，未观测
 子载波仍来自插值/补全，不应当成真实全频观测。
 
+可选 `phy.iq.enabled=true` 会额外写协议无关 `/iq/link`：从现有 SRS/PUSCH 波形导出
+per-link clean/observed 频域 IQ 和/或由 OFDM IFFT 生成的时域 IQ。可选
+`noncooperative.enabled=true` 会基于 NR SRS multi-UE shared source 写
+`/iq/noncooperative/rx_time_*`，只保存 BS 侧 shared time-domain IQ 和 active UE
+标签，供非合作多目标检测/定位实验使用。
+
 `phy.tx_power_dbm` 当前会影响 SRS/PUSCH 的发射 grid 幅度。默认
 `phy.power.noise_mode="relative_snr"` 保持历史 SNR 口径：TX power 上调时 RSSI 和
 noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，噪声按 kTB + NF
@@ -210,7 +217,7 @@ outputs/<run_dir>/
   results/              # result_xxx.h5，自包含 HDF5 shard
   manifest/             # aggregate manifest、per-shard manifest、config snapshot
   logs/                 # run.log、heatmap.log、debug/perf 日志
-  figures/              # 可选采样可视化；index.json + standard/multiuser/heatmaps 子目录
+  figures/              # 可选采样可视化；index.json + standard/multiuser/iq/heatmaps 子目录
 ```
 
 `run_config.yaml` 保存 YAML 加载和 CLI 覆盖后的最终运行配置，便于把单个输出目录作为
@@ -223,7 +230,8 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 可视化入口会把普通采样诊断图写到 `figures/standard/`，RSS radio map 写到
 `figures/heatmaps/`，multi-UE SRS shared observation 图写到 `figures/multiuser/`。
 `multiuser_srs` 图集用于检查资源占用、BS 侧混合 RX grid、per-UE CFR 折线与幅度/相位
-热力图、拆分误差和 shared/separated 空间谱。
+热力图、拆分误差和 shared/separated 空间谱。IQ 图写到 `figures/iq/`，展示
+频域 IQ 的 I/Q/幅度/相位和时域 IQ 波形，以及非合作帧中的 active target 位置。
 
 | Group | 内容 |
 |-------|------|
@@ -240,6 +248,7 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 | `/link` | 双工模式、PHY 方向、resolved `tx_role`/`rx_role` |
 | `/waveform` | OFDM/NR 波形；NR PUSCH/SRS 统一保存 `tx_grid/rx_grid/noise_variance` 和 power/RSSI metadata，NR SRS 另写 resource/sequence/port datasets |
 | `/multiuser` | 可选 NR SRS shared observation；多个 UE 正交 SRS 叠加后的 `rx_grid_shared`、资源分配、collision mask 和 per-UE resource/allocated CFR |
+| `/iq` | 可选协议无关 IQ observation；`/iq/link` 保存合作式 per-link 频域/时域 IQ，`/iq/noncooperative` 保存非合作 shared time-domain IQ 和 active UE 标签 |
 | `/array` | 阵列 snapshot、`aoa_heatmap_label`、truth/estimated/RX-grid Bartlett 空间谱；旧 `spatial_spectrum_label` 和 `spatial_spectrum_srs` 不再写入 |
 | `/observation` | 估计 CFR `[snap, tx, rx, rx_ant, tx_ant, subcarrier]`、SNR、CFO 等 |
 | `/ranging` | 从受损后 `cfr_est` 估计的 ToA/range observation；含 `pdp_peak` 与 `phase_slope` |

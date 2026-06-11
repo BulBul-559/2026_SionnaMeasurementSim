@@ -39,6 +39,7 @@ antenna:       # 天线阵列 (bs_array, ue_array)
 rt:            # 射线追踪 (max_depth, los, specular_reflection, ...)
 link:          # 链路配置 (duplex_mode, phy_link_direction)
 phy:           # 物理层 (standard, snr_db, nr_pusch fields)
+noncooperative: # 非合作 shared time-domain IQ
 impairments:   # 损伤模型 (awgn, cfo, sfo, phase_noise, timing, agc_adc)
 ranging:       # 波形级 ToA/range observation (source=cfr_est)
 receiver:      # 接收机 (estimator_type, mimo_detector, failure_policy)
@@ -198,7 +199,7 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
 | `max_ue` | int | 5 | 自动图中最多 UE 数 |
 | `dpi` | int | 140 | PNG DPI |
 | `format` | str | `"png"` | 第一版仅支持 PNG |
-| `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图；NR SRS multi-UE 数据可加 `multiuser_srs` |
+| `plots` | list[str] | 核心诊断集 | topology、link、CFR、waveform、AoA/NLoS、空间谱、NMSE、path 图；NR SRS multi-UE 数据可加 `multiuser_srs`，IQ 输出可加 `iq` |
 | `radio_map_mode` | str | `"interpolated"` | `plots` 含 `radio_map` 时的 RSS radio map 输出模式：`interpolated`、`samples` 或 `both` |
 | `radio_map_grid_resolution_m` | float\|null | null | radio map 插值网格间隔；null 时从 UE 采样点间距推断 |
 | `radio_map_show_samples` | bool | false | 是否在插值 radio map 上叠加 UE 样本点 |
@@ -242,6 +243,8 @@ Sionna `PlanarArray` 的本地 y-z 平面布局生成：top-left 起、column-fi
   幅度/相位热力图、per-frame summary CSV/PNG 和误差分布；P2 图包含基于有限 BS 观测的 UE 发射示意以及
   shared/separated Bartlett 空间谱。它用于诊断多 UE 正交 SRS shared observation，不改变
   HDF5 数据语义。
+- `iq` 只在 `/iq` group 存在时生成。合作式 per-link IQ 图写 `figures/iq/iq_link_*`；
+  非合作 shared time-domain IQ 图写 `figures/iq/iq_noncooperative_*`。
 
 pipeline 可视化只做少量采样示意图。独立 `visualize` CLI 的 `full` 模式表示
 全量聚合统计，不逐 link 生成海量细节图。
@@ -307,6 +310,20 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 | `uplink_control.accumulation_db` | float | 0.0 | 静态累积 offset |
 | `uplink_control.min_tx_power_dbm/max_tx_power_dbm` | float | -40.0 / 23.0 | 发射功率裁剪范围 |
 
+**`phy.iq` 合作式 per-link IQ 字段**（SRS/PUSCH 可选）：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写 `/iq/link` |
+| `save_frequency_clean` | bool | false | 写 clean channel apply 后、损伤/AWGN 前频域 IQ |
+| `save_frequency_observed` | bool | false | 写 common impairment/AWGN 后频域 IQ |
+| `save_time_clean` | bool | false | 对 clean 频域 grid 做 OFDM IFFT 后写时域 IQ |
+| `save_time_observed` | bool | false | 对 observed 频域 grid 做 OFDM IFFT 后写时域 IQ |
+| `cp_length` | int\|null | null | null 时使用 `phy.cp_length`，非 null 时每 symbol 前拼接 CP |
+
+`phy.iq.enabled=true` 时至少要打开一个 save flag。时域 IQ 是从频域 grid 合成的
+复数基带样本，约定为 `ofdm_ifft_per_symbol_cp_appended_contiguous_symbols`。
+
 **NR PUSCH 专有字段**：
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -346,6 +363,24 @@ comb offset 复用同一 BWP，要求 `active_ue_count <= comb_size`；
 再统一经过 common impairment/AWGN；不新增 per-UE CFO/timing，也不建模非正交碰撞恢复。
 实际 SRS RE 上的 `cfr_est_resource` 是权威观测，`comb_offset` 下未 sounding 子载波的
 补全只应视作插值派生。
+
+**`noncooperative` 顶层字段**：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | bool | false | 是否写 `/iq/noncooperative` |
+| `signal_standard` | str | `"nr_srs"` | 当前仅支持 NR SRS shared waveform |
+| `active_tx_count` | int | 2 | 每个 frame 同时激活的 UE 数 |
+| `frame_policy` | str | `"sequential"` | 当前仅支持按 UE 顺序分 frame |
+| `resource_strategy` | str | `"comb_offset"` | `"comb_offset"` 或 `"prb_split"` |
+| `save_time_clean` | bool | true | 写损伤/AWGN 前 shared time IQ |
+| `save_time_observed` | bool | true | 写损伤/AWGN 后 shared time IQ |
+| `cp_length` | int\|null | null | null 时使用 `phy.cp_length` |
+
+`noncooperative.enabled=true` 要求 `phy.enabled=true` 且 `phy.standard="nr_srs"`。它会
+强制生成或复用 NR SRS multi-UE shared source，但只把 BS 侧 shared time-domain IQ 和
+active UE 标签写到 `/iq/noncooperative`；不会导出每个 UE 的独立 CFR，也不会改变
+普通 `/observation/cfr_est`。
 
 NR PUSCH 和 NR SRS 都通过 `common_link.py` 统一施加 CFO/SFO/timing/phase/
 AGC/ADC 与 AWGN。默认 `relative_snr` 下噪声方差按 clean `rx_grid` 每条 link 的平均
@@ -594,7 +629,7 @@ results.h5
 
 | Dataset | 类型 | 说明 |
 |---------|------|------|
-| `schema_version` | string | Schema 版本号，当前为 `1.8.0` |
+| `schema_version` | string | Schema 版本号，当前为 `1.9.0` |
 | `contract_name` | string | 契约名称 |
 | `producer` | string | 生成器标识 |
 | `created_at` | string | 创建时间戳 |
@@ -942,10 +977,57 @@ padding 槽位用 mask 标记。
 | `cfr_est_resource` | complex64 [snap, frame, active_ue, rx, rx_ant, srs_port, max_srs_re] | linear_complex | 每个 UE 实际 SRS RE 上的 CFR estimate；padding 无效 |
 | `cfr_est_allocated` | complex64 [snap, frame, active_ue, rx, rx_ant, tx_ant, max_alloc_sc] | linear_complex | 每个 UE 被分配频带上的 CFR estimate；comb 策略下可能包含插值结果 |
 
-schema `1.8.0` 会校验 `/multiuser/resource_collision_mask == resource_occupancy_count > 1`，
+schema `1.8.0` 起会校验 `/multiuser/resource_collision_mask == resource_occupancy_count > 1`，
 并要求 active TX index、padding mask、RX/天线/子载波维度与 topology/frequency 一致。
 对于正交资源仿真，`resource_collision_mask` 应全 false；若后续研究非正交碰撞，应新增
 明确的干扰/接收机语义，而不是复用当前 v1 contract。
+
+### 2.17.2 `/iq` — 协议无关 IQ observation（可选）
+
+schema `1.9.0` 后，当 `phy.iq.enabled=true` 或 `noncooperative.enabled=true` 时写入。
+`/iq` 是 observation payload，不改变 `/waveform`、`/observation/cfr_est`、`/multiuser`
+或 `/ranging` 的语义。
+
+Root metadata：
+
+| Dataset | Shape/类型 | Unit | 说明 |
+|---------|------------|------|------|
+| `sample_rate_hz` | scalar float | Hz | IQ 合成使用的采样率，当前等于 active bandwidth |
+| `fft_size` | scalar int | subcarrier | OFDM IFFT 长度 |
+| `cp_length` | scalar int | sample | 每个 OFDM symbol 前拼接的 CP 长度 |
+| `num_ofdm_symbols` | scalar int | symbol | 每个 grid 的 OFDM symbol 数 |
+| `time_domain_convention` | scalar string | — | 固定为 `ofdm_ifft_per_symbol_cp_appended_contiguous_symbols` |
+
+`/iq/link` 在 `phy.iq.enabled=true` 且至少一个 link save flag 开启时存在：
+
+| Dataset | Shape | Unit | 说明 |
+|---------|-------|------|------|
+| `frequency_clean` | complex64 [snap, tx, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | clean channel apply 后、损伤/AWGN 前的频域 IQ |
+| `frequency_observed` | complex64 [snap, tx, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | common impairment/AWGN 后的频域 IQ |
+| `time_clean` | complex64 [snap, tx, rx, rx_ant, sample] | linear_complex | clean 频域 grid 经 OFDM IFFT 得到的时域 IQ |
+| `time_observed` | complex64 [snap, tx, rx, rx_ant, sample] | linear_complex | observed 频域 grid 经 OFDM IFFT 得到的时域 IQ |
+
+这些 dataset 都是可选的，由 `phy.iq.save_*` 控制。time dataset 的 `sample` 维长度为
+`ofdm_symbol * (fft_size + cp_length)`。
+
+`/iq/noncooperative` 在 `noncooperative.enabled=true` 时存在：
+
+| Dataset | Shape | Unit | 说明 |
+|---------|-------|------|------|
+| `rx_time_clean` | complex64 [snap, frame, rx, rx_ant, sample] | linear_complex | 多 UE shared clean grid 经 OFDM IFFT 得到的 BS 侧时域 IQ |
+| `rx_time_observed` | complex64 [snap, frame, rx, rx_ant, sample] | linear_complex | 多 UE shared observed grid 经 OFDM IFFT 得到的 BS 侧时域 IQ |
+| `noise_variance`, `snr_db`, `rssi_dbm`, `noise_power_dbm` | float32 [snap, frame, rx] | linear_mw/dB/dBm | shared observation 标量 |
+| `active_tx_indices` | int32 [frame, active_tx] | — | frame 内本文件局部 TX index；padding 为 -1 |
+| `active_tx_global_indices` | int64 [frame, active_tx] | — | shard 模式下全局 TX index；padding 为 -1 |
+| `active_tx_mask` | bool [frame, active_tx] | — | active slot 是否有效 |
+| `active_tx_positions_m` | float32 [frame, active_tx, 3] | m | active TX 位置标签；padding 为 NaN |
+| `resource_occupancy_count` | int32 [frame, ofdm_symbol, subcarrier] | — | 每个 RE 被多少 active TX 占用 |
+| `resource_collision_mask` | bool [frame, ofdm_symbol, subcarrier] | — | `resource_occupancy_count > 1` |
+
+第一版非合作 IQ 只支持 NR SRS shared source，并且只保存时域 shared IQ。若 `save_time_clean`
+或 `save_time_observed` 关闭，对应 dataset 可不存在；但至少要存在一个 time IQ dataset。
+当前非合作 v1 不建模 per-UE 独立 CFO/timing/asynchrony、连续时间 ADC 流或随机接入式
+非正交碰撞恢复。
 
 大规模 NR PUSCH/SRS 输出建议按 shard 生成：开启 `output.sharding.enabled=true` 后，`run-full` 会按 UE/RX 范围直接写多个 `results/result_xxx.h5`，并由 `manifest/manifest.json` 汇总全局索引和每个 shard 的 schema/debug 信息。NR PUSCH 的 `6 BS × 8884 UE × 4x4` 已通过 4 GPU shard + batch64 全量验收；NR SRS direct uplink 模板默认 `shard_size=20`，已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` baseline。下游训练或分析应优先通过 manifest 按 shard 读取，而不是假设只有单个 `results.h5`，也不要假设 `result_xxx.h5` 文件名严格连续。
 

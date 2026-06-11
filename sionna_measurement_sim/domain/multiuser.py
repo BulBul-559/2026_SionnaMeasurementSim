@@ -18,6 +18,7 @@ class MultiUserSRSResult:
     """
 
     resource_strategy: str
+    rx_grid_clean_shared: np.ndarray
     rx_grid_shared: np.ndarray
     noise_variance: np.ndarray
     snr_db: np.ndarray
@@ -39,9 +40,21 @@ class MultiUserSRSResult:
     cfr_est_allocated: np.ndarray
 
     def __post_init__(self) -> None:
+        rx_grid_clean = np.asarray(self.rx_grid_clean_shared, dtype=np.complex64)
+        if rx_grid_clean.ndim != 6:
+            msg = (
+                "multiuser rx_grid_clean_shared must be "
+                "[snapshot,frame,rx,rx_ant,symbol,subcarrier]"
+            )
+            raise ValueError(msg)
+        object.__setattr__(self, "rx_grid_clean_shared", rx_grid_clean)
+
         rx_grid = np.asarray(self.rx_grid_shared, dtype=np.complex64)
         if rx_grid.ndim != 6:
             msg = "multiuser rx_grid_shared must be [snapshot,frame,rx,rx_ant,symbol,subcarrier]"
+            raise ValueError(msg)
+        if rx_grid.shape != rx_grid_clean.shape:
+            msg = "multiuser clean and observed shared RX grids must have matching shape"
             raise ValueError(msg)
         snap, frame, rx, rx_ant, symbols, subcarriers = rx_grid.shape
         object.__setattr__(self, "rx_grid_shared", rx_grid)

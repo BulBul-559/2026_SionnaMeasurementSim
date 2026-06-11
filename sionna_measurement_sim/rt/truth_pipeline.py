@@ -62,6 +62,7 @@ from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
 from sionna_measurement_sim.phy.impairments import ImpairmentConfig
+from sionna_measurement_sim.phy.iq_observation import build_iq_observation
 from sionna_measurement_sim.phy.modules import PHYContext, get_phy_module
 from sionna_measurement_sim.preflight.system import collect_basic_environment
 from sionna_measurement_sim.ranging.config import RangingConfig
@@ -158,7 +159,9 @@ class RTTruthRunConfig:
     receiver_failure_policy: str = "fail_fast"
     su_mimo_link_batch_size: int = 1
     power_config: Any | None = None
+    iq_config: Any | None = None
     srs_config: Any | None = None
+    noncooperative_config: Any | None = None
     ranging_config: RangingConfig = field(default_factory=RangingConfig)
     visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
 
@@ -190,6 +193,8 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
                 "calibration_enabled": False,
                 "spectrum_config": replace(config.spectrum_config, enabled=False),
                 "ranging_config": replace(config.ranging_config, enabled=False),
+                "iq_config": None,
+                "noncooperative_config": None,
                 "visualization_config": replace(config.visualization_config, enabled=False),
                 "save_full_paths": False,
             }
@@ -413,7 +418,7 @@ def _run_rt_truth_pipeline_single_impl(
             "diagnostics": phy_result.diagnostics,
             "metadata": phy_result.metadata,
             "multiuser": phy_result.multiuser,
-            }
+        }
     phase = 7 if observation_bundle is not None else 3 if config.max_depth > 0 else 2
 
     scene_id = config.scene_id or config.scene_file.stem
@@ -466,6 +471,39 @@ def _run_rt_truth_pipeline_single_impl(
             config=config.ranging_config,
         )
     shard_metadata = _build_shard_metadata(config, role_topology, mapping)
+    with tracer.span("iq_observation"):
+        iq_result = (
+            build_iq_observation(
+                iq_config=config.iq_config,
+                noncooperative_config=config.noncooperative_config,
+                waveform_extras=phy_extra.get("waveform_extras"),
+                multiuser=phy_extra.get("multiuser"),
+                topology=topology,
+                shard=shard_metadata,
+                sample_rate_hz=(
+                    observation_bundle.waveform.sample_rate_hz
+                    if observation_bundle and observation_bundle.waveform
+                    else frequency.bandwidth_hz
+                ),
+                fft_size=(
+                    observation_bundle.waveform.fft_size
+                    if observation_bundle and observation_bundle.waveform
+                    else frequency.num_subcarriers
+                ),
+                cp_length=(
+                    observation_bundle.waveform.cp_length
+                    if observation_bundle and observation_bundle.waveform
+                    else config.cp_length
+                ),
+                num_ofdm_symbols=(
+                    observation_bundle.waveform.num_ofdm_symbols
+                    if observation_bundle and observation_bundle.waveform
+                    else config.num_ofdm_symbols
+                ),
+            )
+            if observation_bundle
+            else None
+        )
     common_metadata = Metadata(
         run_id=output_dir.name,
         random_seed=config.seed,
@@ -592,6 +630,7 @@ def _run_rt_truth_pipeline_single_impl(
         array_outputs=phy_extra.get("array_outputs"),
         ranging=ranging_result,
         multiuser=phy_extra.get("multiuser"),
+        iq=iq_result,
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -1713,6 +1752,8 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "phy_standard": config.phy_standard,
         "tx_power_dbm": config.tx_power_dbm,
         "power_config": _power_config_snapshot(config.power_config),
+        "iq_config": _plain_config_snapshot(config.iq_config),
+        "noncooperative": _plain_config_snapshot(config.noncooperative_config),
         "srs_config": _srs_config_snapshot(config.srs_config),
         "ranging": _ranging_config_snapshot(config.ranging_config),
         "link_config": {
@@ -1811,6 +1852,24 @@ def _input_dataset_id(label_file: Path) -> str:
     if label_dir.name == "label":
         return label_dir.parent.as_posix()
     return label_dir.as_posix()
+
+
+def _plain_config_snapshot(config: Any | None) -> dict[str, object]:
+    if config is None:
+        return {}
+    if hasattr(config, "model_dump"):
+        return dict(config.model_dump(mode="json"))
+    if hasattr(config, "__dict__"):
+        snapshot: dict[str, object] = {}
+        for key, value in vars(config).items():
+            if hasattr(value, "model_dump"):
+                snapshot[key] = dict(value.model_dump(mode="json"))
+            elif hasattr(value, "__dict__"):
+                snapshot[key] = dict(vars(value))
+            else:
+                snapshot[key] = value
+        return snapshot
+    return {}
 
 
 def _ranging_config_snapshot(config: RangingConfig) -> dict[str, object]:
