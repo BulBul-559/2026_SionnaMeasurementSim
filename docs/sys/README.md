@@ -68,7 +68,8 @@
   BS 侧 shared time-domain IQ 和 active UE 标签。IQ 层独立于 SRS/PUSCH receiver。
 - `output.profile="iq_link_library"` 是面向非合作在线混合的数据底座：当前要求
   `phy.standard="nr_srs"`，只执行 RT CFR、SRS tx grid 和 clean channel apply，保存
-  clean per-link IQ；噪声、CFO/timing、AGC/clipping 等应在后续在线混合后统一添加。
+  clean per-link IQ；`phy.iq.clean_output` 可选择保存 time、frequency 或 both，噪声、
+  CFO/timing、AGC/clipping 等应在后续在线混合后统一添加。
 
 ## 注意
 

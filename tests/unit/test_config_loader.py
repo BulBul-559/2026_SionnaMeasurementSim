@@ -159,6 +159,45 @@ array:
         load_config(config_path)
 
 
+def test_phy_iq_clean_output_maps_to_clean_save_flags(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+phy:
+  enabled: true
+  iq:
+    enabled: true
+    clean_output: both
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.phy.iq.clean_output == "both"
+    assert cfg.phy.iq.save_frequency_clean is True
+    assert cfg.phy.iq.save_time_clean is True
+    assert cfg.phy.iq.save_frequency_observed is False
+    assert cfg.phy.iq.save_time_observed is False
+
+
+def test_phy_iq_clean_output_rejects_unknown_value(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+phy:
+  enabled: true
+  iq:
+    enabled: true
+    clean_output: raw
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="clean_output"):
+        load_config(config_path)
+
+
 def test_ranging_requires_phy_observation_when_enabled(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

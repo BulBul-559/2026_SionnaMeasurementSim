@@ -138,7 +138,8 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 `io.hdf5_reader.iter_link_labels()` 读取单文件或 sharded run。
 
 `iq_link_library` 的目标是构建“逐链路 clean IQ 库”，下游按 UE 组合在线相加并统一添加
-噪声/同步偏差/前端损伤；它不是已经混合好的非合作帧。
+噪声/同步偏差/前端损伤；它不是已经混合好的非合作帧。clean payload 由
+`phy.iq.clean_output` 选择为 time、frequency 或 both。
 
 **Shard 外壳：**
 

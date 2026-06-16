@@ -170,6 +170,15 @@ def test_rt_truth_pipeline_can_write_iq_link_library_profile(tmp_path: Path):
             num_prb=1,
             num_ofdm_symbols=14,
             cp_length=2,
+            iq_config=SimpleNamespace(
+                enabled=True,
+                clean_output="both",
+                save_frequency_clean=False,
+                save_frequency_observed=False,
+                save_time_clean=False,
+                save_time_observed=False,
+                cp_length=2,
+            ),
             srs_config=SimpleNamespace(
                 slot_length_symbols=14,
                 start_symbol=12,
@@ -198,8 +207,11 @@ def test_rt_truth_pipeline_can_write_iq_link_library_profile(tmp_path: Path):
             "sionna_measurement_iq_link_library"
         )
         assert h5["meta/output_profile"][()].decode("utf-8") == "iq_link_library"
+        assert "iq/link/frequency_clean" in h5
+        assert h5["iq/link/frequency_clean"].shape == (1, 2, 1, 2, 14, 8)
         assert "iq/link/time_clean" in h5
         assert h5["iq/link/time_clean"].shape == (1, 2, 1, 2, 14 * 10)
+        assert "iq/link/frequency_observed" not in h5
         assert "iq/link/time_observed" not in h5
         assert "iq/noncooperative" not in h5
         for absent_group in (

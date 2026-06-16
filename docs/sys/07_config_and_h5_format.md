@@ -318,13 +318,16 @@ TX 为 BS、RX 为 UE。旧用户配置字段 `rt_trace_direction`、`reciprocit
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | bool | false | 是否写 `/iq/link` |
+| `clean_output` | str\|null | null | 高层 clean IQ 选择器：`"time"`、`"frequency"`、`"both"`；设置后覆盖 clean save flags |
 | `save_frequency_clean` | bool | false | 写 clean channel apply 后、损伤/AWGN 前频域 IQ |
 | `save_frequency_observed` | bool | false | 写 common impairment/AWGN 后频域 IQ |
 | `save_time_clean` | bool | false | 对 clean 频域 grid 做 OFDM IFFT 后写时域 IQ |
 | `save_time_observed` | bool | false | 对 observed 频域 grid 做 OFDM IFFT 后写时域 IQ |
 | `cp_length` | int\|null | null | null 时使用 `phy.cp_length`，非 null 时每 symbol 前拼接 CP |
 
-`phy.iq.enabled=true` 时至少要打开一个 save flag。时域 IQ 是从频域 grid 合成的
+`phy.iq.enabled=true` 时至少要设置 `clean_output` 或打开一个 save flag。
+`clean_output` 只控制 clean payload；observed IQ 仍通过 `save_*_observed`
+显式开启。时域 IQ 是从频域 grid 合成的
 复数基带样本，约定为 `ofdm_ifft_per_symbol_cp_appended_contiguous_symbols`。
 
 **NR PUSCH 专有字段**：
@@ -692,13 +695,15 @@ payload。所有数据是 clean channel apply 后、损伤/AWGN/AGC/clipping 前
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|
-| `frequency_clean` | complex64 [snap, tx, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | 可选；clean 频域 IQ，开启 `phy.iq.save_frequency_clean=true` 时写入 |
-| `time_clean` | complex64 [snap, tx, rx, rx_ant, sample] | linear_complex | 可选；clean 频域 grid 经 OFDM IFFT 与可选 CP 拼接后得到；模板默认写入 |
+| `frequency_clean` | complex64 [snap, tx, rx, rx_ant, ofdm_symbol, subcarrier] | linear_complex | 可选；clean 频域 IQ，`phy.iq.clean_output="frequency"` 或 `"both"` 时写入 |
+| `time_clean` | complex64 [snap, tx, rx, rx_ant, sample] | linear_complex | 可选；clean 频域 grid 经 OFDM IFFT 与可选 CP 拼接后得到；`clean_output="time"` 或 `"both"` 时写入，模板默认写入 |
 
 该 compact contract 要求至少存在 `frequency_clean` 或 `time_clean` 之一，并禁止
 `frequency_observed`、`time_observed` 和 `/iq/noncooperative`。因此它保存的是“链路库”，
 不是“已经混合好的非合作帧”。下游可以按 UE 组合在线相加这些 clean IQ，再统一加入
 AWGN、CFO/SFO、timing offset、AGC/clipping、设备 bias 或其它前端模型。
+未设置 `clean_output` 的旧配置仍可用 `save_frequency_clean/save_time_clean` 控制
+clean payload；若两者都未开启，`iq_link_library` profile 默认写 `time_clean`。
 
 ### 2.4 `/shard` — Shard 元数据
 
@@ -1029,7 +1034,9 @@ Root metadata：
 | `num_ofdm_symbols` | scalar int | symbol | 每个 grid 的 OFDM symbol 数 |
 | `time_domain_convention` | scalar string | — | 固定为 `ofdm_ifft_per_symbol_cp_appended_contiguous_symbols` |
 
-`/iq/link` 在 `phy.iq.enabled=true` 且至少一个 link save flag 开启时存在：
+`/iq/link` 在 `phy.iq.enabled=true` 且设置 `phy.iq.clean_output` 或至少一个 link save
+flag 开启时存在。`clean_output` 只控制 `frequency_clean/time_clean`；observed 数据仍由
+`save_frequency_observed/save_time_observed` 显式控制：
 
 | Dataset | Shape | Unit | 说明 |
 |---------|-------|------|------|

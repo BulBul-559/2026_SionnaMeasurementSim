@@ -93,6 +93,9 @@ phy:
     noise_mode: "relative_snr"
   iq:
     enabled: true
+    # Choose clean IQ payload: "time", "frequency", or "both".
+    # The legacy save_* flags below are kept as the resolved low-level form.
+    clean_output: "time"
     save_frequency_clean: false
     save_frequency_observed: false
     save_time_clean: true

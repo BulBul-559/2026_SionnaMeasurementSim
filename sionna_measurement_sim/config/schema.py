@@ -361,6 +361,7 @@ class PHYIQConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    clean_output: str | None = Field(default=None)
     save_frequency_clean: bool = False
     save_frequency_observed: bool = False
     save_time_clean: bool = False
@@ -369,6 +370,11 @@ class PHYIQConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_iq_values(self) -> PHYIQConfig:
+        if self.clean_output is not None:
+            if self.clean_output not in ("time", "frequency", "both"):
+                raise ValueError("phy.iq.clean_output must be time/frequency/both")
+            self.save_frequency_clean = self.clean_output in ("frequency", "both")
+            self.save_time_clean = self.clean_output in ("time", "both")
         if self.enabled and not any(
             (
                 self.save_frequency_clean,
