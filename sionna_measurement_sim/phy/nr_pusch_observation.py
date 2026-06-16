@@ -44,6 +44,7 @@ from sionna_measurement_sim.phy.spatial_spectrum import (
     build_angle_grid_rad,
     build_aoa_heatmap_label,
     build_bartlett_spectrum,
+    build_bartlett_spectrum_from_covariance,
     build_rx_snapshot_matrix,
 )
 
@@ -1838,8 +1839,8 @@ def build_array_outputs_from_waveform(
     }
 
     if config.enabled and "rx_grid" in config.sources:
-        outputs["spatial_spectrum_observation"] = build_bartlett_spectrum(
-            rx,
+        outputs["spatial_spectrum_observation"] = build_bartlett_spectrum_from_covariance(
+            snapshot_matrix,
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
             rx_spacing_lambda=rx_spacing_lambda,

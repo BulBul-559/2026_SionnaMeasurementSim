@@ -7,9 +7,9 @@
 
 | 顺位 | ID | TODO | 简述 |
 |---:|---|---|---|
-| 1 | PERF-001 | HDF5 写入深度优化 | 系统测试 chunk、compression、flush、并行写和 schema validate 成本，降低最大写盘阶段。 |
-| 2 | PERF-002 | RT 参数调优实验 | 建立 RT-only 实验矩阵，量化 max_depth、反射/折射/绕射等配置对耗时和 CFR 的影响。 |
-| 3 | PERF-003 | 大规模空间谱优化 | 复用 steering matrix、减少中间数组，并 sweep `link_chunk_size` 的耗时/RSS 平衡。 |
+| 1 | PERF-002 | RT 参数调优实验 | 建立 RT-only 实验矩阵，量化 max_depth、反射/折射/绕射等配置对耗时和 CFR 的影响。 |
+| 2 | PERF-003 | 大规模空间谱优化 | 复用 steering matrix、减少中间数组，并 sweep `link_chunk_size` 的耗时/RSS 平衡。 |
+| 3 | PERF-001 | HDF5 写入深度优化 | 在 `mixed` 压缩已落地后，继续测试 chunk、flush、并行写和 schema validate 成本。 |
 | 4 | PERF-004 | visualization 开销优化 | 降低采样报告中的 HDF5 打开、Matplotlib 初始化和重复坐标计算成本。 |
 | 5 | PERF-006 | spectrum / visualization 开关矩阵 | 隔离评估 spectrum off/on、visualization off/on 和不同 spectrum source 的增量成本。 |
 | 6 | PERF-007 | batch size 自适应 | 记录并自动选择不同 GPU、UE/BS 规模和频域配置下稳定 batch 边界。 |
@@ -24,7 +24,11 @@
 涉及模块：`sionna_measurement_sim/io/hdf5_writer.py`、schema validator、output compression config、
 manifest、`benchmark write`。
 
-验收标准：至少比较 chunk shape、压缩算法、压缩等级、flush 策略、并行写文件数和 schema validate
+当前状态：已增加 `output.compression: "mixed"`，正式 full 仿真中高熵复数观测数组跳过 gzip，
+路径表/稀疏数组继续 gzip。`front3d_0002 0p5` full 对照中 `hdf5_write` 从约 365 s 降到
+约 171 s，详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。
+
+验收标准：继续比较 chunk shape、压缩等级、flush 策略、并行写文件数和 schema validate
 开关；输出推荐配置和风险说明；真实 shard 或 `benchmark write` 有可复现实验结果。
 
 重点提醒：优化写盘不能破坏 HDF5 schema、自包含 shard 和 manifest 契约。
@@ -46,6 +50,10 @@ manifest、`benchmark write`。
 
 涉及模块：`sionna_measurement_sim/phy/spatial_spectrum.py`、array output builder、HDF5 writer、
 visualization。
+
+当前状态：已新增 covariance-based Bartlett 入口，并让 observation spectrum 复用
+`rx_snapshot_matrix` covariance；收益较小。batched matmul 投影在单进程微基准更快，但正式多 worker
+运行中因 CPU/BLAS 线程竞争变慢，已放弃。
 
 验收标准：基于 `benchmark spectrum` 评估 steering matrix cache、按 link chunk 复用、归一化优化和不同 `link_chunk_size`；
 输出 RSS/耗时曲线；确认 scene/global angle 和 array orientation 语义不回退。

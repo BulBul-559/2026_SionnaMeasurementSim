@@ -7,6 +7,13 @@ import h5py
 import numpy as np
 import pytest
 
+from sionna_measurement_sim.domain.observation import (
+    EvaluationResult,
+    ImpairmentSpec,
+    ObservationResult,
+    ReceiverSpec,
+    WaveformSpec,
+)
 from sionna_measurement_sim.domain.path import PathSamples
 from sionna_measurement_sim.domain.results import ShardMetadata, create_phase1_minimal_result
 from sionna_measurement_sim.io.hdf5_reader import (
@@ -19,6 +26,7 @@ from sionna_measurement_sim.io.hdf5_writer import (
     write_rt_labels_result,
 )
 from sionna_measurement_sim.io.schema_validator import SchemaValidationError, validate_hdf5_contract
+from sionna_measurement_sim.phy.nr_pusch_observation import build_array_outputs_from_waveform
 
 
 def test_phase1_schema_stack_does_not_import_sionna():
@@ -120,6 +128,95 @@ def test_write_measurement_result_can_disable_compression(tmp_path: Path):
     validate_hdf5_contract(output_path)
     with h5py.File(output_path, "r") as h5:
         assert h5["channel/truth/cfr"].compression is None
+
+
+def test_write_measurement_result_mixed_compression_skips_noisy_grids(tmp_path: Path):
+    output_path = tmp_path / "results_mixed.h5"
+    base = create_phase1_minimal_result()
+    link_shape = (1, 1, 1)
+    cfr_est = base.truth.cfr[np.newaxis, ...]
+    tx_grid = np.ones((1, 1, 1, 1, 14, 8), dtype=np.complex64)
+    rx_grid = (2.0 * tx_grid).astype(np.complex64)
+    result = replace(
+        base,
+        metadata=replace(
+            base.metadata,
+            output_profile="full",
+            output_products=("cfr_truth", "cfr_obs", "array"),
+        ),
+        waveform=WaveformSpec(
+            standard="nr_pusch",
+            sample_rate_hz=240_000.0,
+            fft_size=8,
+            cp_length=0,
+            num_ofdm_symbols=14,
+            pilot_indices=np.array([], dtype=np.int32),
+            data_subcarrier_indices=np.arange(8, dtype=np.int32),
+            pilot_symbols=np.array([], dtype=np.complex64),
+            tx_power_dbm=0.0,
+        ),
+        observation=ObservationResult(
+            cfr_est=cfr_est,
+            valid_mask=np.ones(link_shape, dtype=np.bool_),
+            detection_success=np.ones(link_shape, dtype=np.bool_),
+            estimation_success=np.ones(link_shape, dtype=np.bool_),
+            snr_db=np.full(link_shape, 30.0, dtype=np.float32),
+            rssi_dbm=np.zeros(link_shape, dtype=np.float32),
+            noise_power_dbm=np.zeros(link_shape, dtype=np.float32),
+            cfo_hz=np.zeros(link_shape, dtype=np.float32),
+            sfo_ppm=np.zeros(link_shape, dtype=np.float32),
+            timing_offset_samples=np.zeros(link_shape, dtype=np.float32),
+            phase_offset_rad=np.zeros(link_shape, dtype=np.float32),
+            agc_gain_db=np.zeros((1, 1), dtype=np.float32),
+            clipping_flag=np.zeros(link_shape, dtype=np.bool_),
+        ),
+        receiver=ReceiverSpec(receiver_type="pusch_receiver", mimo_detector="lmmse"),
+        evaluation=EvaluationResult(
+            nmse_db=np.zeros(link_shape, dtype=np.float32),
+            nmse_db_total=np.zeros(link_shape, dtype=np.float32),
+            amplitude_error_db=np.zeros(link_shape, dtype=np.float32),
+            phase_error_rad=np.zeros(link_shape, dtype=np.float32),
+            correlation=np.ones(link_shape, dtype=np.float32),
+            detection_rate=1.0,
+            estimation_failure_rate=0.0,
+            num_blocks=1,
+        ),
+        impairments=ImpairmentSpec(
+            model_version="mixed_compression_test",
+            random_seed=1,
+            awgn_config='{"snr_db": 30.0}',
+        ),
+        waveform_extras={
+            "num_prb": 1,
+            "subcarrier_spacing_khz": 30,
+            "num_layers": 1,
+            "num_antenna_ports": 1,
+            "mcs_index": 14,
+            "mcs_table": 1,
+            "dmrs_config_type": 1,
+            "dmrs_length": 1,
+            "dmrs_additional_position": 1,
+            "num_cdm_groups_without_data": 2,
+            "tx_grid": tx_grid,
+            "rx_grid": rx_grid,
+            "noise_variance": np.full(link_shape, 0.25, dtype=np.float32),
+            "tx_power_dbm_per_port": np.zeros((1, 1, 1), dtype=np.float32),
+            "tx_power_scale_linear": np.ones((1, 1, 1), dtype=np.float32),
+            "serving_rx_index": np.zeros((1, 1), dtype=np.int32),
+            "path_loss_db": np.zeros((1, 1), dtype=np.float32),
+            "power_clipped_flag": np.zeros((1, 1, 1), dtype=np.bool_),
+        },
+        array_outputs=build_array_outputs_from_waveform(rx_grid),
+    )
+
+    write_measurement_result(output_path, result, compression="mixed")
+
+    validate_hdf5_contract(output_path)
+    with h5py.File(output_path, "r") as h5:
+        assert h5["channel/truth/cfr"].compression == "gzip"
+        assert h5["waveform/tx_grid"].compression == "gzip"
+        assert h5["waveform/rx_grid"].compression is None
+        assert h5["observation/cfr_est"].compression is None
 
 
 def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):

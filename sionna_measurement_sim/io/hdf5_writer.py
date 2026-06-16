@@ -43,6 +43,21 @@ _ACTIVE_COMPRESSION: ContextVar[str] = ContextVar(
     default="gzip",
 )
 _ACTIVE_TRACER: ContextVar[Any | None] = ContextVar("_ACTIVE_TRACER", default=None)
+SUPPORTED_HDF5_COMPRESSION = ("gzip", "lzf", "none", "mixed")
+
+_MIXED_UNCOMPRESSED_DATASETS = frozenset(
+    {
+        "/waveform/rx_grid",
+        "/observation/cfr_est",
+        "/observation/cfr_est_resource",
+        "/multiuser/rx_grid_shared",
+        "/multiuser/cfr_est_allocated",
+        "/multiuser/cfr_est_resource",
+        "/iq/link/frequency_clean",
+        "/iq/link/time_clean",
+        "/iq/noncooperative/rx_time_clean",
+    }
+)
 
 
 def write_measurement_result(
@@ -54,7 +69,7 @@ def write_measurement_result(
 ) -> Path:
     """Write a truth-only result to an HDF5 file."""
 
-    if compression not in ("gzip", "lzf", "none"):
+    if compression not in SUPPORTED_HDF5_COMPRESSION:
         msg = f"Unsupported HDF5 compression: {compression!r}"
         raise ValueError(msg)
 
@@ -128,7 +143,7 @@ def write_rt_labels_result(
 ) -> Path:
     """Write compact RT labels-only HDF5 output."""
 
-    if compression not in ("gzip", "lzf", "none"):
+    if compression not in SUPPORTED_HDF5_COMPRESSION:
         msg = f"Unsupported HDF5 compression: {compression!r}"
         raise ValueError(msg)
 
@@ -167,7 +182,7 @@ def write_iq_link_library_result(
 ) -> Path:
     """Write compact clean per-link IQ HDF5 output."""
 
-    if compression not in ("gzip", "lzf", "none"):
+    if compression not in SUPPORTED_HDF5_COMPRESSION:
         msg = f"Unsupported HDF5 compression: {compression!r}"
         raise ValueError(msg)
 
@@ -1387,8 +1402,10 @@ def _write_dataset(
 ) -> h5py.Dataset:
     array = np.asarray(value)
     kwargs: dict[str, Any] = {}
-    compression = _ACTIVE_COMPRESSION.get()
-    if array.ndim > 0 and array.size > 0 and compression != "none":
+    requested_compression = _ACTIVE_COMPRESSION.get()
+    dataset_path = _dataset_path(group, name)
+    compression = _resolve_dataset_compression(dataset_path, array, requested_compression)
+    if array.ndim > 0 and array.size > 0 and compression is not None:
         kwargs["compression"] = compression
         kwargs["shuffle"] = True
 
@@ -1399,8 +1416,35 @@ def _write_dataset(
         dataset.attrs["unit"] = unit
     if index_order is not None:
         dataset.attrs["index_order"] = index_order
-    _record_dataset_write(dataset, array, duration_s, compression)
+    _record_dataset_write(dataset, array, duration_s, compression or "none")
     return dataset
+
+
+def _dataset_path(group: h5py.Group, name: str) -> str:
+    if group.name == "/":
+        return f"/{name}"
+    return f"{group.name}/{name}"
+
+
+def _resolve_dataset_compression(
+    dataset_path: str,
+    array: np.ndarray,
+    requested_compression: str,
+) -> str | None:
+    """Choose the actual HDF5 compression for one dataset.
+
+    ``mixed`` keeps gzip for sparse/metadata/path datasets, but skips compression
+    for high-entropy complex observation grids where gzip usually burns CPU for
+    little storage gain.
+    """
+
+    if array.ndim == 0 or array.size == 0 or requested_compression == "none":
+        return None
+    if requested_compression != "mixed":
+        return requested_compression
+    if dataset_path in _MIXED_UNCOMPRESSED_DATASETS:
+        return None
+    return "gzip"
 
 
 def _record_dataset_write(

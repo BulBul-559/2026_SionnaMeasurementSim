@@ -53,6 +53,10 @@ waveform grid 的 PHY 模块，`multiuser` 产品当前要求 `phy.standard="nr_
 `path_full` 产品会自动写 `/paths/full`，不需要额外开启旧的 `save_full_paths`。
 `calibration` 产品会内部运行 PHY 但可只写 `/calibration`；`motion` 产品可只写
 `/motion`，不需要 PHY；`visualization` 产品会主动启用 figure artifact 生成。
+`output.compression` 支持 `gzip`、`lzf`、`none`、`mixed`。正式 64PRB full 仿真推荐从
+`mixed` 起步：它保留路径表/稀疏数组 gzip，但跳过 `/waveform/rx_grid`、
+`/observation/cfr_est` 等高熵复数观测数组压缩，以降低写盘 CPU 开销；数据数值和 HDF5
+schema 不变，但文件体积通常略增。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。
 新输出不再写 array 兼容别名

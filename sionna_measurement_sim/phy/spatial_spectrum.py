@@ -61,14 +61,7 @@ def build_rx_snapshot_matrix(samples: np.ndarray) -> np.ndarray:
     array = np.asarray(samples, dtype=np.complex64)
     if array.ndim < 5:
         raise ValueError(f"samples must have rank >= 5, got {array.shape}")
-    link_shape = array.shape[:3]
-    num_rx_ant = array.shape[3]
-    snapshot_matrix = np.zeros((*link_shape, num_rx_ant, num_rx_ant), dtype=np.complex64)
-    for index in np.ndindex(link_shape):
-        x = array[index].reshape(num_rx_ant, -1)
-        if x.shape[1] > 0:
-            snapshot_matrix[index] = (x @ np.conjugate(x.T)) / np.float32(x.shape[1])
-    return snapshot_matrix
+    return _covariance_from_samples(array)
 
 
 def project_cfr_to_ul_receiver_samples(cfr: np.ndarray) -> np.ndarray:
@@ -119,15 +112,50 @@ def build_bartlett_spectrum(
             f"rx_num_rows*rx_num_cols {num_rx_ant}"
         )
 
+    covariance = _covariance_from_samples(array, link_chunk_size=config.link_chunk_size)
+    return build_bartlett_spectrum_from_covariance(
+        covariance,
+        rx_num_rows=rx_num_rows,
+        rx_num_cols=rx_num_cols,
+        rx_spacing_lambda=rx_spacing_lambda,
+        config=config,
+        rx_orientation_rad=rx_orientation_rad,
+    )
+
+
+def build_bartlett_spectrum_from_covariance(
+    covariance: np.ndarray,
+    *,
+    rx_num_rows: int,
+    rx_num_cols: int,
+    rx_spacing_lambda: tuple[float, float],
+    config: ArraySpectrumConfig,
+    rx_orientation_rad: np.ndarray | None = None,
+) -> np.ndarray:
+    """Build Bartlett spatial spectra from receiver covariance matrices.
+
+    covariance shape: [snapshot, tx, rx, rx_ant, rx_ant].
+    """
+
+    cov = np.asarray(covariance, dtype=np.complex64)
+    if cov.ndim != 5:
+        raise ValueError(f"covariance must have rank 5, got {cov.shape}")
+    num_rx_ant = int(rx_num_rows) * int(rx_num_cols)
+    if cov.shape[3:] != (num_rx_ant, num_rx_ant):
+        raise ValueError(
+            f"covariance antenna dimensions {cov.shape[3:]} do not match "
+            f"rx_num_rows*rx_num_cols {num_rx_ant}"
+        )
+
     angle_grid = build_angle_grid_rad(config)
     orientations = _normalize_rx_orientation(
         rx_orientation_rad,
-        snapshot_count=array.shape[0],
-        rx_count=array.shape[2],
+        snapshot_count=cov.shape[0],
+        rx_count=cov.shape[2],
     )
     if orientations is not None and not np.allclose(orientations, 0.0):
-        return _build_bartlett_spectrum_oriented(
-            array,
+        return _build_bartlett_spectrum_from_covariance_oriented(
+            cov,
             angle_grid,
             rx_num_rows=rx_num_rows,
             rx_num_cols=rx_num_cols,
@@ -142,11 +170,11 @@ def build_bartlett_spectrum(
         rx_num_cols=rx_num_cols,
         rx_spacing_lambda=rx_spacing_lambda,
     )
-    return _build_bartlett_spectrum_with_steering(array, angle_grid, steering, config)
+    return _build_bartlett_spectrum_with_covariance(cov, angle_grid, steering, config)
 
 
-def _build_bartlett_spectrum_oriented(
-    array: np.ndarray,
+def _build_bartlett_spectrum_from_covariance_oriented(
+    covariance: np.ndarray,
     angle_grid: np.ndarray,
     *,
     rx_num_rows: int,
@@ -155,9 +183,9 @@ def _build_bartlett_spectrum_oriented(
     config: ArraySpectrumConfig,
     rx_orientation_rad: np.ndarray,
 ) -> np.ndarray:
-    output = np.zeros((*array.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
-    for snapshot_idx in range(array.shape[0]):
-        for rx_idx in range(array.shape[2]):
+    output = np.zeros((*covariance.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
+    for snapshot_idx in range(covariance.shape[0]):
+        for rx_idx in range(covariance.shape[2]):
             steering = _steering_matrix(
                 angle_grid,
                 rx_num_rows=rx_num_rows,
@@ -165,10 +193,14 @@ def _build_bartlett_spectrum_oriented(
                 rx_spacing_lambda=rx_spacing_lambda,
                 orientation_rad=rx_orientation_rad[snapshot_idx, rx_idx],
             )
-            link_samples = array[snapshot_idx : snapshot_idx + 1, :, rx_idx : rx_idx + 1]
+            link_covariance = covariance[
+                snapshot_idx : snapshot_idx + 1,
+                :,
+                rx_idx : rx_idx + 1,
+            ]
             output[snapshot_idx : snapshot_idx + 1, :, rx_idx : rx_idx + 1] = (
-                _build_bartlett_spectrum_with_steering(
-                    link_samples,
+                _build_bartlett_spectrum_with_covariance(
+                    link_covariance,
                     angle_grid,
                     steering,
                     config,
@@ -177,44 +209,39 @@ def _build_bartlett_spectrum_oriented(
     return output
 
 
-def _build_bartlett_spectrum_with_steering(
-    array: np.ndarray,
+def _build_bartlett_spectrum_with_covariance(
+    covariance: np.ndarray,
     angle_grid: np.ndarray,
     steering: np.ndarray,
     config: ArraySpectrumConfig,
 ) -> np.ndarray:
     num_rx_ant = steering.shape[-1]
     flat_steering = steering.reshape(-1, num_rx_ant)
-    output = np.zeros((*array.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
+    output = np.zeros((*covariance.shape[:3], *angle_grid.shape[:2]), dtype=np.float32)
 
-    num_links = int(np.prod(array.shape[:3]))
-    sample_count = int(np.prod(array.shape[4:]))
-    flat_samples = array.reshape(num_links, num_rx_ant, sample_count)
-    flat_output = output.reshape(flat_samples.shape[0], -1)
+    num_links = int(np.prod(covariance.shape[:3]))
+    flat_covariance = covariance.reshape(num_links, num_rx_ant, num_rx_ant)
+    flat_output = output.reshape(num_links, -1)
     chunk_size = int(config.link_chunk_size)
 
-    for start in range(0, flat_samples.shape[0], chunk_size):
-        stop = min(start + chunk_size, flat_samples.shape[0])
-        x = flat_samples[start:stop]
-        if x.size == 0 or x.shape[2] == 0:
+    for start in range(0, flat_covariance.shape[0], chunk_size):
+        stop = min(start + chunk_size, flat_covariance.shape[0])
+        cov = flat_covariance[start:stop]
+        if cov.size == 0:
             continue
 
-        active = np.any(np.isfinite(x), axis=(1, 2)) & np.any(
-            np.abs(x) > 0.0,
+        active = np.any(np.isfinite(cov), axis=(1, 2)) & np.any(
+            np.abs(cov) > 0.0,
             axis=(1, 2),
         )
         if not np.any(active):
             continue
 
-        active_x = np.nan_to_num(x[active], copy=True)
-        covariance = np.matmul(
-            active_x,
-            np.conjugate(np.swapaxes(active_x, -1, -2)),
-        ) / np.float32(active_x.shape[2])
+        active_covariance = np.nan_to_num(cov[active], copy=True)
         projected = np.einsum(
             "ba,cad,bd->cb",
             np.conjugate(flat_steering),
-            covariance,
+            active_covariance,
             flat_steering,
             optimize=True,
         ).real
@@ -231,6 +258,39 @@ def _build_bartlett_spectrum_with_steering(
         chunk_output[active] = normalized
         flat_output[start:stop] = chunk_output
     return output
+
+
+def _covariance_from_samples(
+    array: np.ndarray,
+    *,
+    link_chunk_size: int = 512,
+) -> np.ndarray:
+    num_rx_ant = array.shape[3]
+    sample_count = int(np.prod(array.shape[4:]))
+    covariance = np.zeros((*array.shape[:3], num_rx_ant, num_rx_ant), dtype=np.complex64)
+    if sample_count == 0:
+        return covariance
+
+    num_links = int(np.prod(array.shape[:3]))
+    flat_samples = array.reshape(num_links, num_rx_ant, sample_count)
+    flat_covariance = covariance.reshape(num_links, num_rx_ant, num_rx_ant)
+    chunk_size = max(1, int(link_chunk_size))
+    for start in range(0, num_links, chunk_size):
+        stop = min(start + chunk_size, num_links)
+        x = flat_samples[start:stop]
+        covariance_chunk = flat_covariance[start:stop]
+        active = np.any(np.isfinite(x), axis=(1, 2)) & np.any(
+            np.abs(x) > 0.0,
+            axis=(1, 2),
+        )
+        if not np.any(active):
+            continue
+        active_x = np.nan_to_num(x[active], copy=True)
+        covariance_chunk[active] = (
+            np.matmul(active_x, np.conjugate(np.swapaxes(active_x, -1, -2)))
+            / np.float32(sample_count)
+        )
+    return covariance
 
 
 def _steering_matrix(

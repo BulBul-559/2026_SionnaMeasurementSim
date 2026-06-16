@@ -122,7 +122,11 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 | `save_sampled_paths` | bool | true | 是否保存 `/paths/samples` |
 | `save_raw_waveform` | bool | false | 是否保存原始波形 |
 
-`compression` 可选 `gzip`、`lzf`、`none`。大规模性能排查时可用 `none` 或 `lzf` 分离写盘压缩成本。
+`compression` 可选 `gzip`、`lzf`、`none`、`mixed`。大规模性能排查时可用
+`none` 或 `lzf` 分离写盘压缩成本；正式 full 仿真推荐评估 `mixed`，它会让
+路径表、稀疏发射网格等高可压缩 dataset 继续 gzip + shuffle，同时跳过
+`/waveform/rx_grid`、`/observation/cfr_est` 等高熵复数观测数组的压缩，减少写盘
+CPU 开销但通常略增文件体积。
 `profile="rt_labels_only"` 写 compact RT link-level label contract，不写 CFR/CIR/path samples、
 waveform/observation/array/ranging，适合大规模视觉预训练标签生成。
 `profile="iq_link_library"` 写 compact clean per-link IQ contract，不写 full-contract
@@ -608,7 +612,9 @@ MIMO backend 支持矩阵：
 - **契约驱动**：所有 HDF5 输出必须通过 `schema_validator.py` 校验
 - **纯 Python 写入**：writer 只接受 domain 对象，不导入 Sionna
 - **自描述**：每个 dataset 标注 `unit` 和 `index_order` attribute
-- **大数组压缩**：ndim > 0 且 size > 0 的数组按 `output.compression` 启用 `gzip`/`lzf` + shuffle，也可配置为 `none`
+- **大数组压缩**：ndim > 0 且 size > 0 的数组按 `output.compression` 启用
+  `gzip`/`lzf` + shuffle，也可配置为 `none`；`mixed` 会对高熵观测复数网格跳过压缩，
+  但保留路径表/稀疏数组的 gzip
 
 ### 2.2 Group 层级总览
 

@@ -122,8 +122,8 @@ class OutputConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_output_values(self) -> OutputConfig:
-        if self.compression not in ("gzip", "lzf", "none"):
-            raise ValueError("output.compression must be gzip/lzf/none")
+        if self.compression not in ("gzip", "lzf", "none", "mixed"):
+            raise ValueError("output.compression must be gzip/lzf/none/mixed")
         if self.profile not in (
             "full",
             "rt_labels_only",

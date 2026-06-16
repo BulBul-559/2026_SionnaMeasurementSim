@@ -180,8 +180,13 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
-| `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none` |
+| `compression` | str | "gzip" | HDF5 大数组压缩；可选 `gzip`、`lzf`、`none`、`mixed` |
 | `save_full_paths` | bool | false | 是否保存全量路径表 `/paths/full` |
+
+`compression: "mixed"` 面向正式 full 仿真：路径表、稀疏发射网格等高可压缩
+dataset 继续使用 gzip + shuffle；`/waveform/rx_grid`、`/observation/cfr_est`
+等高熵复数观测数组不压缩，以减少 gzip CPU 开销。数组数值和 HDF5 schema 不变，
+文件体积通常会略增。
 
 `output.profile: "iq_link_library"` 当前要求 `phy.enabled=true` 且
 `phy.standard: "nr_srs"`。CLI/pipeline 会把该 profile 归一化为 clean link IQ

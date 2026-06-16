@@ -109,7 +109,11 @@ def _add_write_parser(modes: argparse._SubParsersAction) -> None:
     parser.add_argument("--include-waveform", action="store_true")
     parser.add_argument("--include-array", action="store_true")
     parser.add_argument("--include-ranging", action="store_true")
-    parser.add_argument("--compression", default="gzip", choices=["gzip", "lzf", "none"])
+    parser.add_argument(
+        "--compression",
+        default="gzip",
+        choices=["gzip", "lzf", "none", "mixed"],
+    )
     parser.add_argument(
         "--validate-schema",
         dest="validate_schema",

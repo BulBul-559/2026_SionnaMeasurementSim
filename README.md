@@ -106,7 +106,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 | `run-full` | 全功能端到端：RT + 路径 + 损伤 + 观测 + 运动 + 校准 + 诊断 |
 | `run-batch` | 批量实验（多 seed/SNR 分批） |
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
-| `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression 和 schema validate |
+| `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 策略）和 schema validate |
 | `benchmark spectrum` | 合成 array samples，仅测 Bartlett 空间谱核心 |
 
 ## NR PUSCH MIMO 使用
