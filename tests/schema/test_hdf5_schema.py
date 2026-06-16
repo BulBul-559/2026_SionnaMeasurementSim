@@ -209,12 +209,14 @@ def test_write_measurement_result_mixed_compression_skips_noisy_grids(tmp_path: 
         array_outputs=build_array_outputs_from_waveform(rx_grid),
     )
 
-    write_measurement_result(output_path, result, compression="mixed")
+    write_measurement_result(output_path, result, compression="mixed", gzip_level=1)
 
     validate_hdf5_contract(output_path)
     with h5py.File(output_path, "r") as h5:
         assert h5["channel/truth/cfr"].compression == "gzip"
+        assert h5["channel/truth/cfr"].compression_opts == 1
         assert h5["waveform/tx_grid"].compression == "gzip"
+        assert h5["waveform/tx_grid"].compression_opts == 1
         assert h5["waveform/rx_grid"].compression is None
         assert h5["observation/cfr_est"].compression is None
 

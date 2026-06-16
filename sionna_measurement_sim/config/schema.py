@@ -115,6 +115,7 @@ class OutputConfig(BaseModel):
     run_id_format: str = Field(default="{label_stem}_{timestamp}")
     hdf5_filename: str = Field(default="results.h5")
     compression: str = Field(default="gzip")
+    gzip_level: int = Field(default=4, ge=1, le=9)
     save_full_paths: bool = False
     save_sampled_paths: bool = True
     save_raw_waveform: bool = False

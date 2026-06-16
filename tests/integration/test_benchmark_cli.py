@@ -35,7 +35,9 @@ def test_benchmark_write_cli_outputs_summary(tmp_path: Path):
             "--include-array",
             "--include-ranging",
             "--compression",
-            "none",
+            "mixed",
+            "--gzip-level",
+            "1",
             "--no-write-hardware-samples",
         ]
     ) == 0
@@ -43,6 +45,8 @@ def test_benchmark_write_cli_outputs_summary(tmp_path: Path):
     summary = _load_summary(output_dir / "benchmark_summary.json")
     assert summary["benchmark_type"] == "write"
     assert summary["status"] == "success"
+    assert summary["parameters"]["compression"] == "mixed"
+    assert summary["parameters"]["gzip_level"] == 1
     assert summary["perf_summary"]["dataset_write_summary"]["dataset_count"] > 0
     assert (output_dir / "benchmark_rows.csv").exists()
     assert (output_dir / "config_snapshot.json").exists()

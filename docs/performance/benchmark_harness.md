@@ -83,7 +83,8 @@ uv run python -m sionna_measurement_sim.app.cli benchmark rt \
 Write-only 构造 synthetic `MeasurementSimulationResult`，直接测 HDF5 writer、compression
 和 schema validate。它是后续 HDF5 写入深度优化的基础。`--compression` 支持
 `gzip`、`lzf`、`none`、`mixed`；其中 `mixed` 用于评估正式 full 仿真中“路径表仍压缩、
-高熵观测网格不压缩”的折中策略。
+高熵观测网格不压缩”的折中策略。`--gzip-level` 控制 gzip dataset 的压缩等级，
+用于快速比较 level 1..9 的 CPU/体积折中。
 
 示例：
 
@@ -93,7 +94,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
   --tx-count 1 --rx-count 2 --rx-ant 2 --tx-ant 1 \
   --subcarriers 16 --snapshots 1 \
   --include-waveform --include-array --include-ranging \
-  --compression gzip --validate-schema
+  --compression mixed --gzip-level 1 --validate-schema
 ```
 
 主要指标：

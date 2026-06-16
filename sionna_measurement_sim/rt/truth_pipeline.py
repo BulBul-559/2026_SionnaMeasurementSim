@@ -131,6 +131,7 @@ class RTTruthRunConfig:
     merge_shapes: bool = False
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
+    hdf5_gzip_level: int = 4
     output_profile: str = "full"
     output_products: tuple[str, ...] | None = None
     output_plan: RTOutputPlan | None = None
@@ -797,6 +798,7 @@ def _run_rt_truth_pipeline_single_impl(
                 output_dir / config.hdf5_filename,
                 iq_library_result,
                 compression=config.hdf5_compression,
+                gzip_level=config.hdf5_gzip_level,
                 tracer=tracer,
             )
         with tracer.span("schema_validate"):
@@ -847,6 +849,7 @@ def _run_rt_truth_pipeline_single_impl(
                 output_dir / config.hdf5_filename,
                 labels_result,
                 compression=config.hdf5_compression,
+                gzip_level=config.hdf5_gzip_level,
                 tracer=tracer,
             )
         with tracer.span("schema_validate"):
@@ -968,6 +971,7 @@ def _run_rt_truth_pipeline_single_impl(
             output_dir / config.hdf5_filename,
             result,
             compression=config.hdf5_compression,
+            gzip_level=config.hdf5_gzip_level,
             tracer=tracer,
         )
     with tracer.span("schema_validate"):
@@ -2166,6 +2170,7 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "receiver_failure_policy": config.receiver_failure_policy,
         "su_mimo_link_batch_size": config.su_mimo_link_batch_size,
         "hdf5_compression": config.hdf5_compression,
+        "hdf5_gzip_level": config.hdf5_gzip_level,
         "debug": {
             "enabled": bool(getattr(config.debug_config, "enabled", False)),
             "hardware_interval_s": float(

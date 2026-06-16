@@ -32,13 +32,19 @@ data/median/median_0000/
 
 ## 当前推荐 NR SRS 生产配置
 
-默认模板：
+通用默认模板：
 
 ```text
 config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 ```
 
-当前生产口径：
+正式 64 PRB 任务模板：
+
+```text
+config/tasks/nr_srs_64prb_formal.yaml
+```
+
+当前 Front3D 64 PRB full 生产口径：
 
 - `link.phy_link_direction: "uplink"`，即 `TX=UE`、`RX=BS`
 - `phy.standard: "nr_srs"`
@@ -53,7 +59,9 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 - `visualization.enabled: false`
 - `output.sharding.enabled: true`
 - `output.sharding.axis: "ue"`
-- `output.sharding.shard_size: 20`
+- `output.sharding.shard_size: 5`
+- `output.compression: "mixed"`
+- `output.gzip_level: 1`
 
 使用真实场景时，建议复制模板到目标输出目录的 `run_config.yaml`，再修改
 `input.label_file`、`input.scene_file`、`input.scene_id`、`output.root_dir` 和 GPU 配置。

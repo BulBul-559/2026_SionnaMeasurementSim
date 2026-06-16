@@ -48,6 +48,7 @@ output:
   # "mixed" keeps gzip for sparse/path datasets but stores high-entropy
   # waveform/observation grids uncompressed for faster end-to-end throughput.
   compression: "mixed"
+  gzip_level: 1
   save_full_paths: true
   save_sampled_paths: true
   save_raw_waveform: false

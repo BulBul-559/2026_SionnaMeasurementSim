@@ -30,6 +30,7 @@ def test_perf_tracer_summarizes_dataset_writes(tmp_path: Path):
             raw_bytes=48,
             storage_bytes=24,
             compression="gzip",
+            compression_opts=1,
             duration_s=0.25,
         )
     summary = tracer.finish()
@@ -42,6 +43,7 @@ def test_perf_tracer_summarizes_dataset_writes(tmp_path: Path):
     assert write_summary["total_storage_bytes"] == 24
     assert write_summary["raw_to_storage_ratio"] == 2.0
     assert write_summary["top_by_duration"][0]["path"] == "/channel/truth/cfr"
+    assert write_summary["top_by_duration"][0]["compression_opts"] == 1
 
     on_disk = json.loads((tmp_path / "logs" / "perf_summary.json").read_text())
     assert on_disk["dataset_write_summary"]["dataset_count"] == 1

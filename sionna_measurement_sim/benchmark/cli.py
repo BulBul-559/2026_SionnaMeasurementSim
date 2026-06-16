@@ -114,6 +114,7 @@ def _add_write_parser(modes: argparse._SubParsersAction) -> None:
         default="gzip",
         choices=["gzip", "lzf", "none", "mixed"],
     )
+    parser.add_argument("--gzip-level", type=int, default=4)
     parser.add_argument(
         "--validate-schema",
         dest="validate_schema",
@@ -180,6 +181,7 @@ def _write_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "include_array": args.include_array,
         "include_ranging": args.include_ranging,
         "compression": args.compression,
+        "gzip_level": args.gzip_level,
         "validate_schema": args.validate_schema,
     }
 

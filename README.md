@@ -106,7 +106,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 | `run-full` | 全功能端到端：RT + 路径 + 损伤 + 观测 + 运动 + 校准 + 诊断 |
 | `run-batch` | 批量实验（多 seed/SNR 分批） |
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
-| `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 策略）和 schema validate |
+| `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 与 `--gzip-level`）和 schema validate |
 | `benchmark spectrum` | 合成 array samples，仅测 Bartlett 空间谱核心 |
 
 ## NR PUSCH MIMO 使用
@@ -200,9 +200,10 @@ noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，
 尚未做 38.211/38.213 reference 对齐或认证级一致性测试，见
 [Feature TODO](docs/todo/feature.md)。
 
-室内 100 MHz SRS 模板当前默认 `rt.synthetic_array=false`、direct uplink、
-UE shard `20`。已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` direct
-uplink baseline；历史 micro-sweep 和旧 shard 参数只作为实验记录，见
+正式 64 PRB SRS 生产任务当前以 `config/tasks/nr_srs_64prb_formal.yaml` 为准：
+`rt.synthetic_array=false`、direct uplink、UE shard `5`、`compression="mixed"`、
+`gzip_level=1`。已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` direct uplink
+历史 baseline；历史 micro-sweep 和旧 shard 参数只作为实验记录，见
 [Indoor FR1 validation](docs/sys/indoor_fr1_100mhz_validation.md)。
 
 同一场景的 PUSCH 与 SRS 输出可用轻量脚本对比：

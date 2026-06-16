@@ -38,7 +38,8 @@
 - 标准 label 顶层 `bs_points`/`ue_points` 是全场景默认点集，`groups` 只是房间/区域等
   子集元数据；当前 pipeline 不按 group 过滤。
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
-- 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
+- 当前 64 PRB SRS 正式任务模板推荐 `output.sharding.shard_size=5`、
+  `output.compression="mixed"`、`output.gzip_level=1`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
 - 当前 schema 版本是 `2.3.0`；`output.profile` 只保留 `full`、
   `rt_labels_only` 和 `iq_link_library` 三种真实契约。labels-only 使用

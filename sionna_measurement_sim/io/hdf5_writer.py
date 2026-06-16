@@ -42,6 +42,7 @@ _ACTIVE_COMPRESSION: ContextVar[str] = ContextVar(
     "_ACTIVE_COMPRESSION",
     default="gzip",
 )
+_ACTIVE_GZIP_LEVEL: ContextVar[int] = ContextVar("_ACTIVE_GZIP_LEVEL", default=4)
 _ACTIVE_TRACER: ContextVar[Any | None] = ContextVar("_ACTIVE_TRACER", default=None)
 SUPPORTED_HDF5_COMPRESSION = ("gzip", "lzf", "none", "mixed")
 
@@ -65,18 +66,18 @@ def write_measurement_result(
     result: MeasurementSimulationResult,
     *,
     compression: str = "gzip",
+    gzip_level: int = 4,
     tracer: Any | None = None,
 ) -> Path:
     """Write a truth-only result to an HDF5 file."""
 
-    if compression not in SUPPORTED_HDF5_COMPRESSION:
-        msg = f"Unsupported HDF5 compression: {compression!r}"
-        raise ValueError(msg)
+    _validate_compression_args(compression, gzip_level)
 
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     compression_token = _ACTIVE_COMPRESSION.set(compression)
+    gzip_level_token = _ACTIVE_GZIP_LEVEL.set(int(gzip_level))
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
@@ -124,6 +125,7 @@ def write_measurement_result(
             _write_runtime(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
+        _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
@@ -139,18 +141,18 @@ def write_rt_labels_result(
     result: RTLabelsOnlyResult,
     *,
     compression: str = "gzip",
+    gzip_level: int = 4,
     tracer: Any | None = None,
 ) -> Path:
     """Write compact RT labels-only HDF5 output."""
 
-    if compression not in SUPPORTED_HDF5_COMPRESSION:
-        msg = f"Unsupported HDF5 compression: {compression!r}"
-        raise ValueError(msg)
+    _validate_compression_args(compression, gzip_level)
 
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     compression_token = _ACTIVE_COMPRESSION.set(compression)
+    gzip_level_token = _ACTIVE_GZIP_LEVEL.set(int(gzip_level))
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
@@ -168,6 +170,7 @@ def write_rt_labels_result(
             _write_runtime(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
+        _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
@@ -178,18 +181,18 @@ def write_iq_link_library_result(
     result: IQLinkLibraryResult,
     *,
     compression: str = "gzip",
+    gzip_level: int = 4,
     tracer: Any | None = None,
 ) -> Path:
     """Write compact clean per-link IQ HDF5 output."""
 
-    if compression not in SUPPORTED_HDF5_COMPRESSION:
-        msg = f"Unsupported HDF5 compression: {compression!r}"
-        raise ValueError(msg)
+    _validate_compression_args(compression, gzip_level)
 
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     compression_token = _ACTIVE_COMPRESSION.set(compression)
+    gzip_level_token = _ACTIVE_GZIP_LEVEL.set(int(gzip_level))
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
@@ -206,9 +209,19 @@ def write_iq_link_library_result(
             _write_runtime(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
+        _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
+
+
+def _validate_compression_args(compression: str, gzip_level: int) -> None:
+    if compression not in SUPPORTED_HDF5_COMPRESSION:
+        msg = f"Unsupported HDF5 compression: {compression!r}"
+        raise ValueError(msg)
+    if not 1 <= int(gzip_level) <= 9:
+        msg = "gzip_level must be in [1, 9]"
+        raise ValueError(msg)
 
 
 def _write_meta(h5: h5py.File, result: MeasurementSimulationResult) -> None:
@@ -1407,6 +1420,8 @@ def _write_dataset(
     compression = _resolve_dataset_compression(dataset_path, array, requested_compression)
     if array.ndim > 0 and array.size > 0 and compression is not None:
         kwargs["compression"] = compression
+        if compression == "gzip":
+            kwargs["compression_opts"] = _ACTIVE_GZIP_LEVEL.get()
         kwargs["shuffle"] = True
 
     start = time.perf_counter()
@@ -1416,7 +1431,13 @@ def _write_dataset(
         dataset.attrs["unit"] = unit
     if index_order is not None:
         dataset.attrs["index_order"] = index_order
-    _record_dataset_write(dataset, array, duration_s, compression or "none")
+    _record_dataset_write(
+        dataset,
+        array,
+        duration_s,
+        compression or "none",
+        _ACTIVE_GZIP_LEVEL.get() if compression == "gzip" else None,
+    )
     return dataset
 
 
@@ -1452,6 +1473,7 @@ def _record_dataset_write(
     array: np.ndarray,
     duration_s: float,
     compression: str,
+    compression_opts: int | None,
 ) -> None:
     tracer = _ACTIVE_TRACER.get()
     if tracer is None:
@@ -1468,5 +1490,6 @@ def _record_dataset_write(
         raw_bytes=int(array.nbytes),
         storage_bytes=storage_bytes,
         compression=compression,
+        compression_opts=compression_opts,
         duration_s=float(duration_s),
     )

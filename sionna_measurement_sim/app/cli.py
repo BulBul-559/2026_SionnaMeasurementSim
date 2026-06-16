@@ -458,6 +458,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 hdf5_filename=cfg.output.hdf5_filename,
                 hdf5_compression=cfg.output.compression,
+                hdf5_gzip_level=cfg.output.gzip_level,
                 output_profile=_output_profile,
                 output_products=tuple(cfg.output.products) if cfg.output.products else None,
                 save_full_paths=cfg.output.save_full_paths,

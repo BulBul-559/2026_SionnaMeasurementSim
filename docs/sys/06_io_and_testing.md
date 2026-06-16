@@ -18,7 +18,8 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 - 所有 dataset 标注 `unit` 和 `index_order` attribute
 - 大数组按 `output.compression` 使用 gzip/lzf/none/mixed；`mixed` 对
   `/waveform/rx_grid`、`/observation/cfr_est` 等高熵复数观测网格跳过压缩，
-  对路径表和稀疏数组保留 gzip + shuffle
+  对路径表和稀疏数组保留 gzip + shuffle；gzip dataset 的压缩等级由
+  `output.gzip_level` 控制
 
 **写入的顶层 group：**
 ```

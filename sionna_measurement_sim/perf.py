@@ -314,6 +314,7 @@ def _dataset_write_item(event: dict[str, Any]) -> dict[str, Any]:
         "raw_bytes": int(event.get("raw_bytes", 0) or 0),
         "storage_bytes": int(event.get("storage_bytes", -1) or -1),
         "compression": str(event.get("compression", "")),
+        "compression_opts": event.get("compression_opts"),
         "duration_s": float(event.get("duration_s", 0.0) or 0.0),
     }
 

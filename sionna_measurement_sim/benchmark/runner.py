@@ -294,6 +294,7 @@ def run_write_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -
                     h5_path,
                     result,
                     compression=str(parameters["compression"]),
+                    gzip_level=int(parameters.get("gzip_level", 4)),
                     tracer=tracer,
                 )
             schema_validate_s = 0.0

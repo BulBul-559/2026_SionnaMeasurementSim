@@ -9,7 +9,7 @@
 |---:|---|---|---|
 | 1 | PERF-002 | RT 参数调优实验 | 建立 RT-only 实验矩阵，量化 max_depth、反射/折射/绕射等配置对耗时和 CFR 的影响。 |
 | 2 | PERF-003 | 大规模空间谱优化 | 复用 steering matrix、减少中间数组，并 sweep `link_chunk_size` 的耗时/RSS 平衡。 |
-| 3 | PERF-001 | HDF5 写入深度优化 | 在 `mixed` 压缩已落地后，继续测试 chunk、flush、并行写和 schema validate 成本。 |
+| 3 | PERF-001 | HDF5 写入深度优化 | 在 `mixed`/`gzip_level` 已落地后，继续测试 buffered/append writer、chunk、flush 和 schema validate 成本。 |
 | 4 | PERF-004 | visualization 开销优化 | 降低采样报告中的 HDF5 打开、Matplotlib 初始化和重复坐标计算成本。 |
 | 5 | PERF-006 | spectrum / visualization 开关矩阵 | 隔离评估 spectrum off/on、visualization off/on 和不同 spectrum source 的增量成本。 |
 | 6 | PERF-007 | batch size 自适应 | 记录并自动选择不同 GPU、UE/BS 规模和频域配置下稳定 batch 边界。 |
@@ -24,14 +24,20 @@
 涉及模块：`sionna_measurement_sim/io/hdf5_writer.py`、schema validator、output compression config、
 manifest、`benchmark write`。
 
-当前状态：已增加 `output.compression: "mixed"`，正式 full 仿真中高熵复数观测数组跳过 gzip，
-路径表/稀疏数组继续 gzip。`front3d_0002 0p5` full 对照中 `hdf5_write` 从约 365 s 降到
-约 171 s，详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。
+当前状态：已增加 `output.compression: "mixed"` 与 `output.gzip_level`。正式 full 仿真中
+高熵复数观测数组跳过 gzip，路径表/稀疏数组继续 gzip；`gzip_level: 1` 是当前 64 PRB
+任务推荐值。`front3d_0002 0p5` full 对照中 `hdf5_write` 从约 365 s 降到约 114 s，
+详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。
 
-验收标准：继续比较 chunk shape、压缩等级、flush 策略、并行写文件数和 schema validate
-开关；输出推荐配置和风险说明；真实 shard 或 `benchmark write` 有可复现实验结果。
+下一步方向：用户建议的 “compute chunk 小批量 + write batch 缓冲/append” 值得作为二阶段
+实验，但当前探针显示单纯 one-file 或 extendable 大数组不一定更快；收益主要可能来自减少重复
+metadata/group/attrs/schema 成本，而不是大数组写入本身。
 
-重点提醒：优化写盘不能破坏 HDF5 schema、自包含 shard 和 manifest 契约。
+验收标准：继续比较 buffered writer、bundle HDF5 contract、chunk shape、flush 策略、并行写文件数和
+schema validate 开关；输出推荐配置和风险说明；真实 shard 或 `benchmark write` 有可复现实验结果。
+
+重点提醒：优化写盘不能破坏 HDF5 schema、自包含 shard 和 manifest 契约。不要让多个 GPU worker
+同时写同一个 HDF5；若做 bundle/append 模式，需要新增 reader/schema/manifest 适配和 checkpoint。
 
 ### PERF-002: RT 参数调优实验
 
