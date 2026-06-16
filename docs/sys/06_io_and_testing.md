@@ -53,9 +53,11 @@ def validate_hdf5_contract(path: str | Path) -> None
 ```
 
 在 HDF5 写入后自动调用（也在测试中独立使用）。validator 会先读取
-`/meta/contract_name` 分流：`sionna_measurement_sim_hdf5` 走 full contract，
+`/meta/contract_name` 分流：`sionna_measurement_sim_hdf5` 走 full/custom full contract，
 `sionna_measurement_rt_labels` 走 compact RT labels-only contract，
-`sionna_measurement_iq_link_library` 走 compact clean IQ contract。full contract 检查：
+`sionna_measurement_iq_link_library` 走 compact clean IQ contract。`output_profile="custom"`
+时 validator 读取 `/meta/output_products`，只要求所选产品对应的 group/dataset；
+旧 `full`/`rt_lite` 仍按完整 full contract 检查。full contract 检查：
 
 1. **必填 group**：`meta`、`channel/truth`、`paths/samples`、`runtime`、`link` 等
 2. **必填 dataset**（truth）：

@@ -1515,7 +1515,7 @@ wheels = [
 
 [[package]]
 name = "sionna-measurement-sim"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "h5py" },

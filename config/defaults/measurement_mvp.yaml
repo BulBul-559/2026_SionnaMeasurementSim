@@ -36,7 +36,7 @@ input:
   max_ue: 100
 
 output:
-  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only"
+  profile: "full"                 # "full" | "rt_lite" | "rt_labels_only" | "iq_link_library" | "custom"
   root_dir: "outputs"
   run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"

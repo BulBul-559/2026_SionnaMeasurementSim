@@ -36,6 +36,12 @@ uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/iq_link_library_nr_srs.yaml \
     run-full \
     --output-dir outputs/my_iq_link_library
+
+# 使用 product-aware custom 配置，只保存 CFR truth
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/defaults/cfr_truth_only.yaml \
+    run-full \
+    --output-dir outputs/my_cfr_truth_only
 ```
 
 ## 配置模板
@@ -43,6 +49,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
+| `config/defaults/cfr_truth_only.yaml` | product-aware custom 最小 CFR truth 输出；只写 `/channel/truth/cfr` 与必要元数据，跳过 CIR/path samples/PHY/ranging/array/IQ/figures |
 | `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，不写 CFR/CIR/path samples/PHY |
 | `config/defaults/iq_link_library_nr_srs.yaml` | 紧凑 NR SRS clean IQ link library；默认写 `/iq/link/time_clean`，可用 `phy.iq.clean_output` 选择 time/frequency/both，不写 CFR estimate/损伤/空间谱/full contract 重型组 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
@@ -168,7 +175,8 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract，不写 CFR/CIR/path samples/PHY；`iq_link_library` 写 compact clean `/iq/link` contract，不写 CFR estimate/损伤/空间谱/full contract 重型组 |
+| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract；`iq_link_library` 写 compact clean `/iq/link` contract；`custom` 使用 `output.products` 选择关键产物并裁剪计算链路 |
+| `products` | list[str]\|null | null | 仅 `profile: "custom"` 使用。可选 `derived`、`cfr_truth`、`cir_truth`、`path_samples`、`nlos_path_truth`、`path_full`、`cfr_obs`、`array`、`ranging`、`iq`、`multiuser`、`calibration`、`motion`、`visualization`、`all`；别名 `rtt` 会映射到 `ranging` |
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |

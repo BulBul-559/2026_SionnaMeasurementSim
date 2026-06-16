@@ -459,6 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 hdf5_filename=cfg.output.hdf5_filename,
                 hdf5_compression=cfg.output.compression,
                 output_profile=_output_profile,
+                output_products=tuple(cfg.output.products) if cfg.output.products else None,
                 save_full_paths=cfg.output.save_full_paths,
                 calibration_enabled=cfg.calibration.enabled,
                 link_config=DomainLinkConfig(

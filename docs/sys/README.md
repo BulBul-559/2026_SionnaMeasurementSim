@@ -40,12 +40,14 @@
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
 - 当前 SRS 生产模板推荐 `output.sharding.shard_size=20`。
 - 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
-- 当前 schema 版本是 `2.1.0`；`output.profile` 支持 `full`、`rt_lite`、
-  `rt_labels_only` 和 `iq_link_library`。labels-only 使用
+- 当前 schema 版本是 `2.2.0`；`output.profile` 支持 `full`、`rt_lite`、
+  `rt_labels_only`、`iq_link_library` 和 `custom`。labels-only 使用
   `sionna_measurement_rt_labels` compact HDF5 contract 并只写 `/labels/link/*`
   link-level 标签，不写 CFR/CIR/path samples。IQ link-library 使用
   `sionna_measurement_iq_link_library` compact contract，只写 clean `/iq/link` 和必要元数据，
   不写 CFR estimate、损伤、空间谱或 full-contract 重型组。
+  `custom` 使用 `output.products` 选择关键产物并裁剪计算链路；例如 `cfr_truth`
+  只写 `/channel/truth/cfr` 与必要元数据，`rtt` 是 `ranging` 的别名。
 - NR PUSCH/SRS 统一写 `/waveform/tx_grid`、
   `/waveform/rx_grid`、`/waveform/noise_variance` 和通用 power/RSSI metadata；array 旧别名
   `/array/spatial_spectrum_label` 和 `/array/spatial_spectrum_srs` 已移除。

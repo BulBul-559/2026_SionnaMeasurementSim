@@ -70,6 +70,42 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
     assert readback.dtype == np.dtype("complex64")
 
 
+def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
+    output_dir = tmp_path / "custom_cfr_truth"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            output_profile="custom",
+            output_products=("cfr_truth",),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert h5["meta/output_profile"][()].decode("utf-8") == "custom"
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "cfr_truth",
+        )
+        assert "channel/truth/cfr" in h5
+        assert "channel/truth/cir_coefficients" not in h5
+        assert "paths" not in h5
+        assert "derived" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
+        assert "array" not in h5
+        assert "ranging" not in h5
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["output_profile"] == "custom"
+    assert manifest["output_products"] == ["cfr_truth"]
+    assert manifest["config_snapshot"]["output_products"] == ["cfr_truth"]
+
+
 def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
     output_dir = tmp_path / "phase2_rt_truth_sharded"
 

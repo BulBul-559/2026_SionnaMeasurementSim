@@ -3,6 +3,8 @@ import pytest
 from sionna_measurement_sim.domain.constants import (
     FULL_CONTRACT_NAME,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
+    OUTPUT_PRODUCT_CFR_TRUTH,
+    OUTPUT_PRODUCT_RANGING,
     RT_LABELS_CONTRACT_NAME,
 )
 from sionna_measurement_sim.domain.output_plan import build_rt_output_plan
@@ -60,3 +62,32 @@ def test_iq_link_library_keeps_cfr_but_skips_full_contract():
 def test_unknown_output_profile_fails_fast():
     with pytest.raises(ValueError, match="output.profile"):
         build_rt_output_plan("tiny")
+
+
+def test_custom_cfr_truth_product_skips_downstream_compute():
+    plan = build_rt_output_plan("custom", products=["cfr_truth"])
+
+    assert plan.profile == "custom"
+    assert plan.contract_name == FULL_CONTRACT_NAME
+    assert plan.products == (OUTPUT_PRODUCT_CFR_TRUTH,)
+    assert plan.compute_cfr is True
+    assert plan.compute_cir is False
+    assert plan.compute_path_samples is False
+    assert plan.compute_nlos_truth is False
+    assert plan.requires_phy_observation is False
+    assert plan.write_cfr_truth is True
+    assert plan.write_cfr_observation is False
+
+
+def test_custom_rtt_alias_selects_ranging_and_requires_phy():
+    plan = build_rt_output_plan("custom", products=["rtt"])
+
+    assert plan.products == (OUTPUT_PRODUCT_RANGING,)
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is True
+    assert plan.write_ranging is True
+
+
+def test_compact_profiles_cannot_mix_explicit_products():
+    with pytest.raises(ValueError, match="output.products"):
+        build_rt_output_plan("rt_labels_only", products=["cfr_truth"])

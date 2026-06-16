@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from sionna_measurement_sim.domain.output_plan import build_rt_output_plan
 from sionna_measurement_sim.visualization.config import (
     ALLOWED_VISUALIZATION_PLOTS,
     DEFAULT_VISUALIZATION_PLOTS,
@@ -109,6 +110,7 @@ class OutputShardingConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     profile: str = Field(default="full")
+    products: list[str] | None = None
     root_dir: str = Field(default="outputs")
     run_id_format: str = Field(default="{label_stem}_{timestamp}")
     hdf5_filename: str = Field(default="results.h5")
@@ -122,10 +124,22 @@ class OutputConfig(BaseModel):
     def check_output_values(self) -> OutputConfig:
         if self.compression not in ("gzip", "lzf", "none"):
             raise ValueError("output.compression must be gzip/lzf/none")
-        if self.profile not in ("full", "rt_lite", "rt_labels_only", "iq_link_library"):
+        if self.profile not in (
+            "full",
+            "rt_lite",
+            "rt_labels_only",
+            "iq_link_library",
+            "custom",
+        ):
             raise ValueError(
-                "output.profile must be full/rt_lite/rt_labels_only/iq_link_library"
+                "output.profile must be full/rt_lite/rt_labels_only/iq_link_library/custom"
             )
+        if self.profile == "custom" and not self.products:
+            raise ValueError("output.profile=custom requires output.products")
+        if self.products and self.profile in ("rt_labels_only", "iq_link_library"):
+            raise ValueError("output.products cannot be used with compact output profiles")
+        if self.products:
+            build_rt_output_plan(self.profile, products=self.products)
         return self
 
 
@@ -734,6 +748,17 @@ class MeasurementConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_phy_requires_observation(self) -> MeasurementConfig:
+        output_plan = None
+        if self.output.products:
+            output_plan = build_rt_output_plan(
+                self.output.profile,
+                products=self.output.products,
+            )
+            if output_plan.requires_phy_observation and not self.phy.enabled:
+                raise ValueError(
+                    "Selected output.products require phy.enabled=true "
+                    "because they depend on /observation/cfr_est, IQ, or multiuser output"
+                )
         if self.phy.enabled:
             if self.phy.fft_size < 2:
                 raise ValueError("phy.fft_size must be >= 2 when phy enabled")

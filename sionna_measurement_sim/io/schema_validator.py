@@ -10,6 +10,16 @@ import numpy as np
 from sionna_measurement_sim.domain.constants import (
     FULL_CONTRACT_NAME,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
+    OUTPUT_PRODUCT_ARRAY,
+    OUTPUT_PRODUCT_CFR_OBS,
+    OUTPUT_PRODUCT_CFR_TRUTH,
+    OUTPUT_PRODUCT_CIR_TRUTH,
+    OUTPUT_PRODUCT_DERIVED,
+    OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_MULTIUSER,
+    OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
+    OUTPUT_PRODUCT_PATH_SAMPLES,
+    OUTPUT_PRODUCT_RANGING,
     RT_LABELS_CONTRACT_NAME,
 )
 
@@ -34,6 +44,18 @@ REQUIRED_TRUTH_GROUPS = (
     "link",
 )
 
+REQUIRED_FULL_BASE_GROUPS = (
+    "meta",
+    "input",
+    "topology",
+    "devices",
+    "antenna",
+    "scene",
+    "frequency",
+    "runtime",
+    "link",
+)
+
 REQUIRED_TRUTH_DATASETS = (
     "meta/schema_version",
     "meta/contract_name",
@@ -49,6 +71,8 @@ REQUIRED_TRUTH_DATASETS = (
     "devices/rx_orientation_rad",
     "antenna/tx_polarization",
     "antenna/rx_polarization",
+    "antenna/tx_num_ant",
+    "antenna/rx_num_ant",
     "scene/scene_id",
     "scene/map_id",
     "frequency/frequencies_hz",
@@ -91,6 +115,40 @@ REQUIRED_TRUTH_DATASETS = (
     "paths/nlos_truth/delay_s",
     "paths/nlos_truth/path_depth",
     "paths/nlos_truth/path_type",
+)
+
+REQUIRED_FULL_BASE_DATASETS = (
+    "meta/schema_version",
+    "meta/contract_name",
+    "meta/index_order",
+    "meta/unit_convention",
+    "meta/output_profile",
+    "meta/output_products",
+    "meta/config_snapshot",
+    "topology/tx_positions_m",
+    "topology/rx_positions_m",
+    "devices/tx_velocity_mps",
+    "devices/rx_velocity_mps",
+    "devices/tx_orientation_rad",
+    "devices/rx_orientation_rad",
+    "antenna/tx_polarization",
+    "antenna/rx_polarization",
+    "scene/scene_id",
+    "scene/map_id",
+    "frequency/frequencies_hz",
+    "link/duplex_mode",
+    "link/phy_link_direction",
+    "link/tx_role",
+    "link/rx_role",
+)
+
+REQUIRED_CFR_TRUTH_DATASETS = (
+    "channel/truth/cfr",
+    "channel/truth/path_power_db",
+    "channel/truth/has_geometric_signal",
+    "channel/truth/geometric_path_count",
+    "channel/truth/los_exists",
+    "channel/truth/nlos_exists",
 )
 
 PATH_SAMPLE_DATASETS = (
@@ -331,8 +389,17 @@ def validate_hdf5_contract(path: str | Path) -> None:
         if contract_name != FULL_CONTRACT_NAME:
             msg = f"Unsupported HDF5 contract_name: {contract_name!r}"
             raise SchemaValidationError(msg)
+        output_profile = (
+            _read_string(h5["meta/output_profile"])
+            if "meta/output_profile" in h5
+            else "full"
+        )
+        if output_profile == "custom":
+            _validate_custom_full_contract(h5)
+            return
         _require_present(h5, REQUIRED_TRUTH_GROUPS, kind=h5py.Group)
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
+        _require_present(h5, ("meta/output_products",), kind=h5py.Dataset)
         _require_present(h5, PATH_SAMPLE_DATASETS, kind=h5py.Dataset)
         _validate_truth_shapes(h5)
         _validate_derived_shapes(h5)
@@ -365,6 +432,111 @@ def _read_string(dataset: h5py.Dataset) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+def _read_string_array(dataset: h5py.Dataset) -> tuple[str, ...]:
+    values = dataset[()]
+    if np.isscalar(values):
+        return (_read_string(dataset),)
+    out: list[str] = []
+    for value in values:
+        if isinstance(value, bytes):
+            out.append(value.decode("utf-8"))
+        else:
+            out.append(str(value))
+    return tuple(out)
+
+
+def _validate_custom_full_contract(h5: h5py.File) -> None:
+    _require_present(h5, REQUIRED_FULL_BASE_GROUPS, kind=h5py.Group)
+    _require_present(h5, REQUIRED_FULL_BASE_DATASETS, kind=h5py.Dataset)
+    products = _read_string_array(h5["meta/output_products"])
+    if not products:
+        msg = "custom output contract requires non-empty /meta/output_products"
+        raise SchemaValidationError(msg)
+
+    if OUTPUT_PRODUCT_DERIVED in products:
+        _require_present(h5, ("derived",), kind=h5py.Group)
+        _require_present(
+            h5,
+            tuple(path for path in REQUIRED_TRUTH_DATASETS if path.startswith("derived/")),
+            kind=h5py.Dataset,
+        )
+        _validate_derived_shapes(h5)
+    else:
+        _require_absent(h5, "derived")
+
+    if OUTPUT_PRODUCT_CFR_TRUTH in products:
+        _require_present(h5, ("channel/truth",), kind=h5py.Group)
+        _require_present(h5, REQUIRED_CFR_TRUTH_DATASETS, kind=h5py.Dataset)
+        _validate_truth_shapes(h5)
+    elif OUTPUT_PRODUCT_CIR_TRUTH not in products:
+        _require_absent(h5, "channel")
+
+    if OUTPUT_PRODUCT_CIR_TRUTH in products:
+        _require_present(
+            h5,
+            (
+                "channel/truth/cir_coefficients",
+                "channel/truth/cir_delays_s",
+                "channel/truth/cir_valid",
+            ),
+            kind=h5py.Dataset,
+        )
+        if OUTPUT_PRODUCT_CFR_TRUTH in products:
+            _validate_truth_shapes(h5)
+
+    if OUTPUT_PRODUCT_PATH_SAMPLES in products:
+        _require_present(h5, ("paths/samples",), kind=h5py.Group)
+        _require_present(h5, PATH_SAMPLE_DATASETS, kind=h5py.Dataset)
+        _validate_path_sample_shapes(h5)
+    elif OUTPUT_PRODUCT_NLOS_PATH_TRUTH not in products:
+        _require_absent(h5, "paths/samples")
+
+    if OUTPUT_PRODUCT_NLOS_PATH_TRUTH in products:
+        _require_present(h5, ("paths/nlos_truth",), kind=h5py.Group)
+        _require_present(
+            h5,
+            tuple(path for path in REQUIRED_TRUTH_DATASETS if path.startswith("paths/nlos_truth/")),
+            kind=h5py.Dataset,
+        )
+        _validate_nlos_truth_shapes(h5)
+    elif OUTPUT_PRODUCT_PATH_SAMPLES not in products:
+        _require_absent(h5, "paths/nlos_truth")
+
+    if OUTPUT_PRODUCT_CFR_OBS in products:
+        _require_present(h5, REQUIRED_OBSERVATION_GROUPS, kind=h5py.Group)
+        _require_present(h5, REQUIRED_OBSERVATION_DATASETS, kind=h5py.Dataset)
+        if OUTPUT_PRODUCT_CFR_TRUTH in products:
+            _validate_observation_cfr_est_shape_if_present(h5)
+        _validate_observation_shapes(h5)
+        _validate_bler_contract(h5)
+        _validate_nr_pusch_fields_if_applicable(h5)
+        _validate_nr_srs_fields_if_applicable(h5)
+    else:
+        for group_path in REQUIRED_OBSERVATION_GROUPS:
+            _require_absent(h5, group_path)
+
+    if OUTPUT_PRODUCT_ARRAY in products:
+        _validate_array_outputs_if_present(h5)
+    else:
+        _require_absent(h5, "array")
+    if OUTPUT_PRODUCT_RANGING in products:
+        _validate_ranging(h5)
+    else:
+        _require_absent(h5, "ranging")
+    if OUTPUT_PRODUCT_IQ in products:
+        _validate_iq(h5)
+    else:
+        _require_absent(h5, "iq")
+    if OUTPUT_PRODUCT_MULTIUSER in products:
+        _validate_multiuser_srs(h5)
+    else:
+        _require_absent(h5, "multiuser")
+
+    _validate_shard_if_present(h5)
+    _validate_units(h5)
+    _validate_values(h5)
 
 
 def _validate_rt_labels_contract(h5: h5py.File) -> None:
@@ -454,6 +626,8 @@ def _validate_iq_link_library_units(h5: h5py.File) -> None:
         "topology/rx_positions_m",
         "frequency/frequencies_hz",
     ):
+        if dataset_path not in h5:
+            continue
         if "unit" not in h5[dataset_path].attrs:
             msg = f"Missing unit attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
@@ -541,6 +715,8 @@ def _validate_rt_labels_units(h5: h5py.File) -> None:
         "labels/link/tx_rx_bearing_rad",
         "labels/link/tx_rx_distance_m",
     ):
+        if dataset_path not in h5:
+            continue
         if "unit" not in h5[dataset_path].attrs:
             msg = f"Missing unit attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
@@ -732,8 +908,15 @@ def _validate_path_sample_shapes(h5: h5py.File) -> None:
 
 
 def _validate_nlos_truth_shapes(h5: h5py.File) -> None:
-    truth_cfr = h5["channel/truth/cfr"]
-    expected_prefix = truth_cfr.shape[:4]
+    if "channel/truth/cfr" in h5:
+        expected_prefix = h5["channel/truth/cfr"].shape[:4]
+    else:
+        expected_prefix = (
+            h5["topology/tx_positions_m"].shape[0],
+            h5["topology/rx_positions_m"].shape[0],
+            int(h5["antenna/rx_num_ant"][()]),
+            int(h5["antenna/tx_num_ant"][()]),
+        )
     valid = h5["paths/nlos_truth/valid"]
     if valid.ndim != 5:
         msg = f"/paths/nlos_truth/valid must be rank 5, got {valid.shape}"
@@ -823,6 +1006,8 @@ def _validate_units(h5: h5py.File) -> None:
         "derived/tx_rx_bearing_rad",
         "derived/tx_rx_distance_m",
     ):
+        if dataset_path not in h5:
+            continue
         if "unit" not in h5[dataset_path].attrs:
             msg = f"Missing unit attribute on /{dataset_path}"
             raise SchemaValidationError(msg)
@@ -856,11 +1041,12 @@ def _validate_units(h5: h5py.File) -> None:
 
 
 def _validate_values(h5: h5py.File) -> None:
-    cfr = h5["channel/truth/cfr"][()]
     frequencies = h5["frequency/frequencies_hz"][()]
-    if not np.any(np.isfinite(cfr)):
-        msg = "/channel/truth/cfr must contain at least one finite value"
-        raise SchemaValidationError(msg)
+    if "channel/truth/cfr" in h5:
+        cfr = h5["channel/truth/cfr"][()]
+        if not np.any(np.isfinite(cfr)):
+            msg = "/channel/truth/cfr must contain at least one finite value"
+            raise SchemaValidationError(msg)
     if not np.all(np.isfinite(frequencies)) or np.any(np.diff(frequencies) <= 0):
         msg = "/frequency/frequencies_hz must be finite and strictly increasing"
         raise SchemaValidationError(msg)
@@ -870,6 +1056,8 @@ def _validate_values(h5: h5py.File) -> None:
         "paths/samples/doppler_hz",
         "paths/samples/tau_s",
     ):
+        if dataset_path not in h5:
+            continue
         values = h5[dataset_path][()]
         if values.size and not np.all(np.isfinite(values)):
             msg = f"/{dataset_path} must contain finite values"
@@ -892,9 +1080,6 @@ def _validate_values(h5: h5py.File) -> None:
 
 
 def _validate_ranging(h5: h5py.File) -> None:
-    if "observation/cfr_est" not in h5:
-        msg = "/ranging requires /observation/cfr_est"
-        raise SchemaValidationError(msg)
     _require_present(h5, ("ranging/default_estimator",), kind=h5py.Dataset)
     default_estimator = h5["ranging/default_estimator"][()]
     if isinstance(default_estimator, bytes):
@@ -927,7 +1112,15 @@ def _validate_ranging_estimator_common(
     *,
     extra: tuple[str, ...],
 ) -> None:
-    link_shape = h5["observation/cfr_est"].shape[:3]
+    link_shape = (
+        h5["observation/cfr_est"].shape[:3]
+        if "observation/cfr_est" in h5
+        else (
+            1,
+            h5["topology/tx_positions_m"].shape[0],
+            h5["topology/rx_positions_m"].shape[0],
+        )
+    )
     group = h5[group_path]
     for name in (
         "toa_est_s",
@@ -996,13 +1189,21 @@ def _validate_observation_shapes(h5: h5py.File) -> None:
 def _validate_observation_cfr_est_shape_if_present(h5: h5py.File) -> None:
     if "observation/cfr_est" not in h5:
         return
-    truth_cfr = h5["channel/truth/cfr"]
     cfr_est = h5["observation/cfr_est"]
     if cfr_est.ndim != 6:
         msg = f"/observation/cfr_est must be rank 6, got {cfr_est.shape}"
         raise SchemaValidationError(msg)
-    if cfr_est.shape[-5:] != truth_cfr.shape[-5:]:
+    if "channel/truth/cfr" in h5 and cfr_est.shape[-5:] != h5["channel/truth/cfr"].shape[-5:]:
         msg = "/observation/cfr_est shape[-5:] must match /channel/truth/cfr"
+        raise SchemaValidationError(msg)
+    if cfr_est.shape[1] != h5["topology/tx_positions_m"].shape[0]:
+        msg = "/observation/cfr_est tx dimension must match topology"
+        raise SchemaValidationError(msg)
+    if cfr_est.shape[2] != h5["topology/rx_positions_m"].shape[0]:
+        msg = "/observation/cfr_est rx dimension must match topology"
+        raise SchemaValidationError(msg)
+    if cfr_est.shape[-1] != h5["frequency/frequencies_hz"].shape[0]:
+        msg = "/observation/cfr_est subcarrier dimension must match frequency"
         raise SchemaValidationError(msg)
 
 

@@ -14,6 +14,21 @@ from typing import Any
 import h5py
 import numpy as np
 
+from sionna_measurement_sim.domain.constants import (
+    OUTPUT_PRODUCT_ARRAY,
+    OUTPUT_PRODUCT_CALIBRATION,
+    OUTPUT_PRODUCT_CFR_OBS,
+    OUTPUT_PRODUCT_CFR_TRUTH,
+    OUTPUT_PRODUCT_CIR_TRUTH,
+    OUTPUT_PRODUCT_DERIVED,
+    OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_MOTION,
+    OUTPUT_PRODUCT_MULTIUSER,
+    OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
+    OUTPUT_PRODUCT_PATH_FULL,
+    OUTPUT_PRODUCT_PATH_SAMPLES,
+    OUTPUT_PRODUCT_RANGING,
+)
 from sionna_measurement_sim.domain.results import (
     IQLinkLibraryResult,
     MeasurementSimulationResult,
@@ -56,23 +71,36 @@ def write_measurement_result(
             _write_antenna(h5, result)
             _write_scene(h5, result)
             _write_frequency(h5, result)
-            _write_derived(h5, result)
-            _write_truth(h5, result)
-            _write_path_samples(h5, result)
-            _write_nlos_path_truth(h5, result)
-            _write_path_full(h5, result)
-            _write_cir_truth(h5, result)
-            _write_waveform(h5, result)
-            _write_array(h5, result)
-            _write_observation(h5, result)
-            _write_iq(h5, result)
-            _write_multiuser(h5, result)
-            _write_ranging(h5, result)
-            _write_impairments(h5, result)
-            _write_receiver(h5, result)
-            _write_evaluation(h5, result)
-            _write_calibration(h5, result)
-            _write_motion(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_DERIVED):
+                _write_derived(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_CFR_TRUTH):
+                _write_truth(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_PATH_SAMPLES):
+                _write_path_samples(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_NLOS_PATH_TRUTH):
+                _write_nlos_path_truth(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_PATH_FULL):
+                _write_path_full(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_CIR_TRUTH):
+                _write_cir_truth(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_CFR_OBS):
+                _write_waveform(h5, result)
+                _write_observation(h5, result)
+                _write_impairments(h5, result)
+                _write_receiver(h5, result)
+                _write_evaluation(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_ARRAY):
+                _write_array(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_IQ):
+                _write_iq(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_MULTIUSER):
+                _write_multiuser(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_RANGING):
+                _write_ranging(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_CALIBRATION):
+                _write_calibration(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_MOTION):
+                _write_motion(h5, result)
             _write_link(h5, result)
             _write_runtime(h5, result)
     finally:
@@ -80,6 +108,11 @@ def write_measurement_result(
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
+
+
+def _product_enabled(result: MeasurementSimulationResult, product: str) -> bool:
+    products = tuple(getattr(result.metadata, "output_products", ()) or ())
+    return not products or product in products
 
 
 def write_rt_labels_result(
@@ -176,6 +209,7 @@ def _write_meta(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "observation_branch_enabled", bool(meta.observation_branch_enabled))
     _write_scalar(group, "measurement_realism_level", meta.measurement_realism_level)
     _write_scalar(group, "output_profile", meta.output_profile)
+    _write_string_array(group, "output_products", meta.output_products)
     _write_scalar(group, "config_snapshot", meta.config_snapshot)
     _write_scalar(group, "software_versions", meta.software_versions)
 
@@ -337,6 +371,8 @@ def _write_derived(h5: h5py.File, result: MeasurementSimulationResult) -> None:
 
 def _write_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     truth = result.truth
+    if truth is None:
+        return
     group = h5.require_group("channel").require_group("truth")
     _write_dataset(
         group,
@@ -372,6 +408,8 @@ def _write_cir_truth(h5: h5py.File, result: MeasurementSimulationResult) -> None
 
 def _write_path_samples(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     samples = result.path_samples
+    if samples is None:
+        return
     group = h5.require_group("paths").require_group("samples")
     _write_dataset(group, "sampled_link_indices", samples.sampled_link_indices)
     _write_dataset(group, "sampled_rx_ant_indices", samples.sampled_rx_ant_indices)

@@ -40,12 +40,16 @@ YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目
 | `rt_lite` | 关闭 PHY/ranging/spectrum/visualization/calibration/full paths，仍写 full HDF5 contract |
 | `rt_labels_only` | 同样关闭下游重活，并让 pipeline 跳过 CFR/CIR/path samples，写 compact `/labels/link/*` contract |
 | `iq_link_library` | 要求 NR SRS，只保留 RT CFR、SRS clean channel apply 和 clean `/iq/link` 写盘，关闭 observed IQ、noncooperative、ranging、array、visualization、calibration 和 full paths |
+| `custom` | 使用 `output.products` 选择关键产物并裁剪计算链路；例如 `["cfr_truth"]` 跳过 CIR/path samples/PHY/ranging/array/visualization |
 
 `rt_lite` 和 `rt_labels_only` 也会关闭 `phy.iq` 与 `noncooperative`，避免轻量标签
 或 RT-only 输出意外写入大体积 IQ 数据。
 `iq_link_library` 会强制 `/iq/link` 为 clean-only：默认写 `time_clean`，也可用
 `phy.iq.clean_output: "time" | "frequency" | "both"` 选择只写时域、只写频域或两者都写。
 `phy.iq` 下旧的 `save_frequency_clean/save_time_clean` 字段已移除，配置加载会拒绝它们。
+`custom` profile 只接受 full-contract 产品组合，不可与 `rt_labels_only` 或
+`iq_link_library` compact contract 混用。当前产品名见
+`docs/sys/07_config_and_h5_format.md` 的 `output.products` 表。
 
 关键参数：
 ```

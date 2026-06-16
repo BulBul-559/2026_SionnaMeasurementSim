@@ -46,9 +46,10 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
 
     with h5py.File(output_path, "r") as h5:
         assert "channel/cfr" not in h5
-        assert h5["meta/schema_version"][()].decode("utf-8") == "2.1.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "2.2.0"
         assert h5["meta/contract_name"][()].decode("utf-8") == "sionna_measurement_sim_hdf5"
         assert h5["meta/output_profile"][()].decode("utf-8") == "full"
+        assert "meta/output_products" in h5
         assert h5["meta/index_order"][()].decode("utf-8") == "tx,rx,rx_ant,tx_ant,..."
         assert h5["meta/unit_convention"][()].decode("utf-8") == "si_mks"
         assert h5["topology/tx_positions_m"].dtype == np.dtype("float32")
@@ -128,10 +129,42 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     metadata = read_metadata(output_path)
     cfr = read_truth_cfr(output_path)
 
-    assert metadata["schema_version"] == "2.1.0"
+    assert metadata["schema_version"] == "2.2.0"
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")
+
+
+def test_custom_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
+    output_path = tmp_path / "cfr_truth_only.h5"
+    base = create_phase1_minimal_result()
+    result = replace(
+        base,
+        metadata=replace(
+            base.metadata,
+            output_profile="custom",
+            output_products=("cfr_truth",),
+        ),
+        path_samples=None,
+        cir_truth=None,
+        derived=None,
+        nlos_path_truth=None,
+    )
+
+    write_measurement_result(output_path, result)
+    validate_hdf5_contract(output_path)
+
+    with h5py.File(output_path, "r") as h5:
+        assert h5["meta/output_profile"][()].decode("utf-8") == "custom"
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "cfr_truth",
+        )
+        assert "channel/truth/cfr" in h5
+        assert "channel/truth/cir_coefficients" not in h5
+        assert "derived" not in h5
+        assert "paths" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
 
 
 def test_validator_rejects_missing_schema_version(tmp_path: Path):

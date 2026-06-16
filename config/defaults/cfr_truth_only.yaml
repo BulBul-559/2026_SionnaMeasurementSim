@@ -1,0 +1,49 @@
+# SionnaMeasurementSim – CFR truth only output template.
+# This profile writes /channel/truth/cfr plus mandatory metadata, and skips
+# CIR, path samples, PHY observation, ranging, array spectrum, IQ, and figures.
+
+runtime:
+  seed: 42
+  device: "cpu"
+
+input:
+  label_file: "tests/fixtures/scenes/test/test5.json"
+  scene_file: "tests/fixtures/scenes/test/scene.xml"
+  max_bs: 1
+  max_ue: 1
+
+output:
+  profile: "custom"
+  products: ["cfr_truth"]
+  root_dir: "outputs"
+  run_id_format: "{label_stem}_{timestamp}"
+  hdf5_filename: "results.h5"
+  compression: "gzip"
+  save_full_paths: false
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 20000000.0
+  num_subcarriers: 64
+
+rt:
+  max_depth: 1
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: false
+  diffraction: false
+  synthetic_array: false
+
+phy:
+  enabled: false
+
+array:
+  spectrum:
+    enabled: false
+
+ranging:
+  enabled: false
+
+visualization:
+  enabled: false

@@ -132,6 +132,7 @@ class RTTruthRunConfig:
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
     output_profile: str = "full"
+    output_products: tuple[str, ...] | None = None
     output_plan: RTOutputPlan | None = None
     save_full_paths: bool = False
     calibration_enabled: bool = True
@@ -185,7 +186,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
 
 
 def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConfig:
-    plan = config.output_plan or build_rt_output_plan(config.output_profile)
+    plan = config.output_plan or build_rt_output_plan(
+        config.output_profile,
+        products=config.output_products,
+    )
     if plan.profile == config.output_profile and plan is config.output_plan:
         return config
     updates: dict[str, object] = {
@@ -205,6 +209,35 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
                 "save_full_paths": False,
             }
         )
+    if plan.is_custom_products:
+        if not plan.requires_phy_observation:
+            updates.update(
+                {
+                    "observation_snr_db": None,
+                    "iq_config": None,
+                    "noncooperative_config": None,
+                }
+            )
+        elif config.observation_snr_db is None:
+            msg = "Selected output.products require PHY observation; enable phy.enabled"
+            raise ValueError(msg)
+        if not plan.write_array_outputs:
+            updates["spectrum_config"] = replace(config.spectrum_config, enabled=False)
+        if not plan.write_ranging:
+            updates["ranging_config"] = replace(config.ranging_config, enabled=False)
+        if not plan.write_iq:
+            updates["iq_config"] = None
+        if not plan.write_multiuser:
+            updates["noncooperative_config"] = None
+        if not plan.write_calibration:
+            updates["calibration_enabled"] = False
+        if not plan.write_visualization:
+            updates["visualization_config"] = replace(
+                config.visualization_config,
+                enabled=False,
+            )
+        if not plan.write_path_full:
+            updates["save_full_paths"] = False
     if plan.profile == "iq_link_library":
         if config.phy_standard != "nr_srs":
             msg = "output.profile='iq_link_library' currently requires phy.standard='nr_srs'"
@@ -390,7 +423,10 @@ def _run_rt_truth_pipeline_single_impl(
     output_dir: Path,
     logs_dir: Path,
 ) -> Path:
-    output_plan = config.output_plan or build_rt_output_plan(config.output_profile)
+    output_plan = config.output_plan or build_rt_output_plan(
+        config.output_profile,
+        products=config.output_products,
+    )
     mapping = resolve_link_roles(config.link_config.phy_link_direction)
     link_config = replace(
         config.link_config,
@@ -573,8 +609,11 @@ def _run_rt_truth_pipeline_single_impl(
         contract_name=output_plan.contract_name,
         output_profile=output_plan.profile,
         measurement_realism_level=f"phase{phase}_rt_truth",
-        observation_branch_enabled=observation_bundle is not None,
+        observation_branch_enabled=(
+            observation_bundle is not None and output_plan.write_cfr_observation
+        ),
         software_versions=json.dumps(adapter_result.runtime_versions, sort_keys=True),
+        output_products=output_plan.products,
     )
     input_spec = InputSpec(
         label_file=config.label_file.as_posix(),
@@ -705,9 +744,18 @@ def _run_rt_truth_pipeline_single_impl(
             path_count=int(adapter_result.link_summary.geometric_path_count.sum()),
         )
         return results_path
-    if adapter_result.truth is None or adapter_result.path_samples is None:
-        msg = "Full HDF5 contract requires CFR truth and path samples"
+    if output_plan.write_cfr_truth and adapter_result.truth is None:
+        msg = "Selected cfr_truth output requires RT output plan with compute_cfr=true"
         raise ValueError(msg)
+    if output_plan.write_path_samples and adapter_result.path_samples is None:
+        msg = "Selected path_samples output requires RT path sample extraction"
+        raise ValueError(msg)
+    needs_observation_result = (
+        output_plan.write_cfr_observation
+        or output_plan.write_ranging
+        or output_plan.write_iq
+        or output_plan.write_multiuser
+    )
     result = MeasurementSimulationResult(
         metadata=common_metadata,
         input_spec=input_spec,
@@ -717,30 +765,62 @@ def _run_rt_truth_pipeline_single_impl(
         antenna=antenna,
         scene=scene,
         frequency=frequency,
-        truth=adapter_result.truth,
-        path_samples=adapter_result.path_samples,
         runtime=runtime,
-        cir_truth=adapter_result.cir_truth,
-        derived=derived,
-        path_table=adapter_result.path_table if config.save_full_paths else None,
-        nlos_path_truth=nlos_path_truth,
-        waveform=observation_bundle.waveform if observation_bundle else None,
-        observation=observation_bundle.observation if observation_bundle else None,
-        impairments=observation_bundle.impairments if observation_bundle else None,
-        receiver=observation_bundle.receiver if observation_bundle else None,
-        evaluation=observation_bundle.evaluation if observation_bundle else None,
+        truth=adapter_result.truth,
+        path_samples=(
+            adapter_result.path_samples if output_plan.write_path_samples else None
+        ),
+        cir_truth=adapter_result.cir_truth if output_plan.write_cir_truth else None,
+        derived=derived if output_plan.write_derived else None,
+        path_table=(
+            adapter_result.path_table
+            if (config.save_full_paths and output_plan.write_path_full)
+            else None
+        ),
+        nlos_path_truth=nlos_path_truth if output_plan.write_nlos_path_truth else None,
+        waveform=(
+            observation_bundle.waveform
+            if (observation_bundle and needs_observation_result)
+            else None
+        ),
+        observation=(
+            observation_bundle.observation
+            if (observation_bundle and needs_observation_result)
+            else None
+        ),
+        impairments=(
+            observation_bundle.impairments
+            if (observation_bundle and needs_observation_result)
+            else None
+        ),
+        receiver=(
+            observation_bundle.receiver
+            if (observation_bundle and needs_observation_result)
+            else None
+        ),
+        evaluation=(
+            observation_bundle.evaluation
+            if (observation_bundle and needs_observation_result)
+            else None
+        ),
         calibration=(
             CalibrationResult.synthetic_default()
-            if (observation_bundle and config.calibration_enabled)
+            if (
+                observation_bundle
+                and config.calibration_enabled
+                and output_plan.write_calibration
+            )
             else None
         ),
         link=link_config,
         shard=shard_metadata,
-        waveform_extras=phy_extra.get("waveform_extras"),
-        array_outputs=phy_extra.get("array_outputs"),
-        ranging=ranging_result,
-        multiuser=phy_extra.get("multiuser"),
-        iq=iq_result,
+        waveform_extras=(
+            phy_extra.get("waveform_extras") if output_plan.write_cfr_observation else None
+        ),
+        array_outputs=phy_extra.get("array_outputs") if output_plan.write_array_outputs else None,
+        ranging=ranging_result if output_plan.write_ranging else None,
+        multiuser=phy_extra.get("multiuser") if output_plan.write_multiuser else None,
+        iq=iq_result if output_plan.write_iq else None,
         diagnostics=(
             DiagnosticsReport.from_evaluation(
                 observation_bundle.evaluation, observation_bundle.observation
@@ -771,6 +851,7 @@ def _run_rt_truth_pipeline_single_impl(
     manifest_data = {
         "phase": phase,
         "output_profile": config.output_profile,
+        "output_products": list(output_plan.products),
         "results_h5": results_path.as_posix(),
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
@@ -780,7 +861,7 @@ def _run_rt_truth_pipeline_single_impl(
         "software_versions": adapter_result.runtime_versions,
         "raw_cfr_shape": adapter_result.raw_cfr_shape,
         "internal_cfr_shape": adapter_result.internal_cfr_shape,
-        "path_count": int(adapter_result.path_samples.path_count.sum()),
+        "path_count": _adapter_path_count(adapter_result),
         "observation_snr_db": config.observation_snr_db,
         "elapsed_seconds": elapsed_seconds,
     }
@@ -825,11 +906,12 @@ def _run_rt_truth_pipeline_single_impl(
             [
                 f"phase={phase}",
                 f"output_profile={config.output_profile}",
+                f"output_products={','.join(output_plan.products)}",
                 f"results_h5={results_path.as_posix()}",
                 f"manifest={manifest_path.as_posix()}",
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
                 f"internal_cfr_shape={adapter_result.internal_cfr_shape}",
-                f"path_count={int(adapter_result.path_samples.path_count.sum())}",
+                f"path_count={_adapter_path_count(adapter_result)}",
                 f"observation_snr_db={config.observation_snr_db}",
             ]
         )
@@ -837,6 +919,16 @@ def _run_rt_truth_pipeline_single_impl(
         encoding="utf-8",
     )
     return results_path
+
+
+def _adapter_path_count(adapter_result: Any) -> int:
+    path_samples = getattr(adapter_result, "path_samples", None)
+    if path_samples is not None:
+        return int(path_samples.path_count.sum())
+    link_summary = getattr(adapter_result, "link_summary", None)
+    if link_summary is not None:
+        return int(link_summary.geometric_path_count.sum())
+    return 0
 
 
 def _write_single_manifest(
@@ -863,6 +955,14 @@ def _write_single_manifest(
     manifest_data = {
         "phase": phase,
         "output_profile": config.output_profile,
+        "output_products": list(config.output_plan.products)
+        if config.output_plan is not None
+        else list(
+            build_rt_output_plan(
+                config.output_profile,
+                products=config.output_products,
+            ).products
+        ),
         "results_h5": results_path.as_posix(),
         "label_file": config.label_file.as_posix(),
         "scene_file": config.scene_file.as_posix(),
@@ -931,6 +1031,7 @@ def _write_run_log(
             [
                 f"phase={phase}",
                 f"output_profile={config.output_profile}",
+                f"output_products={','.join(config.output_products or ())}",
                 f"results_h5={results_path.as_posix()}",
                 f"manifest={manifest_path.as_posix()}",
                 f"raw_cfr_shape={adapter_result.raw_cfr_shape}",
@@ -1792,6 +1893,11 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
         "bandwidth_hz": config.bandwidth_hz,
         "num_subcarriers": config.num_subcarriers,
         "output_profile": config.output_profile,
+        "output_products": list(
+            config.output_plan.products
+            if config.output_plan is not None
+            else config.output_products or ()
+        ),
         "device": config.device,
         "max_depth": config.max_depth,
         "los": config.los,

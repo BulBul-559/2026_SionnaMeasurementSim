@@ -19,6 +19,8 @@ from sionna_measurement_sim.domain.constants import (
     CONTRACT_NAME,
     INDEX_ORDER,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
+    OUTPUT_PRODUCT_DERIVED,
+    OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
     PRODUCER,
     RT_LABELS_CONTRACT_NAME,
     SCHEMA_VERSION,
@@ -74,6 +76,7 @@ class Metadata:
     measurement_realism_level: str = "phase1_schema_only"
     software_versions: str = field(default_factory=lambda: json.dumps({"package": __version__}))
     output_profile: str = "full"
+    output_products: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -481,9 +484,9 @@ class MeasurementSimulationResult:
     antenna: AntennaSpec
     scene: SceneSpec
     frequency: FrequencyGrid
-    truth: RTTruthResult
-    path_samples: PathSamples
     runtime: RuntimeInfo
+    truth: RTTruthResult | None = None
+    path_samples: PathSamples | None = None
     derived: DerivedLabels | None = None
     path_table: PathTable | None = None
     nlos_path_truth: NLoSPathTruth | None = None
@@ -505,11 +508,22 @@ class MeasurementSimulationResult:
     iq: IQObservationResult | None = None
 
     def __post_init__(self) -> None:
-        cfr = self.truth.cfr
-        if cfr.ndim != 5:
-            msg = f"truth cfr must be rank 5, got {cfr.shape}"
+        tx = self.topology.num_tx
+        rx = self.topology.num_rx
+        rx_ant = self.antenna.rx_num_ant
+        tx_ant = self.antenna.tx_num_ant
+        subcarrier = self.frequency.num_subcarriers
+        cfr_shape: tuple[int, int, int, int, int] | None = None
+        if self.truth is not None:
+            cfr = self.truth.cfr
+            if cfr.ndim != 5:
+                msg = f"truth cfr must be rank 5, got {cfr.shape}"
+                raise ValueError(msg)
+            cfr_shape = cfr.shape
+            tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
+        elif self.metadata.output_profile != "custom":
+            msg = "full non-custom MeasurementSimulationResult requires truth CFR"
             raise ValueError(msg)
-        tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
         if tx != self.topology.num_tx or rx != self.topology.num_rx:
             msg = "truth cfr tx/rx dimensions must match topology"
             raise ValueError(msg)
@@ -550,7 +564,7 @@ class MeasurementSimulationResult:
                 msg = "cir_truth antenna dimensions must match antenna spec"
                 raise ValueError(msg)
         if self.observation is not None:
-            if self.observation.cfr_est.shape[1:] != cfr.shape[-5:]:
+            if cfr_shape is not None and self.observation.cfr_est.shape[1:] != cfr_shape:
                 msg = "observation cfr_est shape[1:] must match truth cfr"
                 raise ValueError(msg)
             if self.evaluation is None or self.waveform is None or self.receiver is None:
@@ -589,7 +603,15 @@ class MeasurementSimulationResult:
         if self.iq is not None and self.observation is None:
             msg = "IQ observations require PHY observation"
             raise ValueError(msg)
-        if self.derived is None:
+        wants_legacy_full = self.metadata.output_profile != "custom"
+        wants_derived = (
+            wants_legacy_full
+            or OUTPUT_PRODUCT_DERIVED in self.metadata.output_products
+        )
+        if self.derived is None and wants_derived:
+            if self.truth is None:
+                msg = "derived output requires truth or explicit DerivedLabels"
+                raise ValueError(msg)
             object.__setattr__(
                 self,
                 "derived",
@@ -597,7 +619,11 @@ class MeasurementSimulationResult:
                     self.topology, self.truth, self.path_table, self.cir_truth
                 ),
             )
-        if self.nlos_path_truth is None:
+        wants_nlos_truth = (
+            wants_legacy_full
+            or OUTPUT_PRODUCT_NLOS_PATH_TRUTH in self.metadata.output_products
+        )
+        if self.nlos_path_truth is None and wants_nlos_truth:
             nlos_path_truth = (
                 build_nlos_path_truth(self.path_table)
                 if self.path_table is not None
