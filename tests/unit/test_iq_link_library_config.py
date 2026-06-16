@@ -8,8 +8,8 @@ def test_iq_link_library_defaults_to_time_clean():
 
     assert cfg.enabled is True
     assert cfg.clean_output == "time"
-    assert cfg.save_frequency_clean is False
-    assert cfg.save_time_clean is True
+    assert not hasattr(cfg, "save_frequency_clean")
+    assert not hasattr(cfg, "save_time_clean")
     assert cfg.save_frequency_observed is False
     assert cfg.save_time_observed is False
     assert cfg.cp_length == 8
@@ -20,9 +20,7 @@ def test_iq_link_library_clean_output_frequency_only():
         SimpleNamespace(
             enabled=True,
             clean_output="frequency",
-            save_frequency_clean=False,
             save_frequency_observed=False,
-            save_time_clean=False,
             save_time_observed=False,
             cp_length=None,
         ),
@@ -31,8 +29,8 @@ def test_iq_link_library_clean_output_frequency_only():
 
     assert cfg.enabled is True
     assert cfg.clean_output == "frequency"
-    assert cfg.save_frequency_clean is True
-    assert cfg.save_time_clean is False
+    assert not hasattr(cfg, "save_frequency_clean")
+    assert not hasattr(cfg, "save_time_clean")
     assert cfg.save_frequency_observed is False
     assert cfg.save_time_observed is False
     assert cfg.cp_length == 8
@@ -43,9 +41,7 @@ def test_iq_link_library_clean_output_both():
         SimpleNamespace(
             enabled=True,
             clean_output="both",
-            save_frequency_clean=False,
             save_frequency_observed=False,
-            save_time_clean=False,
             save_time_observed=False,
             cp_length=0,
         ),
@@ -53,6 +49,6 @@ def test_iq_link_library_clean_output_both():
     )
 
     assert cfg.clean_output == "both"
-    assert cfg.save_frequency_clean is True
-    assert cfg.save_time_clean is True
+    assert not hasattr(cfg, "save_frequency_clean")
+    assert not hasattr(cfg, "save_time_clean")
     assert cfg.cp_length == 0

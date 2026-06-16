@@ -362,9 +362,7 @@ class PHYIQConfig(BaseModel):
 
     enabled: bool = False
     clean_output: str | None = Field(default=None)
-    save_frequency_clean: bool = False
     save_frequency_observed: bool = False
-    save_time_clean: bool = False
     save_time_observed: bool = False
     cp_length: int | None = Field(default=None, ge=0)
 
@@ -373,17 +371,16 @@ class PHYIQConfig(BaseModel):
         if self.clean_output is not None:
             if self.clean_output not in ("time", "frequency", "both"):
                 raise ValueError("phy.iq.clean_output must be time/frequency/both")
-            self.save_frequency_clean = self.clean_output in ("frequency", "both")
-            self.save_time_clean = self.clean_output in ("time", "both")
         if self.enabled and not any(
             (
-                self.save_frequency_clean,
+                self.clean_output is not None,
                 self.save_frequency_observed,
-                self.save_time_clean,
                 self.save_time_observed,
             )
         ):
-            raise ValueError("phy.iq.enabled=true requires at least one save_* flag")
+            raise ValueError(
+                "phy.iq.enabled=true requires clean_output or an observed IQ save flag"
+            )
         return self
 
 
@@ -769,7 +766,8 @@ class MeasurementConfig(BaseModel):
                 self.phy.iq.save_frequency_observed or self.phy.iq.save_time_observed
             ):
                 raise ValueError(
-                    "output.profile=iq_link_library only permits clean IQ save flags"
+                    "output.profile=iq_link_library only permits clean IQ selected by "
+                    "phy.iq.clean_output"
                 )
         if self.motion.enabled and self.motion.mobility_mode == "doppler_synthetic":
             if self.motion.sampling_frequency_hz <= 0:

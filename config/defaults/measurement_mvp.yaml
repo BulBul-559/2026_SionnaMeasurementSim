@@ -187,9 +187,8 @@ phy:
       max_tx_power_dbm: 23.0
   iq:
     enabled: false
-    save_frequency_clean: false
+    clean_output: null
     save_frequency_observed: false
-    save_time_clean: false
     save_time_observed: false
     cp_length: null
   srs:

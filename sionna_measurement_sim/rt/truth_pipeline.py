@@ -228,26 +228,17 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
 
 def _clean_iq_link_library_config(iq_config: Any | None, *, cp_length: int) -> Any:
     clean_output = getattr(iq_config, "clean_output", None)
-    if clean_output is not None:
-        if clean_output not in ("time", "frequency", "both"):
-            raise ValueError("phy.iq.clean_output must be time/frequency/both")
-        clean_frequency = clean_output in ("frequency", "both")
-        clean_time = clean_output in ("time", "both")
-    else:
-        clean_frequency = bool(getattr(iq_config, "save_frequency_clean", False))
-        clean_time = bool(getattr(iq_config, "save_time_clean", False))
-    if not clean_frequency and not clean_time:
-        clean_time = True
+    if clean_output is None:
         clean_output = "time"
+    if clean_output not in ("time", "frequency", "both"):
+        raise ValueError("phy.iq.clean_output must be time/frequency/both")
     resolved_cp_length = getattr(iq_config, "cp_length", None)
     if resolved_cp_length is None:
         resolved_cp_length = cp_length
     updates = {
         "enabled": True,
         "clean_output": clean_output,
-        "save_frequency_clean": clean_frequency,
         "save_frequency_observed": False,
-        "save_time_clean": clean_time,
         "save_time_observed": False,
         "cp_length": resolved_cp_length,
     }
@@ -258,7 +249,9 @@ def _clean_iq_link_library_config(iq_config: Any | None, *, cp_length: int) -> A
     values = {
         name: getattr(iq_config, name)
         for name in dir(iq_config)
-        if not name.startswith("_") and not callable(getattr(iq_config, name))
+        if not name.startswith("_")
+        and name not in ("save_frequency_clean", "save_time_clean")
+        and not callable(getattr(iq_config, name))
     }
     values.update(updates)
     return SimpleNamespace(**values)

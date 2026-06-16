@@ -114,8 +114,14 @@ def _build_link_capture(
     if iq_config is None or not bool(getattr(iq_config, "enabled", False)):
         return None
 
+    clean_output = getattr(iq_config, "clean_output", None)
+    if clean_output is not None and clean_output not in ("time", "frequency", "both"):
+        raise ValueError("phy.iq.clean_output must be time/frequency/both")
+    write_frequency_clean = clean_output in ("frequency", "both")
+    write_time_clean = clean_output in ("time", "both")
+
     frequency_clean = None
-    if bool(getattr(iq_config, "save_frequency_clean", False)):
+    if write_frequency_clean:
         frequency_clean = _require_waveform_extra(waveform_extras, "rx_grid_clean")
 
     frequency_observed = None
@@ -123,7 +129,7 @@ def _build_link_capture(
         frequency_observed = _require_waveform_extra(waveform_extras, "rx_grid")
 
     time_clean = None
-    if bool(getattr(iq_config, "save_time_clean", False)):
+    if write_time_clean:
         source = frequency_clean
         if source is None:
             source = _require_waveform_extra(waveform_extras, "rx_grid_clean")

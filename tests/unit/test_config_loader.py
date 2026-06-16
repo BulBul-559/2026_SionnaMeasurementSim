@@ -159,7 +159,7 @@ array:
         load_config(config_path)
 
 
-def test_phy_iq_clean_output_maps_to_clean_save_flags(tmp_path: Path):
+def test_phy_iq_clean_output_is_canonical_clean_selector(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -175,10 +175,27 @@ phy:
     cfg = load_config(config_path)
 
     assert cfg.phy.iq.clean_output == "both"
-    assert cfg.phy.iq.save_frequency_clean is True
-    assert cfg.phy.iq.save_time_clean is True
+    assert not hasattr(cfg.phy.iq, "save_frequency_clean")
+    assert not hasattr(cfg.phy.iq, "save_time_clean")
     assert cfg.phy.iq.save_frequency_observed is False
     assert cfg.phy.iq.save_time_observed is False
+
+
+def test_phy_iq_rejects_legacy_clean_save_flags(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+phy:
+  enabled: true
+  iq:
+    enabled: true
+    save_frequency_clean: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="save_frequency_clean"):
+        load_config(config_path)
 
 
 def test_phy_iq_clean_output_rejects_unknown_value(tmp_path: Path):

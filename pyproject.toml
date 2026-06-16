@@ -1,6 +1,6 @@
 [project]
 name = "sionna-measurement-sim"
-version = "2.0.0"
+version = "2.1.0"
 description = "Measurement-oriented Sionna RT simulation pipeline with truth and observation branches."
 readme = "README.md"
 requires-python = ">=3.11"

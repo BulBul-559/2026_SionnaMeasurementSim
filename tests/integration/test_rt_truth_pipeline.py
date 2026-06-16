@@ -173,9 +173,7 @@ def test_rt_truth_pipeline_can_write_iq_link_library_profile(tmp_path: Path):
             iq_config=SimpleNamespace(
                 enabled=True,
                 clean_output="both",
-                save_frequency_clean=False,
                 save_frequency_observed=False,
-                save_time_clean=False,
                 save_time_observed=False,
                 cp_length=2,
             ),

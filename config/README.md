@@ -180,9 +180,9 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 library：保留 RT CFR 与 SRS clean channel apply，自动关闭 ranging、array spectrum、
 visualization、calibration、noncooperative mixed IQ、observed IQ 和 full paths。推荐用
 `phy.iq.clean_output` 选择 clean payload：`"time"` 只写 `/iq/link/time_clean`，
-`"frequency"` 只写 `/iq/link/frequency_clean`，`"both"` 同时写两者。未设置
-`clean_output` 时仍兼容底层 `save_frequency_clean/save_time_clean` 开关；两者都未开时
-profile 默认写 `time_clean`。该模式的文件用于后续在线组合多 UE clean IQ，噪声、CFO/timing、
+`"frequency"` 只写 `/iq/link/frequency_clean`，`"both"` 同时写两者。`phy.iq` 下旧的
+`save_frequency_clean/save_time_clean` 已移除；`iq_link_library` profile 在未显式提供
+IQ 配置时默认使用 `clean_output: "time"`。该模式的文件用于后续在线组合多 UE clean IQ，噪声、CFO/timing、
 AGC/clipping 等应在在线混合后统一添加。
 
 #### `output.sharding`
@@ -422,14 +422,12 @@ PHY 仿真里额外保存干净或受损后的频域/时域复数基带观测，
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `iq.enabled` | bool | false | 是否写 `/iq/link` |
-| `iq.clean_output` | str\|null | null | 高层 clean IQ 选择器：`"time"`、`"frequency"`、`"both"`；设置后会覆盖 clean save flags |
-| `iq.save_frequency_clean` | bool | false | 写损伤/AWGN 前频域 IQ `/iq/link/frequency_clean` |
+| `iq.clean_output` | str\|null | null | clean IQ 选择器：`"time"`、`"frequency"`、`"both"` |
 | `iq.save_frequency_observed` | bool | false | 写损伤/AWGN 后频域 IQ `/iq/link/frequency_observed` |
-| `iq.save_time_clean` | bool | false | 从 clean 频域 grid 做 OFDM IFFT 后写 `/iq/link/time_clean` |
 | `iq.save_time_observed` | bool | false | 从 observed 频域 grid 做 OFDM IFFT 后写 `/iq/link/time_observed` |
 | `iq.cp_length` | int\|null | null | null 时使用 `phy.cp_length`；非 null 时在每个 OFDM symbol 前拼接 CP |
 
-启用 `phy.iq.enabled=true` 时至少要设置 `iq.clean_output` 或打开一个 save flag。
+启用 `phy.iq.enabled=true` 时至少要设置 `iq.clean_output` 或打开一个 observed save flag。
 `iq.clean_output` 只控制 clean payload；observed IQ 仍通过 `iq.save_*_observed`
 显式开启。时域 IQ 的约定是
 `ofdm_ifft_per_symbol_cp_appended_contiguous_symbols`：每个 OFDM symbol 逐个 IFFT，

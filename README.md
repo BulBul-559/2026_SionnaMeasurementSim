@@ -23,7 +23,7 @@
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
 - `output.profile` 支持 `full`、`rt_lite`、`rt_labels_only`、`iq_link_library`；labels-only 使用 compact `/labels/link` HDF5 contract，IQ link-library 使用 compact clean `/iq/link` contract
-- HDF5 schema `2.0.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
+- HDF5 schema `2.1.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 

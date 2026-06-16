@@ -45,7 +45,7 @@ YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目
 或 RT-only 输出意外写入大体积 IQ 数据。
 `iq_link_library` 会强制 `/iq/link` 为 clean-only：默认写 `time_clean`，也可用
 `phy.iq.clean_output: "time" | "frequency" | "both"` 选择只写时域、只写频域或两者都写。
-未设置 `clean_output` 时仍兼容底层 `save_frequency_clean/save_time_clean` 开关。
+`phy.iq` 下旧的 `save_frequency_clean/save_time_clean` 字段已移除，配置加载会拒绝它们。
 
 关键参数：
 ```
@@ -141,7 +141,7 @@ Pydantic 的 `@model_validator` 在加载时自动校验：
 - `subcarrier_spacing_hz` 与 `bandwidth_hz / num_subcarriers` 一致
 - `fft_size >= 2`
 - 速度向量必须是 3 分量
-- `phy.iq.enabled=true` 时必须启用 PHY 且至少设置 `clean_output` 或选择一个 IQ save flag
+- `phy.iq.enabled=true` 时必须启用 PHY 且至少设置 `clean_output` 或选择一个 observed IQ save flag
 - `noncooperative.enabled=true` 时必须启用 PHY，并且当前只允许 `phy.standard="nr_srs"`
 
 ## 配置加载 (`config/loader.py`)
