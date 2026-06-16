@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from sionna_measurement_sim.domain.constants import (
@@ -8,6 +10,11 @@ from sionna_measurement_sim.domain.constants import (
     RT_LABELS_CONTRACT_NAME,
 )
 from sionna_measurement_sim.domain.output_plan import build_rt_output_plan
+from sionna_measurement_sim.rt.truth_pipeline import (
+    RTTruthRunConfig,
+    _normalize_output_profile_config,
+)
+from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 
 
 def test_full_output_plan_uses_full_contract():
@@ -115,3 +122,50 @@ def test_custom_array_observation_source_requires_phy():
     assert plan.write_array_outputs is True
     assert plan.compute_cfr is True
     assert plan.requires_phy_observation is True
+
+
+def test_custom_iq_product_requires_phy():
+    plan = build_rt_output_plan("custom", products=["iq"])
+
+    assert plan.write_iq is True
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is True
+
+
+def test_custom_multiuser_product_requires_phy():
+    plan = build_rt_output_plan("custom", products=["multiuser"])
+
+    assert plan.write_multiuser is True
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is True
+
+
+def test_custom_calibration_product_requires_phy():
+    plan = build_rt_output_plan("custom", products=["calibration"])
+
+    assert plan.write_calibration is True
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is True
+
+
+def test_custom_motion_product_does_not_require_phy():
+    plan = build_rt_output_plan("custom", products=["motion"])
+
+    assert plan.write_motion is True
+    assert plan.compute_cfr is False
+    assert plan.requires_phy_observation is False
+
+
+def test_custom_visualization_product_enables_visualization_config():
+    cfg = _normalize_output_profile_config(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=Path("outputs/test"),
+            output_profile="custom",
+            output_products=("visualization",),
+            visualization_config=VisualizationRunConfig(enabled=False),
+        )
+    )
+
+    assert cfg.visualization_config.enabled is True

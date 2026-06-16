@@ -11,13 +11,16 @@ from sionna_measurement_sim.domain.constants import (
     FULL_CONTRACT_NAME,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
     OUTPUT_PRODUCT_ARRAY,
+    OUTPUT_PRODUCT_CALIBRATION,
     OUTPUT_PRODUCT_CFR_OBS,
     OUTPUT_PRODUCT_CFR_TRUTH,
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_DERIVED,
     OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_MOTION,
     OUTPUT_PRODUCT_MULTIUSER,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
+    OUTPUT_PRODUCT_PATH_FULL,
     OUTPUT_PRODUCT_PATH_SAMPLES,
     OUTPUT_PRODUCT_RANGING,
     RT_LABELS_CONTRACT_NAME,
@@ -172,6 +175,23 @@ PATH_SAMPLE_DATASETS = (
     "link/rx_role",
 )
 
+PATH_FULL_DATASETS = (
+    "paths/full/valid",
+    "paths/full/a",
+    "paths/full/tau_s",
+    "paths/full/doppler_hz",
+    "paths/full/theta_t_rad",
+    "paths/full/phi_t_rad",
+    "paths/full/theta_r_rad",
+    "paths/full/phi_r_rad",
+    "paths/full/interaction_type",
+    "paths/full/object_id",
+    "paths/full/primitive_id",
+    "paths/full/vertices_m",
+    "paths/full/path_type",
+    "paths/full/path_depth",
+)
+
 OPTIONAL_SHARD_DATASETS = (
     "shard/shard_index",
     "shard/shard_count",
@@ -193,6 +213,14 @@ REQUIRED_CALIBRATION_DATASETS = (
     "calibration/profile_id",
     "calibration/fitted_parameters",
     "calibration/validation_metrics",
+)
+
+REQUIRED_MOTION_DATASETS = (
+    "motion/snapshot_id",
+    "motion/timestamp_s",
+    "motion/sampling_frequency_hz",
+    "motion/num_time_steps",
+    "motion/mobility_mode",
 )
 
 REQUIRED_OBSERVATION_DATASETS = (
@@ -493,6 +521,12 @@ def _validate_custom_full_contract(h5: h5py.File) -> None:
     elif OUTPUT_PRODUCT_NLOS_PATH_TRUTH not in products:
         _require_absent(h5, "paths/samples")
 
+    if OUTPUT_PRODUCT_PATH_FULL in products:
+        _require_present(h5, ("paths/full",), kind=h5py.Group)
+        _require_present(h5, PATH_FULL_DATASETS, kind=h5py.Dataset)
+    else:
+        _require_absent(h5, "paths/full")
+
     if OUTPUT_PRODUCT_NLOS_PATH_TRUTH in products:
         _require_present(h5, ("paths/nlos_truth",), kind=h5py.Group)
         _require_present(
@@ -539,6 +573,18 @@ def _validate_custom_full_contract(h5: h5py.File) -> None:
         _validate_multiuser_srs(h5)
     else:
         _require_absent(h5, "multiuser")
+
+    if OUTPUT_PRODUCT_CALIBRATION in products:
+        _require_present(h5, ("calibration",), kind=h5py.Group)
+        _require_present(h5, REQUIRED_CALIBRATION_DATASETS, kind=h5py.Dataset)
+    else:
+        _require_absent(h5, "calibration")
+
+    if OUTPUT_PRODUCT_MOTION in products:
+        _require_present(h5, ("motion",), kind=h5py.Group)
+        _require_present(h5, REQUIRED_MOTION_DATASETS, kind=h5py.Dataset)
+    else:
+        _require_absent(h5, "motion")
 
     _validate_shard_if_present(h5)
     _validate_units(h5)

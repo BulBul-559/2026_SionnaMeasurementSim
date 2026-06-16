@@ -46,7 +46,13 @@ PHY observation、ranging、array spectrum、IQ 和 visualization。常用产品
 `cfr_truth`、`cfr_obs`、`ranging`、`array`、`iq`、`multiuser`、`path_samples` 和 `all`，
 其中 `rtt` 是 `ranging` 的别名。`array` 产品按 `array.spectrum.sources` 动态判断依赖：
 `truth_cfr` source 不跑 PHY，`cfr_est`/`rx_grid` source 需要内部运行 PHY 但不一定写
-`/observation`；`ranging`/`rtt` 会自动开启 ranging estimator。
+`/observation`；`ranging`/`rtt` 会自动开启 ranging estimator；`iq` 会自动开启
+per-link IQ，未显式配置时默认写 clean time IQ；`multiuser` 会自动开启 NR SRS
+multi-UE shared observation。`iq` 产品当前要求 `nr_srs` 或 `nr_pusch` 这类能导出
+waveform grid 的 PHY 模块，`multiuser` 产品当前要求 `phy.standard="nr_srs"`。
+`path_full` 产品会自动写 `/paths/full`，不需要额外开启旧的 `save_full_paths`。
+`calibration` 产品会内部运行 PHY 但可只写 `/calibration`；`motion` 产品可只写
+`/motion`，不需要 PHY；`visualization` 产品会主动启用 figure artifact 生成。
 新输出不再写 array 兼容别名
 `/array/spatial_spectrum_label` 或 `/array/spatial_spectrum_srs`；AoA 监督 heatmap
 统一使用 `/array/aoa_heatmap_label`，SRS/估计 CFR 空间谱统一使用

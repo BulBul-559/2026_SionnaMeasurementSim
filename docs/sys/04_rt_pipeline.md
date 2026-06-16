@@ -144,7 +144,14 @@ calibration 和 visualization，避免“只少写不少算”。
 `array` 产品是 source-aware：`array.spectrum.sources=["truth_cfr"]` 只需要 RT CFR；
 包含 `cfr_est` 或 `rx_grid` 时需要 PHY observation，但可只把 `/array` 写入 HDF5。
 `ranging`/`rtt` 产品会自动开启 ranging estimator，内部使用 observation CFR，
-但不要求把 `/observation` 落盘。
+但不要求把 `/observation` 落盘。`iq` 产品会自动开启 per-link IQ capture；
+未显式配置 `phy.iq` 时默认写 clean time IQ，且要求 PHY 标准能导出 waveform grids
+（当前为 NR SRS/PUSCH）。`multiuser` 产品会自动开启 `phy.srs.multiuser`，当前只支持
+NR SRS；它可内部运行普通 SRS observation，但 HDF5 可以只保留 `/multiuser`。
+`path_full` 产品会自动启用 `/paths/full` 写盘，不再依赖旧的 `save_full_paths` 开关。
+`calibration` 产品会内部运行 PHY 以生成 synthetic calibration payload，但 HDF5 可以只写
+`/calibration`；`motion` 产品可独立写 `/motion`，不需要 PHY；`visualization`
+产品会主动启用 `visualization.enabled` 并按当前 plot 配置出图。
 
 `rt_labels_only` 的目标是大规模视觉预训练或场景筛选标签；它不是信道数据，不能用于
 需要 CFR/CIR/路径顶点可视化的流程。compact table 可通过

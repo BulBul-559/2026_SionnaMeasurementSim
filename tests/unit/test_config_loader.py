@@ -202,6 +202,120 @@ phy:
         load_config(config_path)
 
 
+def test_custom_iq_product_allows_nr_srs_without_explicit_iq_config(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["iq"]
+phy:
+  enabled: true
+  standard: "nr_srs"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.products == ["iq"]
+    assert cfg.phy.standard == "nr_srs"
+    assert cfg.phy.iq.enabled is False
+
+
+def test_custom_iq_product_rejects_custom_ofdm(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["iq"]
+phy:
+  enabled: true
+  standard: "custom_ofdm"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="standard"):
+        load_config(config_path)
+
+
+def test_custom_multiuser_product_requires_nr_srs(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["multiuser"]
+phy:
+  enabled: true
+  standard: "nr_pusch"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="multiuser"):
+        load_config(config_path)
+
+
+def test_custom_multiuser_product_allows_nr_srs_defaults(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["multiuser"]
+phy:
+  enabled: true
+  standard: "nr_srs"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.products == ["multiuser"]
+    assert cfg.phy.standard == "nr_srs"
+    assert cfg.phy.srs.multiuser.enabled is False
+
+
+def test_custom_calibration_product_requires_phy_enabled(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["calibration"]
+phy:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="phy.enabled"):
+        load_config(config_path)
+
+
+def test_custom_motion_product_allows_phy_disabled(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["motion"]
+phy:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.products == ["motion"]
+    assert cfg.phy.enabled is False
+
+
 def test_phy_iq_clean_output_is_canonical_clean_selector(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

@@ -49,7 +49,10 @@ YAML 中的 `output.profile` 会在 CLI 层先应用 preset，再写入输出目
 `phy.iq` 下旧的 `save_frequency_clean/save_time_clean` 字段已移除，配置加载会拒绝它们。
 `custom` profile 只接受 full-contract 产品组合，不可与 `rt_labels_only` 或
 `iq_link_library` compact contract 混用。当前产品名见
-`docs/sys/07_config_and_h5_format.md` 的 `output.products` 表。
+`docs/sys/07_config_and_h5_format.md` 的 `output.products` 表。`custom` 下选择 `iq`
+会自动启用 per-link IQ，未显式配置时默认写 clean time IQ；选择 `multiuser` 会自动启用
+NR SRS multi-UE shared observation。二者的内部 PHY 依赖不会隐式写出未选择的
+`/observation`。
 
 关键参数：
 ```

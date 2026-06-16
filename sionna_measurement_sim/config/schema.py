@@ -760,6 +760,16 @@ class MeasurementConfig(BaseModel):
                     "Selected output.products require phy.enabled=true "
                     "because they depend on /observation/cfr_est, IQ, or multiuser output"
                 )
+            if output_plan.write_iq and self.phy.standard == "custom_ofdm":
+                raise ValueError(
+                    "output.products includes 'iq', which requires "
+                    "phy.standard='nr_srs' or 'nr_pusch'"
+                )
+            if output_plan.write_multiuser and self.phy.standard != "nr_srs":
+                raise ValueError(
+                    "output.products includes 'multiuser', which currently requires "
+                    "phy.standard='nr_srs'"
+                )
         if self.phy.enabled:
             if self.phy.fft_size < 2:
                 raise ValueError("phy.fft_size must be >= 2 when phy enabled")

@@ -546,7 +546,11 @@ class MeasurementSimulationResult:
             if self.shard.global_rx_indices.shape[0] != rx:
                 msg = "shard global_rx_indices length must match topology"
                 raise ValueError(msg)
-        if self.motion is not None and self.truth.cfr_snapshots is not None:
+        if (
+            self.motion is not None
+            and self.truth is not None
+            and self.truth.cfr_snapshots is not None
+        ):
             if self.truth.cfr_snapshots.shape[0] != self.motion.num_time_steps:
                 msg = "cfr_snapshots must match motion num_time_steps"
                 raise ValueError(msg)

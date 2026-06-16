@@ -197,7 +197,15 @@ AGC/clipping 等应在在线混合后统一添加。
 `array.spectrum`，选择 `ranging`/`rtt` 会自动开启 ranging estimator。`array`
 产品的 PHY 依赖由 `array.spectrum.sources` 决定：只包含 `truth_cfr` 时不需要 PHY；
 包含 `cfr_est` 或 `rx_grid` 时必须 `phy.enabled=true`，pipeline 会内部运行 PHY，
-但若未同时选择 `cfr_obs`，HDF5 仍可只写 `/array`。
+但若未同时选择 `cfr_obs`，HDF5 仍可只写 `/array`。选择 `iq` 会自动开启
+`phy.iq`，未显式设置时默认写 `/iq/link/time_clean`；该产品要求
+`phy.standard: "nr_srs"` 或 `"nr_pusch"`，因为 legacy `custom_ofdm` 不导出 IQ
+所需的 waveform extras。选择 `multiuser` 会自动开启 `phy.srs.multiuser`，当前仅支持
+`phy.standard: "nr_srs"`；如果未同时选择 `cfr_obs` 或 `iq`，最终 HDF5 仍只写
+`/multiuser` 与必要元数据。选择 `path_full` 会自动写 `/paths/full`，不需要再额外打开
+`output.save_full_paths`。选择 `calibration` 会内部运行 PHY 以生成校准结果，但可只写
+`/calibration`；选择 `motion` 可只写 `/motion`，不需要 PHY。选择 `visualization`
+会主动启用 `visualization.enabled` 并按当前 `visualization.plots` 出图。
 
 #### `output.sharding`
 

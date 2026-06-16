@@ -107,6 +107,33 @@ def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
     assert manifest["config_snapshot"]["output_products"] == ["cfr_truth"]
 
 
+def test_rt_truth_pipeline_custom_path_full_auto_enables_full_path_table(tmp_path: Path):
+    output_dir = tmp_path / "custom_path_full"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=8,
+            max_depth=1,
+            output_profile="custom",
+            output_products=("path_full",),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "path_full",
+        )
+        assert "paths/full" in h5
+        assert "paths/samples" not in h5
+        assert "channel" not in h5
+        assert "observation" not in h5
+
+
 def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
     output_dir = tmp_path / "custom_cfr_obs"
 
@@ -135,6 +162,62 @@ def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
         assert "observation/cfr_est" in h5
         assert "evaluation/nmse_db" in h5
         assert "ranging" not in h5
+
+
+def test_rt_truth_pipeline_custom_calibration_skips_observation_write(tmp_path: Path):
+    output_dir = tmp_path / "custom_calibration"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=9,
+            output_profile="custom",
+            output_products=("calibration",),
+            observation_snr_db=30.0,
+            phy_standard="custom_ofdm",
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "calibration",
+        )
+        assert "calibration/profile_id" in h5
+        assert "channel" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
+
+
+def test_rt_truth_pipeline_custom_motion_writes_only_motion_payload(tmp_path: Path):
+    output_dir = tmp_path / "custom_motion"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=10,
+            output_profile="custom",
+            output_products=("motion",),
+            num_time_steps=2,
+            sampling_frequency_hz=10.0,
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "motion",
+        )
+        assert h5["motion/num_time_steps"][()] == 2
+        assert "channel" not in h5
+        assert "paths" not in h5
+        assert "observation" not in h5
 
 
 def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: Path):
@@ -227,6 +310,87 @@ def test_rt_truth_pipeline_custom_array_observation_source_skips_obs_write(tmp_p
         assert "array/spatial_spectrum_cfr_est" in h5
         assert "channel" not in h5
         assert "observation" not in h5
+
+
+def test_rt_truth_pipeline_custom_iq_defaults_to_link_time_clean(tmp_path: Path):
+    output_dir = tmp_path / "custom_iq"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=6,
+            max_bs=1,
+            max_ue=2,
+            bs_num_rows=1,
+            bs_num_cols=2,
+            ue_num_rows=1,
+            ue_num_cols=1,
+            max_depth=1,
+            output_profile="custom",
+            output_products=("iq",),
+            observation_snr_db=30.0,
+            phy_standard="nr_srs",
+            num_prb=1,
+            num_ofdm_symbols=14,
+            cp_length=2,
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "iq",
+        )
+        assert "iq/link/time_clean" in h5
+        assert h5["iq/link/time_clean"].shape == (1, 2, 1, 2, 14 * 10)
+        assert "iq/link/frequency_clean" not in h5
+        assert "channel" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
+        assert "multiuser" not in h5
+
+
+def test_rt_truth_pipeline_custom_multiuser_auto_enables_srs_multiuser(tmp_path: Path):
+    output_dir = tmp_path / "custom_multiuser"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=24,
+            seed=7,
+            max_bs=1,
+            max_ue=2,
+            bs_num_rows=1,
+            bs_num_cols=2,
+            ue_num_rows=1,
+            ue_num_cols=1,
+            max_depth=1,
+            output_profile="custom",
+            output_products=("multiuser",),
+            observation_snr_db=30.0,
+            phy_standard="nr_srs",
+            num_prb=2,
+            num_ofdm_symbols=14,
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "multiuser",
+        )
+        assert h5["multiuser/standard"][()].decode("utf-8") == "nr_srs"
+        assert h5["multiuser/rx_grid_shared"].shape == (1, 1, 1, 2, 14, 24)
+        assert h5["multiuser/active_tx_indices"][()].tolist() == [[0, 1]]
+        assert "channel" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
+        assert "iq" not in h5
 
 
 def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):

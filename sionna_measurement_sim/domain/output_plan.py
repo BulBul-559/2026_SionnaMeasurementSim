@@ -68,6 +68,7 @@ PRODUCT_ALIASES: dict[str, str] = {
 
 PHY_PRODUCTS = frozenset(
     {
+        OUTPUT_PRODUCT_CALIBRATION,
         OUTPUT_PRODUCT_CFR_OBS,
         OUTPUT_PRODUCT_RANGING,
         OUTPUT_PRODUCT_IQ,
@@ -247,6 +248,7 @@ def _plan_for_products(
             OUTPUT_PRODUCT_RANGING,
             OUTPUT_PRODUCT_IQ,
             OUTPUT_PRODUCT_MULTIUSER,
+            OUTPUT_PRODUCT_CALIBRATION,
         }
     )
     compute_cir = OUTPUT_PRODUCT_CIR_TRUTH in product_set

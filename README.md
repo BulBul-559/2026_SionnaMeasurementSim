@@ -287,6 +287,8 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 `output.profile="custom"` 使用 `/meta/output_products` 记录解析后的产品列表，validator
 只要求所选产品对应的 group/dataset；例如 `products: ["cfr_truth"]` 不会写
 `/paths`、`/derived`、`/waveform`、`/observation`、`/array` 或 `/ranging`。
+`array`、`ranging`、`iq` 和 `multiuser` 作为 custom product 时会自动启用对应下游模块，
+但内部计算依赖不会隐式写出未选择的重型 group。
 
 完整数据契约见 [docs/sys/07_config_and_h5_format.md](docs/sys/07_config_and_h5_format.md)。
 

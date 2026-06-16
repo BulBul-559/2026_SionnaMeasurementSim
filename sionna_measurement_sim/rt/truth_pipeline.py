@@ -191,8 +191,6 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
         products=config.output_products,
         array_sources=config.spectrum_config.sources,
     )
-    if plan.profile == config.output_profile and plan is config.output_plan:
-        return config
     updates: dict[str, object] = {
         "output_profile": plan.profile,
         "output_plan": plan,
@@ -222,6 +220,17 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
         elif config.observation_snr_db is None:
             msg = "Selected output.products require PHY observation; enable phy.enabled"
             raise ValueError(msg)
+        if plan.write_iq:
+            if config.phy_standard == "custom_ofdm":
+                msg = (
+                    "output.products includes 'iq', which requires a PHY module that "
+                    "exports waveform grids; use phy.standard='nr_srs' or 'nr_pusch'"
+                )
+                raise ValueError(msg)
+            updates["iq_config"] = _link_iq_product_config(
+                config.iq_config,
+                cp_length=config.cp_length,
+            )
         if not plan.write_array_outputs:
             updates["spectrum_config"] = replace(config.spectrum_config, enabled=False)
         else:
@@ -232,16 +241,30 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
             updates["ranging_config"] = replace(config.ranging_config, enabled=True)
         if not plan.write_iq:
             updates["iq_config"] = None
-        if not plan.write_multiuser:
             updates["noncooperative_config"] = None
+        if plan.write_multiuser:
+            if config.phy_standard != "nr_srs":
+                msg = (
+                    "output.products includes 'multiuser', which currently requires "
+                    "phy.standard='nr_srs'"
+                )
+                raise ValueError(msg)
+            updates["srs_config"] = _srs_multiuser_product_config(config.srs_config)
         if not plan.write_calibration:
             updates["calibration_enabled"] = False
-        if not plan.write_visualization:
+        if plan.write_visualization:
+            updates["visualization_config"] = replace(
+                config.visualization_config,
+                enabled=True,
+            )
+        else:
             updates["visualization_config"] = replace(
                 config.visualization_config,
                 enabled=False,
             )
-        if not plan.write_path_full:
+        if plan.write_path_full:
+            updates["save_full_paths"] = True
+        else:
             updates["save_full_paths"] = False
     if plan.profile == "iq_link_library":
         if config.phy_standard != "nr_srs":
@@ -264,6 +287,67 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
     return replace(config, **updates)
 
 
+def _config_values(config: Any | None) -> dict[str, Any]:
+    if config is None:
+        return {}
+    if hasattr(config, "model_dump"):
+        return dict(config.model_dump())
+    if hasattr(config, "__dict__"):
+        return {
+            name: value
+            for name, value in vars(config).items()
+            if not name.startswith("_")
+        }
+    return {
+        name: getattr(config, name)
+        for name in dir(config)
+        if not name.startswith("_") and not callable(getattr(config, name))
+    }
+
+
+def _copy_config_with_updates(
+    config: Any | None,
+    updates: dict[str, Any],
+    *,
+    drop_fields: tuple[str, ...] = (),
+) -> Any:
+    if config is None:
+        return SimpleNamespace(**updates)
+    if hasattr(config, "model_copy"):
+        return config.model_copy(update=updates)
+    values = _config_values(config)
+    for field_name in drop_fields:
+        values.pop(field_name, None)
+    values.update(updates)
+    return SimpleNamespace(**values)
+
+
+def _link_iq_product_config(iq_config: Any | None, *, cp_length: int) -> Any:
+    clean_output = getattr(iq_config, "clean_output", None)
+    save_frequency_observed = bool(
+        getattr(iq_config, "save_frequency_observed", False)
+    )
+    save_time_observed = bool(getattr(iq_config, "save_time_observed", False))
+    if clean_output is None and not (save_frequency_observed or save_time_observed):
+        clean_output = "time"
+    if clean_output is not None and clean_output not in ("time", "frequency", "both"):
+        raise ValueError("phy.iq.clean_output must be time/frequency/both")
+    resolved_cp_length = getattr(iq_config, "cp_length", None)
+    if resolved_cp_length is None:
+        resolved_cp_length = cp_length
+    return _copy_config_with_updates(
+        iq_config,
+        {
+            "enabled": True,
+            "clean_output": clean_output,
+            "save_frequency_observed": save_frequency_observed,
+            "save_time_observed": save_time_observed,
+            "cp_length": resolved_cp_length,
+        },
+        drop_fields=("save_frequency_clean", "save_time_clean"),
+    )
+
+
 def _clean_iq_link_library_config(iq_config: Any | None, *, cp_length: int) -> Any:
     clean_output = getattr(iq_config, "clean_output", None)
     if clean_output is None:
@@ -280,19 +364,47 @@ def _clean_iq_link_library_config(iq_config: Any | None, *, cp_length: int) -> A
         "save_time_observed": False,
         "cp_length": resolved_cp_length,
     }
-    if iq_config is None:
-        return SimpleNamespace(**updates)
-    if hasattr(iq_config, "model_copy"):
-        return iq_config.model_copy(update=updates)
-    values = {
-        name: getattr(iq_config, name)
-        for name in dir(iq_config)
-        if not name.startswith("_")
-        and name not in ("save_frequency_clean", "save_time_clean")
-        and not callable(getattr(iq_config, name))
+    return _copy_config_with_updates(
+        iq_config,
+        updates,
+        drop_fields=("save_frequency_clean", "save_time_clean"),
+    )
+
+
+def _srs_multiuser_product_config(srs_config: Any | None) -> Any:
+    multi_cfg = getattr(srs_config, "multiuser", None)
+    multi_values = {
+        "active_ue_count": int(getattr(multi_cfg, "active_ue_count", 2)),
+        "resource_strategy": str(getattr(multi_cfg, "resource_strategy", "comb_offset")),
+        "frame_policy": str(getattr(multi_cfg, "frame_policy", "sequential")),
+        "enabled": True,
     }
-    values.update(updates)
-    return SimpleNamespace(**values)
+    multi_cfg = _copy_config_with_updates(multi_cfg, multi_values)
+    updates: dict[str, Any] = {"multiuser": multi_cfg}
+    defaults = {
+        "slot_length_symbols": 14,
+        "start_symbol": 12,
+        "num_srs_symbols": 2,
+        "comb_size": 2,
+        "comb_offset": 0,
+        "bwp_start_prb": 0,
+        "bwp_num_prb": None,
+        "trigger_mode": "aperiodic",
+        "periodicity_slots": 1,
+        "slot_offset": 0,
+        "slot_number": 0,
+        "sequence_type": "zc_like",
+        "sequence_id": 0,
+        "group_hopping": "disabled",
+        "sequence_hopping": "disabled",
+        "cyclic_shift_multiplexing": "cyclic_shift",
+        "cyclic_shift_indices": None,
+    }
+    values = _config_values(srs_config)
+    for name, value in defaults.items():
+        if name not in values:
+            updates[name] = value
+    return _copy_config_with_updates(srs_config, updates)
 
 
 def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
