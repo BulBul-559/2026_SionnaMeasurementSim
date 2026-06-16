@@ -332,7 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.clipping_threshold is None and imp.agc_adc.enabled
                 else args.clipping_threshold,
             )
-            if _output_profile in ("rt_lite", "rt_labels_only"):
+            if _output_profile == "rt_labels_only":
                 cfg.phy.enabled = False
                 cfg.ranging.enabled = False
                 cfg.array.spectrum.enabled = False

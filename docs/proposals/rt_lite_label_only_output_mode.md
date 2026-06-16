@@ -1,5 +1,10 @@
 # RT-lite / Label-only 输出模式设计建议
 
+> Status 2026-06-16: 这是历史设计建议。当前 schema `2.3.0` 已移除
+> `rt_lite` profile；真正 label-only 输出使用 `output.profile: "rt_labels_only"`，
+> full-contract 轻量输出使用 `output.profile: "full"` + `output.products`。
+> 正文保留用于追溯当时设计动机，不作为当前系统事实。
+
 ## 背景
 
 当前系统已经可以通过配置关闭 PHY、ranging、array spectrum、visualization 和

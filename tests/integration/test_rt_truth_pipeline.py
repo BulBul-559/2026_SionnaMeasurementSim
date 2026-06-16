@@ -71,8 +71,8 @@ def test_rt_truth_pipeline_writes_hdf5_manifest_and_log(tmp_path: Path):
     assert readback.dtype == np.dtype("complex64")
 
 
-def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
-    output_dir = tmp_path / "custom_cfr_truth"
+def test_rt_truth_pipeline_product_cfr_truth_skips_heavy_outputs(tmp_path: Path):
+    output_dir = tmp_path / "product_cfr_truth"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -81,14 +81,14 @@ def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
             output_dir=output_dir,
             num_subcarriers=8,
             seed=1,
-            output_profile="custom",
+            output_profile="full",
             output_products=("cfr_truth",),
         )
     )
 
     validate_hdf5_contract(results_path)
     with h5py.File(results_path, "r") as h5:
-        assert h5["meta/output_profile"][()].decode("utf-8") == "custom"
+        assert h5["meta/output_profile"][()].decode("utf-8") == "full"
         assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
             "cfr_truth",
         )
@@ -102,13 +102,13 @@ def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
         assert "ranging" not in h5
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["output_profile"] == "custom"
+    assert manifest["output_profile"] == "full"
     assert manifest["output_products"] == ["cfr_truth"]
     assert manifest["config_snapshot"]["output_products"] == ["cfr_truth"]
 
 
-def test_rt_truth_pipeline_custom_path_full_auto_enables_full_path_table(tmp_path: Path):
-    output_dir = tmp_path / "custom_path_full"
+def test_rt_truth_pipeline_product_path_full_auto_enables_full_path_table(tmp_path: Path):
+    output_dir = tmp_path / "product_path_full"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -118,7 +118,7 @@ def test_rt_truth_pipeline_custom_path_full_auto_enables_full_path_table(tmp_pat
             num_subcarriers=8,
             seed=8,
             max_depth=1,
-            output_profile="custom",
+            output_profile="full",
             output_products=("path_full",),
         )
     )
@@ -134,8 +134,8 @@ def test_rt_truth_pipeline_custom_path_full_auto_enables_full_path_table(tmp_pat
         assert "observation" not in h5
 
 
-def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
-    output_dir = tmp_path / "custom_cfr_obs"
+def test_rt_truth_pipeline_product_cfr_obs_skips_truth_outputs(tmp_path: Path):
+    output_dir = tmp_path / "product_cfr_obs"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -144,7 +144,7 @@ def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
             output_dir=output_dir,
             num_subcarriers=8,
             seed=2,
-            output_profile="custom",
+            output_profile="full",
             output_products=("cfr_obs",),
             observation_snr_db=30.0,
             phy_standard="custom_ofdm",
@@ -164,8 +164,8 @@ def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
         assert "ranging" not in h5
 
 
-def test_rt_truth_pipeline_custom_calibration_skips_observation_write(tmp_path: Path):
-    output_dir = tmp_path / "custom_calibration"
+def test_rt_truth_pipeline_product_calibration_skips_observation_write(tmp_path: Path):
+    output_dir = tmp_path / "product_calibration"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -174,7 +174,7 @@ def test_rt_truth_pipeline_custom_calibration_skips_observation_write(tmp_path: 
             output_dir=output_dir,
             num_subcarriers=8,
             seed=9,
-            output_profile="custom",
+            output_profile="full",
             output_products=("calibration",),
             observation_snr_db=30.0,
             phy_standard="custom_ofdm",
@@ -192,8 +192,8 @@ def test_rt_truth_pipeline_custom_calibration_skips_observation_write(tmp_path: 
         assert "observation" not in h5
 
 
-def test_rt_truth_pipeline_custom_motion_writes_only_motion_payload(tmp_path: Path):
-    output_dir = tmp_path / "custom_motion"
+def test_rt_truth_pipeline_product_motion_writes_only_motion_payload(tmp_path: Path):
+    output_dir = tmp_path / "product_motion"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -202,7 +202,7 @@ def test_rt_truth_pipeline_custom_motion_writes_only_motion_payload(tmp_path: Pa
             output_dir=output_dir,
             num_subcarriers=8,
             seed=10,
-            output_profile="custom",
+            output_profile="full",
             output_products=("motion",),
             num_time_steps=2,
             sampling_frequency_hz=10.0,
@@ -220,8 +220,8 @@ def test_rt_truth_pipeline_custom_motion_writes_only_motion_payload(tmp_path: Pa
         assert "observation" not in h5
 
 
-def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: Path):
-    output_dir = tmp_path / "custom_ranging"
+def test_rt_truth_pipeline_product_ranging_can_skip_observation_write(tmp_path: Path):
+    output_dir = tmp_path / "product_ranging"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -230,7 +230,7 @@ def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: P
             output_dir=output_dir,
             num_subcarriers=16,
             seed=3,
-            output_profile="custom",
+            output_profile="full",
             output_products=("rtt",),
             observation_snr_db=40.0,
             phy_standard="custom_ofdm",
@@ -249,8 +249,8 @@ def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: P
         assert "ranging/pdp_peak/one_way_range_est_m" in h5
 
 
-def test_rt_truth_pipeline_custom_array_truth_source_skips_phy_write(tmp_path: Path):
-    output_dir = tmp_path / "custom_array_truth"
+def test_rt_truth_pipeline_product_array_truth_source_skips_phy_write(tmp_path: Path):
+    output_dir = tmp_path / "product_array_truth"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -259,7 +259,7 @@ def test_rt_truth_pipeline_custom_array_truth_source_skips_phy_write(tmp_path: P
             output_dir=output_dir,
             num_subcarriers=8,
             seed=4,
-            output_profile="custom",
+            output_profile="full",
             output_products=("array",),
             spectrum_config=ArraySpectrumConfig(
                 enabled=False,
@@ -281,8 +281,8 @@ def test_rt_truth_pipeline_custom_array_truth_source_skips_phy_write(tmp_path: P
         assert "observation" not in h5
 
 
-def test_rt_truth_pipeline_custom_array_observation_source_skips_obs_write(tmp_path: Path):
-    output_dir = tmp_path / "custom_array_cfr_est"
+def test_rt_truth_pipeline_product_array_observation_source_skips_obs_write(tmp_path: Path):
+    output_dir = tmp_path / "product_array_cfr_est"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -291,7 +291,7 @@ def test_rt_truth_pipeline_custom_array_observation_source_skips_obs_write(tmp_p
             output_dir=output_dir,
             num_subcarriers=8,
             seed=5,
-            output_profile="custom",
+            output_profile="full",
             output_products=("array",),
             observation_snr_db=30.0,
             phy_standard="custom_ofdm",
@@ -312,8 +312,8 @@ def test_rt_truth_pipeline_custom_array_observation_source_skips_obs_write(tmp_p
         assert "observation" not in h5
 
 
-def test_rt_truth_pipeline_custom_iq_defaults_to_link_time_clean(tmp_path: Path):
-    output_dir = tmp_path / "custom_iq"
+def test_rt_truth_pipeline_product_iq_defaults_to_link_time_clean(tmp_path: Path):
+    output_dir = tmp_path / "product_iq"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -329,7 +329,7 @@ def test_rt_truth_pipeline_custom_iq_defaults_to_link_time_clean(tmp_path: Path)
             ue_num_rows=1,
             ue_num_cols=1,
             max_depth=1,
-            output_profile="custom",
+            output_profile="full",
             output_products=("iq",),
             observation_snr_db=30.0,
             phy_standard="nr_srs",
@@ -353,8 +353,8 @@ def test_rt_truth_pipeline_custom_iq_defaults_to_link_time_clean(tmp_path: Path)
         assert "multiuser" not in h5
 
 
-def test_rt_truth_pipeline_custom_multiuser_auto_enables_srs_multiuser(tmp_path: Path):
-    output_dir = tmp_path / "custom_multiuser"
+def test_rt_truth_pipeline_product_multiuser_auto_enables_srs_multiuser(tmp_path: Path):
+    output_dir = tmp_path / "product_multiuser"
 
     results_path = run_rt_truth_pipeline(
         RTTruthRunConfig(
@@ -370,7 +370,7 @@ def test_rt_truth_pipeline_custom_multiuser_auto_enables_srs_multiuser(tmp_path:
             ue_num_rows=1,
             ue_num_cols=1,
             max_depth=1,
-            output_profile="custom",
+            output_profile="full",
             output_products=("multiuser",),
             observation_snr_db=30.0,
             phy_standard="nr_srs",
@@ -469,6 +469,43 @@ def test_rt_truth_pipeline_can_write_rt_labels_only_profile(tmp_path: Path):
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["output_profile"] == "rt_labels_only"
     assert manifest["raw_cfr_shape"] == []
+
+
+def test_rt_truth_pipeline_full_product_can_write_link_labels(tmp_path: Path):
+    output_dir = tmp_path / "full_link_labels"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_bs=1,
+            max_ue=2,
+            output_profile="full",
+            output_products=("link_labels",),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert h5["meta/contract_name"][()].decode("utf-8") == (
+            "sionna_measurement_sim_hdf5"
+        )
+        assert h5["meta/output_profile"][()].decode("utf-8") == "full"
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "link_labels",
+        )
+        assert "labels/link" in h5
+        assert h5["labels/link/link_index"].shape == (2,)
+        assert "channel" not in h5
+        assert "paths" not in h5
+        assert "waveform" not in h5
+        assert "observation" not in h5
+
+    labels = read_link_labels(results_path)
+    assert labels["tx_index"].shape == (2,)
 
 
 def test_rt_truth_pipeline_can_write_iq_link_library_profile(tmp_path: Path):

@@ -195,7 +195,7 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
         "output_profile": plan.profile,
         "output_plan": plan,
     }
-    if plan.profile in ("rt_lite", "rt_labels_only"):
+    if plan.profile == "rt_labels_only":
         updates.update(
             {
                 "observation_snr_db": None,
@@ -208,7 +208,7 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
                 "save_full_paths": False,
             }
         )
-    if plan.is_custom_products:
+    if plan.is_product_aware_full:
         if not plan.requires_phy_observation:
             updates.update(
                 {
@@ -900,7 +900,11 @@ def _run_rt_truth_pipeline_single_impl(
             adapter_result.path_samples if output_plan.write_path_samples else None
         ),
         cir_truth=adapter_result.cir_truth if output_plan.write_cir_truth else None,
-        derived=derived if output_plan.write_derived else None,
+        derived=(
+            derived
+            if (output_plan.write_derived or output_plan.write_link_labels)
+            else None
+        ),
         path_table=(
             adapter_result.path_table
             if (config.save_full_paths and output_plan.write_path_full)

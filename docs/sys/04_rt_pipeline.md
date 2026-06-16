@@ -81,7 +81,7 @@ class RTTruthRunConfig:
     # ── 其他 ──
     hdf5_filename: str = "results.h5"
     hdf5_compression: str = "gzip"
-    output_profile: str = "full"   # "full" | "rt_lite" | "rt_labels_only" | "iq_link_library" | "custom"
+    output_profile: str = "full"   # "full" | "rt_labels_only" | "iq_link_library"
     output_products: tuple[str, ...] | None = None
     save_full_paths: bool = False
     debug_config: Any | None = None
@@ -130,12 +130,11 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 | profile | 行为 |
 |---|---|
 | `full` | 当前完整 contract，计算并写 CFR、CIR、path samples，可选 PHY/ranging/array/viz |
-| `rt_lite` | 保留完整 HDF5 contract，但作为 preset 关闭 PHY/ranging/spectrum/viz/calibration/full paths |
 | `rt_labels_only` | 使用 `sionna_measurement_rt_labels` contract，只从 PathSolver/path table 生成 `/derived` 和 `/labels/link/*`，跳过 `paths.cfr()`、`paths.cir()`、path samples、PHY 和所有下游观测 |
 | `iq_link_library` | 使用 `sionna_measurement_iq_link_library` contract，要求 NR SRS；计算 RT CFR 与 `rx_grid_clean=H*x` 后直接写 clean `/iq/link`，跳过 SRS receiver、CFR estimate、impairment/AWGN、ranging、array/viz 和 full-contract 重型组 |
-| `custom` | 使用 full contract 的 product-aware 变体；`output.products` 选择关键产物并裁剪计算/写盘。例如 `["cfr_truth"]` 只跑 `paths.cfr()` 并只写 `/channel/truth/cfr` 与必要元数据；`["cfr_obs"]` 会运行 PHY observation 但可不写 truth CFR；`["ranging"]` 会内部计算 observation 供 estimator 使用，但 HDF5 可只写 `/ranging` |
+| `full` + `output.products` | 使用 full contract 的 product-aware 变体；`output.products` 选择关键产物并裁剪计算/写盘。例如 `["cfr_truth"]` 只跑 `paths.cfr()` 并只写 `/channel/truth/cfr` 与必要元数据；`["cfr_obs"]` 会运行 PHY observation 但可不写 truth CFR；`["ranging"]` 会内部计算 observation 供 estimator 使用，但 HDF5 可只写 `/ranging` |
 
-`custom` 支持的产品名包括 `derived`、`cfr_truth`、`cir_truth`、`path_samples`、
+`output.products` 支持的产品名包括 `derived`、`link_labels`、`cfr_truth`、`cir_truth`、`path_samples`、
 `nlos_path_truth`、`path_full`、`cfr_obs`、`array`、`ranging`、`iq`、`multiuser`、
 `calibration`、`motion`、`visualization` 和 `all`。别名 `rtt` 映射到 `ranging`。
 产品计划会设置 RT adapter 的 `compute_cfr/compute_cir/compute_path_samples` 标志，
@@ -143,6 +142,9 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 calibration 和 visualization，避免“只少写不少算”。
 `array` 产品是 source-aware：`array.spectrum.sources=["truth_cfr"]` 只需要 RT CFR；
 包含 `cfr_est` 或 `rx_grid` 时需要 PHY observation，但可只把 `/array` 写入 HDF5。
+
+schema `2.3.0` 起历史 `rt_lite` 和 `custom` profile 已移除；轻量 full-contract 输出统一用
+`profile="full"` + `output.products` 表达。
 `ranging`/`rtt` 产品会自动开启 ranging estimator，内部使用 observation CFR，
 但不要求把 `/observation` 落盘。`iq` 产品会自动开启 per-link IQ capture；
 未显式配置 `phy.iq` 时默认写 clean time IQ，且要求 PHY 标准能导出 waveform grids

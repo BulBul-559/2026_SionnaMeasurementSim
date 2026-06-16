@@ -159,12 +159,12 @@ array:
         load_config(config_path)
 
 
-def test_custom_array_truth_source_allows_phy_disabled(tmp_path: Path):
+def test_product_full_array_truth_source_allows_phy_disabled(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["array"]
 array:
   spectrum:
@@ -182,12 +182,12 @@ phy:
     assert cfg.phy.enabled is False
 
 
-def test_custom_array_observation_source_requires_phy_enabled(tmp_path: Path):
+def test_product_full_array_observation_source_requires_phy_enabled(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["array"]
 array:
   spectrum:
@@ -202,12 +202,12 @@ phy:
         load_config(config_path)
 
 
-def test_custom_iq_product_allows_nr_srs_without_explicit_iq_config(tmp_path: Path):
+def test_product_full_iq_product_allows_nr_srs_without_explicit_iq_config(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["iq"]
 phy:
   enabled: true
@@ -223,12 +223,12 @@ phy:
     assert cfg.phy.iq.enabled is False
 
 
-def test_custom_iq_product_rejects_custom_ofdm(tmp_path: Path):
+def test_product_full_iq_product_rejects_custom_ofdm(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["iq"]
 phy:
   enabled: true
@@ -241,12 +241,12 @@ phy:
         load_config(config_path)
 
 
-def test_custom_multiuser_product_requires_nr_srs(tmp_path: Path):
+def test_product_full_multiuser_product_requires_nr_srs(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["multiuser"]
 phy:
   enabled: true
@@ -259,12 +259,12 @@ phy:
         load_config(config_path)
 
 
-def test_custom_multiuser_product_allows_nr_srs_defaults(tmp_path: Path):
+def test_product_full_multiuser_product_allows_nr_srs_defaults(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["multiuser"]
 phy:
   enabled: true
@@ -280,12 +280,12 @@ phy:
     assert cfg.phy.srs.multiuser.enabled is False
 
 
-def test_custom_calibration_product_requires_phy_enabled(tmp_path: Path):
+def test_product_full_calibration_product_requires_phy_enabled(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["calibration"]
 phy:
   enabled: false
@@ -297,12 +297,12 @@ phy:
         load_config(config_path)
 
 
-def test_custom_motion_product_allows_phy_disabled(tmp_path: Path):
+def test_product_full_motion_product_allows_phy_disabled(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
 output:
-  profile: "custom"
+  profile: "full"
   products: ["motion"]
 phy:
   enabled: false

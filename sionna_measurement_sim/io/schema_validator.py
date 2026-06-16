@@ -17,6 +17,7 @@ from sionna_measurement_sim.domain.constants import (
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_DERIVED,
     OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_MOTION,
     OUTPUT_PRODUCT_MULTIUSER,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
@@ -25,6 +26,7 @@ from sionna_measurement_sim.domain.constants import (
     OUTPUT_PRODUCT_RANGING,
     RT_LABELS_CONTRACT_NAME,
 )
+from sionna_measurement_sim.domain.output_plan import FULL_OUTPUT_PRODUCTS
 
 
 class SchemaValidationError(ValueError):
@@ -350,6 +352,10 @@ RT_LABELS_REQUIRED_DATASETS = (
     "link/rx_role",
 )
 
+RT_LINK_LABEL_DATASETS = tuple(
+    path for path in RT_LABELS_REQUIRED_DATASETS if path.startswith("labels/link/")
+)
+
 IQ_LINK_LIBRARY_REQUIRED_GROUPS = (
     "meta",
     "input",
@@ -417,13 +423,13 @@ def validate_hdf5_contract(path: str | Path) -> None:
         if contract_name != FULL_CONTRACT_NAME:
             msg = f"Unsupported HDF5 contract_name: {contract_name!r}"
             raise SchemaValidationError(msg)
-        output_profile = (
-            _read_string(h5["meta/output_profile"])
-            if "meta/output_profile" in h5
-            else "full"
+        output_products = (
+            _read_string_array(h5["meta/output_products"])
+            if "meta/output_products" in h5
+            else ()
         )
-        if output_profile == "custom":
-            _validate_custom_full_contract(h5)
+        if output_products and output_products != FULL_OUTPUT_PRODUCTS:
+            _validate_product_aware_full_contract(h5)
             return
         _require_present(h5, REQUIRED_TRUTH_GROUPS, kind=h5py.Group)
         _require_present(h5, REQUIRED_TRUTH_DATASETS, kind=h5py.Dataset)
@@ -475,12 +481,12 @@ def _read_string_array(dataset: h5py.Dataset) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _validate_custom_full_contract(h5: h5py.File) -> None:
+def _validate_product_aware_full_contract(h5: h5py.File) -> None:
     _require_present(h5, REQUIRED_FULL_BASE_GROUPS, kind=h5py.Group)
     _require_present(h5, REQUIRED_FULL_BASE_DATASETS, kind=h5py.Dataset)
     products = _read_string_array(h5["meta/output_products"])
     if not products:
-        msg = "custom output contract requires non-empty /meta/output_products"
+        msg = "product-aware full output contract requires non-empty /meta/output_products"
         raise SchemaValidationError(msg)
 
     if OUTPUT_PRODUCT_DERIVED in products:
@@ -526,6 +532,15 @@ def _validate_custom_full_contract(h5: h5py.File) -> None:
         _require_present(h5, PATH_FULL_DATASETS, kind=h5py.Dataset)
     else:
         _require_absent(h5, "paths/full")
+
+    if OUTPUT_PRODUCT_LINK_LABELS in products:
+        _require_present(h5, ("labels/link",), kind=h5py.Group)
+        _require_present(h5, RT_LINK_LABEL_DATASETS, kind=h5py.Dataset)
+        _validate_rt_link_labels_shapes(h5)
+        _validate_rt_labels_units(h5)
+        _validate_rt_labels_values(h5)
+    else:
+        _require_absent(h5, "labels")
 
     if OUTPUT_PRODUCT_NLOS_PATH_TRUTH in products:
         _require_present(h5, ("paths/nlos_truth",), kind=h5py.Group)

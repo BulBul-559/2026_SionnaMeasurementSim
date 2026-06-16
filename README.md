@@ -22,8 +22,8 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - `benchmark rt/write/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate 和 Bartlett 空间谱成本
-- `output.profile` 支持 `full`、`rt_lite`、`rt_labels_only`、`iq_link_library` 和 `custom`；`custom` 通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
-- HDF5 schema `2.2.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware custom full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
+- `output.profile` 只保留三种真实输出契约：`full`、`rt_labels_only`、`iq_link_library`；`full` 可通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
+- HDF5 schema `2.3.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
 - 测试套件覆盖单元 / schema / adapter / 集成 / 统计；最近全量结果以本地 `uv run pytest -q` 为准
 
@@ -220,7 +220,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment（默认） |
-| `config/defaults/cfr_truth_only.yaml` | 最小 custom CFR truth 输出；只写 `/channel/truth/cfr` 和必要元数据 |
+| `config/defaults/cfr_truth_only.yaml` | 最小 `full` + `products: ["cfr_truth"]` 输出；只写 `/channel/truth/cfr` 和必要元数据 |
 | `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，跳过 CFR/CIR/path samples/PHY |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
@@ -282,13 +282,18 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 
 `output.profile="rt_labels_only"` 会写 `contract_name="sionna_measurement_rt_labels"`，
 只保留 topology、derived 和 `/labels/link/*` compact table；不会写 `/channel`、
-`/paths`、`/waveform`、`/observation`、`/array` 或 `/ranging`。`rt_lite` 则是
-保留 full HDF5 contract 的轻量 preset，默认关闭 PHY/ranging/spectrum/viz/full paths。
-`output.profile="custom"` 使用 `/meta/output_products` 记录解析后的产品列表，validator
-只要求所选产品对应的 group/dataset；例如 `products: ["cfr_truth"]` 不会写
-`/paths`、`/derived`、`/waveform`、`/observation`、`/array` 或 `/ranging`。
-`array`、`ranging`、`iq` 和 `multiuser` 作为 custom product 时会自动启用对应下游模块，
-但内部计算依赖不会隐式写出未选择的重型 group。
+`/paths`、`/waveform`、`/observation`、`/array` 或 `/ranging`。
+`output.profile="iq_link_library"` 会写
+`contract_name="sionna_measurement_iq_link_library"`，只保存可在线混合的 clean
+`/iq/link` 和必要元数据。
+`output.profile="full"` 可选 `output.products`，并用 `/meta/output_products` 记录
+解析后的产品列表；validator 只要求所选产品对应的 group/dataset。例如
+`products: ["cfr_truth"]` 不会写 `/paths`、`/derived`、`/waveform`、`/observation`、
+`/array` 或 `/ranging`。`array`、`ranging`、`iq` 和 `multiuser` 作为 full product
+时会自动启用对应下游模块，但内部计算依赖不会隐式写出未选择的重型 group。
+
+schema `2.3.0` 起，历史 `rt_lite` 和 `custom` profile 已破坏式移除：轻量 full-contract
+输出请使用 `profile: "full"` + `products`，紧凑标签输出请使用 `rt_labels_only`。
 
 完整数据契约见 [docs/sys/07_config_and_h5_format.md](docs/sys/07_config_and_h5_format.md)。
 

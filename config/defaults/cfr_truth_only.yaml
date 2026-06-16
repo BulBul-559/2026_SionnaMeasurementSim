@@ -13,7 +13,7 @@ input:
   max_ue: 1
 
 output:
-  profile: "custom"
+  profile: "full"
   products: ["cfr_truth"]
   root_dir: "outputs"
   run_id_format: "{label_stem}_{timestamp}"

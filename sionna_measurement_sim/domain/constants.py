@@ -1,17 +1,18 @@
 """Shared schema constants."""
 
-SCHEMA_VERSION = "2.2.0"
+SCHEMA_VERSION = "2.3.0"
 FULL_CONTRACT_NAME = "sionna_measurement_sim_hdf5"
 RT_LABELS_CONTRACT_NAME = "sionna_measurement_rt_labels"
 IQ_LINK_LIBRARY_CONTRACT_NAME = "sionna_measurement_iq_link_library"
 CONTRACT_NAME = FULL_CONTRACT_NAME
 DEFAULT_OUTPUT_PROFILE = "full"
-OUTPUT_PROFILES = ("full", "rt_lite", "rt_labels_only", "iq_link_library", "custom")
+OUTPUT_PROFILES = ("full", "rt_labels_only", "iq_link_library")
 OUTPUT_PRODUCT_DERIVED = "derived"
 OUTPUT_PRODUCT_CFR_TRUTH = "cfr_truth"
 OUTPUT_PRODUCT_CIR_TRUTH = "cir_truth"
 OUTPUT_PRODUCT_PATH_SAMPLES = "path_samples"
 OUTPUT_PRODUCT_NLOS_PATH_TRUTH = "nlos_path_truth"
+OUTPUT_PRODUCT_LINK_LABELS = "link_labels"
 OUTPUT_PRODUCT_PATH_FULL = "path_full"
 OUTPUT_PRODUCT_CFR_OBS = "cfr_obs"
 OUTPUT_PRODUCT_ARRAY = "array"
@@ -28,6 +29,7 @@ OUTPUT_PRODUCTS = (
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_PATH_SAMPLES,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_PATH_FULL,
     OUTPUT_PRODUCT_CFR_OBS,
     OUTPUT_PRODUCT_ARRAY,

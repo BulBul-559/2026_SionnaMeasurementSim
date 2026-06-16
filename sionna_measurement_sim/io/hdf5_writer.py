@@ -22,6 +22,7 @@ from sionna_measurement_sim.domain.constants import (
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_DERIVED,
     OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_MOTION,
     OUTPUT_PRODUCT_MULTIUSER,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
@@ -32,6 +33,7 @@ from sionna_measurement_sim.domain.constants import (
 from sionna_measurement_sim.domain.results import (
     IQLinkLibraryResult,
     MeasurementSimulationResult,
+    RTCompactLinkLabels,
     RTLabelsOnlyResult,
 )
 
@@ -73,6 +75,8 @@ def write_measurement_result(
             _write_frequency(h5, result)
             if _product_enabled(result, OUTPUT_PRODUCT_DERIVED):
                 _write_derived(h5, result)
+            if _product_enabled(result, OUTPUT_PRODUCT_LINK_LABELS):
+                _write_rt_link_labels(h5, result)
             if _product_enabled(result, OUTPUT_PRODUCT_CFR_TRUTH):
                 _write_truth(h5, result)
             if _product_enabled(result, OUTPUT_PRODUCT_PATH_SAMPLES):
@@ -1271,8 +1275,20 @@ def _write_runtime(h5: h5py.File, result: MeasurementSimulationResult) -> None:
     _write_scalar(group, "elapsed_seconds", np.float64(runtime.elapsed_seconds))
 
 
-def _write_rt_link_labels(h5: h5py.File, result: RTLabelsOnlyResult) -> None:
-    labels = result.link_labels
+def _write_rt_link_labels(
+    h5: h5py.File,
+    result: RTLabelsOnlyResult | MeasurementSimulationResult,
+) -> None:
+    labels = getattr(result, "link_labels", None)
+    if labels is None and isinstance(result, MeasurementSimulationResult):
+        labels = RTCompactLinkLabels.from_topology(
+            result.topology,
+            result.derived,
+            shard=result.shard,
+        )
+    if labels is None:
+        msg = "link label output requires RTCompactLinkLabels or derived labels"
+        raise ValueError(msg)
     group = h5.require_group("labels").require_group("link")
     _write_dataset(group, "link_index", labels.link_index, index_order="link")
     _write_dataset(group, "tx_index", labels.tx_index, index_order="link")

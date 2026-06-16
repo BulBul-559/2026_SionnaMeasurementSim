@@ -13,6 +13,7 @@
 | 当前配置字段和模板说明 | `config/README.md` |
 | 当前 HDF5/schema 契约 | `docs/sys/07_config_and_h5_format.md` |
 | 当前 benchmark harness | `docs/performance/benchmark_harness.md` |
+| 输出模式/配置归并性能 smoke | `docs/performance/mode_config_perf_optimization_2026-06-16.md` |
 | Front3D 队列卡住排查记录 | `docs/performance/2026-05-30_front3d_queue_stall.md` |
 | active 性能优化事项 | `docs/todo/performance.md` |
 | active 结构优化事项 | `docs/todo/structure.md` |

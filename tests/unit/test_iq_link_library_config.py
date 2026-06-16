@@ -57,7 +57,7 @@ def test_iq_link_library_clean_output_both():
     assert cfg.cp_length == 0
 
 
-def test_custom_iq_product_defaults_to_time_clean_and_drops_legacy_flags():
+def test_product_full_iq_product_defaults_to_time_clean_and_drops_legacy_flags():
     cfg = _link_iq_product_config(
         SimpleNamespace(
             enabled=False,

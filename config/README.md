@@ -37,7 +37,7 @@ uv run python -m sionna_measurement_sim.app.cli \
     run-full \
     --output-dir outputs/my_iq_link_library
 
-# 使用 product-aware custom 配置，只保存 CFR truth
+# 使用 full + products 配置，只保存 CFR truth
 uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/cfr_truth_only.yaml \
     run-full \
@@ -49,7 +49,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | 模板 | 用途 |
 |------|------|
 | `config/defaults/measurement_mvp.yaml` | 通用 custom OFDM + impairment + motion |
-| `config/defaults/cfr_truth_only.yaml` | product-aware custom 最小 CFR truth 输出；只写 `/channel/truth/cfr` 与必要元数据，跳过 CIR/path samples/PHY/ranging/array/IQ/figures |
+| `config/defaults/cfr_truth_only.yaml` | `full` + `products` 最小 CFR truth 输出；只写 `/channel/truth/cfr` 与必要元数据，跳过 CIR/path samples/PHY/ranging/array/IQ/figures |
 | `config/defaults/rt_labels_only.yaml` | 紧凑 RT link-level 标签；写 `/labels/link/*`，不写 CFR/CIR/path samples/PHY |
 | `config/defaults/iq_link_library_nr_srs.yaml` | 紧凑 NR SRS clean IQ link library；默认写 `/iq/link/time_clean`，可用 `phy.iq.clean_output` 选择 time/frequency/both，不写 CFR estimate/损伤/空间谱/full contract 重型组 |
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
@@ -175,8 +175,8 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `profile` | str | `"full"` | 输出 profile：`full` 写完整 HDF5；`rt_lite` 保留 full contract 但关闭 PHY/ranging/spectrum/viz/full paths；`rt_labels_only` 写 compact `/labels/link/*` contract；`iq_link_library` 写 compact clean `/iq/link` contract；`custom` 使用 `output.products` 选择关键产物并裁剪计算链路 |
-| `products` | list[str]\|null | null | 仅 `profile: "custom"` 使用。可选 `derived`、`cfr_truth`、`cir_truth`、`path_samples`、`nlos_path_truth`、`path_full`、`cfr_obs`、`array`、`ranging`、`iq`、`multiuser`、`calibration`、`motion`、`visualization`、`all`；别名 `rtt` 会映射到 `ranging` |
+| `profile` | str | `"full"` | 输出 profile：`full` 写 full HDF5 contract；`rt_labels_only` 写 compact `/labels/link/*` contract；`iq_link_library` 写 compact clean `/iq/link` contract |
+| `products` | list[str]\|null | null | 仅 `profile: "full"` 使用。可选 `derived`、`link_labels`、`cfr_truth`、`cir_truth`、`path_samples`、`nlos_path_truth`、`path_full`、`cfr_obs`、`array`、`ranging`、`iq`、`multiuser`、`calibration`、`motion`、`visualization`、`all`；别名 `rtt` 会映射到 `ranging` |
 | `root_dir` | str | "outputs" | 输出根目录 |
 | `run_id_format` | str | `"{label_stem}_{timestamp}"` | 输出子目录命名模板 |
 | `hdf5_filename` | str | "results.h5" | HDF5 文件名 |
@@ -193,7 +193,7 @@ visualization、calibration、noncooperative mixed IQ、observed IQ 和 full pat
 IQ 配置时默认使用 `clean_output: "time"`。该模式的文件用于后续在线组合多 UE clean IQ，噪声、CFO/timing、
 AGC/clipping 等应在在线混合后统一添加。
 
-`output.profile: "custom"` 下，`products` 是主开关：选择 `array` 会自动开启
+`output.profile: "full"` 下可选 `products` 作为主开关：选择 `array` 会自动开启
 `array.spectrum`，选择 `ranging`/`rtt` 会自动开启 ranging estimator。`array`
 产品的 PHY 依赖由 `array.spectrum.sources` 决定：只包含 `truth_cfr` 时不需要 PHY；
 包含 `cfr_est` 或 `rx_grid` 时必须 `phy.enabled=true`，pipeline 会内部运行 PHY，
@@ -206,6 +206,10 @@ AGC/clipping 等应在在线混合后统一添加。
 `output.save_full_paths`。选择 `calibration` 会内部运行 PHY 以生成校准结果，但可只写
 `/calibration`；选择 `motion` 可只写 `/motion`，不需要 PHY。选择 `visualization`
 会主动启用 `visualization.enabled` 并按当前 `visualization.plots` 出图。
+
+schema `2.3.0` 起历史 `rt_lite` 和 `custom` profile 已移除。原 `custom` 用法迁移为
+`profile: "full"` + `products: [...]`；原 `rt_lite` 用法应改为明确列出需要的
+full-contract products，或在只需要 link-level 标签时改用 `rt_labels_only`。
 
 #### `output.sharding`
 

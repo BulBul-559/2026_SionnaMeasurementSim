@@ -18,6 +18,8 @@ from sionna_measurement_sim.phy.observation_pipeline import (
     run_awgn_ls_observation,
 )
 
+_OBSERVATION_ARRAY_SOURCES = frozenset({"cfr_est", "rx_grid"})
+
 
 @dataclass(frozen=True)
 class PHYContext:
@@ -177,7 +179,7 @@ class NRSRSModule:
             phy_config=config,
             carrier_config=config,
             tracer=context.tracer,
-            clean_iq_only=getattr(config, "output_profile", "") == "iq_link_library",
+            clean_iq_only=_should_use_clean_iq_only_srs(config),
         )
         waveform_extras = {
             "subcarrier_spacing_khz": config.subcarrier_spacing_khz,
@@ -197,6 +199,41 @@ class NRSRSModule:
             metadata=srs_result.get("metadata", {}),
             multiuser=srs_result.get("multiuser"),
         )
+
+
+def _should_use_clean_iq_only_srs(config: Any) -> bool:
+    """Return True when the output plan only needs clean NR SRS IQ.
+
+    This is deliberately derived from the resolved output plan instead of the
+    user-facing profile name. Compact IQ link-library and product-aware
+    `full + products: [iq]` should share the same fast path.
+    """
+
+    plan = getattr(config, "output_plan", None)
+    if plan is None:
+        return getattr(config, "output_profile", "") == "iq_link_library"
+    if getattr(plan, "write_iq_link_library", False):
+        return True
+    if not getattr(plan, "write_iq", False):
+        return False
+    iq_config = getattr(config, "iq_config", None)
+    if bool(getattr(iq_config, "save_frequency_observed", False)):
+        return False
+    if bool(getattr(iq_config, "save_time_observed", False)):
+        return False
+    observation_array = bool(
+        getattr(plan, "write_array_outputs", False)
+        and set(getattr(plan, "array_sources", ()) or ()) & _OBSERVATION_ARRAY_SOURCES
+    )
+    return not any(
+        (
+            getattr(plan, "write_cfr_observation", False),
+            getattr(plan, "write_ranging", False),
+            getattr(plan, "write_multiuser", False),
+            getattr(plan, "write_calibration", False),
+            observation_array,
+        )
+    )
 
 
 PHY_REGISTRY: dict[str, PHYModule] = {

@@ -126,16 +126,12 @@ class OutputConfig(BaseModel):
             raise ValueError("output.compression must be gzip/lzf/none")
         if self.profile not in (
             "full",
-            "rt_lite",
             "rt_labels_only",
             "iq_link_library",
-            "custom",
         ):
             raise ValueError(
-                "output.profile must be full/rt_lite/rt_labels_only/iq_link_library/custom"
+                "output.profile must be full/rt_labels_only/iq_link_library"
             )
-        if self.profile == "custom" and not self.products:
-            raise ValueError("output.profile=custom requires output.products")
         if self.products and self.profile in ("rt_labels_only", "iq_link_library"):
             raise ValueError("output.products cannot be used with compact output profiles")
         if self.products:
@@ -773,17 +769,21 @@ class MeasurementConfig(BaseModel):
         if self.phy.enabled:
             if self.phy.fft_size < 2:
                 raise ValueError("phy.fft_size must be >= 2 when phy enabled")
-        if (
-            self.output.profile == "full"
-            and self.ranging.enabled
-            and not self.phy.enabled
-        ):
+        product_aware = output_plan is not None
+        writes_ranging = (
+            output_plan.write_ranging if product_aware else self.ranging.enabled
+        )
+        writes_iq = output_plan.write_iq if product_aware else self.phy.iq.enabled
+        writes_noncooperative_iq = (
+            output_plan.write_iq if product_aware else self.noncooperative.enabled
+        )
+        if writes_ranging and self.ranging.enabled and not self.phy.enabled:
             raise ValueError(
                 "ranging.enabled=true requires phy.enabled=true and /observation/cfr_est"
             )
-        if self.output.profile == "full" and self.phy.iq.enabled and not self.phy.enabled:
+        if writes_iq and self.phy.iq.enabled and not self.phy.enabled:
             raise ValueError("phy.iq.enabled=true requires phy.enabled=true")
-        if self.output.profile == "full" and self.noncooperative.enabled:
+        if writes_noncooperative_iq and self.noncooperative.enabled:
             if not self.phy.enabled:
                 raise ValueError("noncooperative.enabled=true requires phy.enabled=true")
             if self.phy.standard != "nr_srs":

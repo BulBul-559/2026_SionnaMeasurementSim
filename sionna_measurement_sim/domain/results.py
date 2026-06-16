@@ -20,6 +20,8 @@ from sionna_measurement_sim.domain.constants import (
     INDEX_ORDER,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
     OUTPUT_PRODUCT_DERIVED,
+    OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
     PRODUCER,
     RT_LABELS_CONTRACT_NAME,
@@ -41,6 +43,7 @@ from sionna_measurement_sim.domain.observation import (
     ReceiverSpec,
     WaveformSpec,
 )
+from sionna_measurement_sim.domain.output_plan import FULL_OUTPUT_PRODUCTS
 from sionna_measurement_sim.domain.path import (
     NLoSPathTruth,
     PathSamples,
@@ -506,8 +509,11 @@ class MeasurementSimulationResult:
     ranging: RangingResult | None = None
     multiuser: MultiUserSRSResult | None = None
     iq: IQObservationResult | None = None
+    link_labels: RTCompactLinkLabels | None = None
 
     def __post_init__(self) -> None:
+        output_products = tuple(self.metadata.output_products or ())
+        product_aware_full = bool(output_products) and output_products != FULL_OUTPUT_PRODUCTS
         tx = self.topology.num_tx
         rx = self.topology.num_rx
         rx_ant = self.antenna.rx_num_ant
@@ -521,8 +527,8 @@ class MeasurementSimulationResult:
                 raise ValueError(msg)
             cfr_shape = cfr.shape
             tx, rx, rx_ant, tx_ant, subcarrier = cfr.shape
-        elif self.metadata.output_profile != "custom":
-            msg = "full non-custom MeasurementSimulationResult requires truth CFR"
+        elif not product_aware_full:
+            msg = "full MeasurementSimulationResult requires truth CFR"
             raise ValueError(msg)
         if tx != self.topology.num_tx or rx != self.topology.num_rx:
             msg = "truth cfr tx/rx dimensions must match topology"
@@ -604,13 +610,18 @@ class MeasurementSimulationResult:
             if self.multiuser.rx_grid_shared.shape[-1] != subcarrier:
                 msg = "multiuser subcarrier dimension must match frequency grid"
                 raise ValueError(msg)
-        if self.iq is not None and self.observation is None:
-            msg = "IQ observations require PHY observation"
+        if (
+            self.iq is not None
+            and self.observation is None
+            and OUTPUT_PRODUCT_IQ not in output_products
+        ):
+            msg = "IQ observations require PHY observation unless output product is iq"
             raise ValueError(msg)
-        wants_legacy_full = self.metadata.output_profile != "custom"
+        wants_legacy_full = not product_aware_full
         wants_derived = (
             wants_legacy_full
             or OUTPUT_PRODUCT_DERIVED in self.metadata.output_products
+            or OUTPUT_PRODUCT_LINK_LABELS in self.metadata.output_products
         )
         if self.derived is None and wants_derived:
             if self.truth is None:
@@ -637,6 +648,22 @@ class MeasurementSimulationResult:
                 self,
                 "nlos_path_truth",
                 nlos_path_truth,
+            )
+        if (
+            self.link_labels is None
+            and OUTPUT_PRODUCT_LINK_LABELS in output_products
+        ):
+            if self.derived is None:
+                msg = "link label output requires derived labels"
+                raise ValueError(msg)
+            object.__setattr__(
+                self,
+                "link_labels",
+                RTCompactLinkLabels.from_topology(
+                    self.topology,
+                    self.derived,
+                    shard=self.shard,
+                ),
             )
 
 

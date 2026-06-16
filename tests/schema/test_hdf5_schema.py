@@ -46,7 +46,7 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
 
     with h5py.File(output_path, "r") as h5:
         assert "channel/cfr" not in h5
-        assert h5["meta/schema_version"][()].decode("utf-8") == "2.2.0"
+        assert h5["meta/schema_version"][()].decode("utf-8") == "2.3.0"
         assert h5["meta/contract_name"][()].decode("utf-8") == "sionna_measurement_sim_hdf5"
         assert h5["meta/output_profile"][()].decode("utf-8") == "full"
         assert "meta/output_products" in h5
@@ -129,20 +129,20 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     metadata = read_metadata(output_path)
     cfr = read_truth_cfr(output_path)
 
-    assert metadata["schema_version"] == "2.2.0"
+    assert metadata["schema_version"] == "2.3.0"
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")
 
 
-def test_custom_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
+def test_product_full_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
     output_path = tmp_path / "cfr_truth_only.h5"
     base = create_phase1_minimal_result()
     result = replace(
         base,
         metadata=replace(
             base.metadata,
-            output_profile="custom",
+            output_profile="full",
             output_products=("cfr_truth",),
         ),
         path_samples=None,
@@ -155,7 +155,7 @@ def test_custom_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
     validate_hdf5_contract(output_path)
 
     with h5py.File(output_path, "r") as h5:
-        assert h5["meta/output_profile"][()].decode("utf-8") == "custom"
+        assert h5["meta/output_profile"][()].decode("utf-8") == "full"
         assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
             "cfr_truth",
         )

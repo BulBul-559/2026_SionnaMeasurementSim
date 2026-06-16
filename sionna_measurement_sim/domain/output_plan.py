@@ -16,6 +16,7 @@ from sionna_measurement_sim.domain.constants import (
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_DERIVED,
     OUTPUT_PRODUCT_IQ,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_MOTION,
     OUTPUT_PRODUCT_MULTIUSER,
     OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
@@ -30,6 +31,7 @@ from sionna_measurement_sim.domain.constants import (
 
 FULL_OUTPUT_PRODUCTS: tuple[str, ...] = (
     OUTPUT_PRODUCT_DERIVED,
+    OUTPUT_PRODUCT_LINK_LABELS,
     OUTPUT_PRODUCT_CFR_TRUTH,
     OUTPUT_PRODUCT_CIR_TRUTH,
     OUTPUT_PRODUCT_PATH_SAMPLES,
@@ -45,15 +47,6 @@ FULL_OUTPUT_PRODUCTS: tuple[str, ...] = (
     OUTPUT_PRODUCT_VISUALIZATION,
 )
 
-RT_LITE_PRODUCTS: tuple[str, ...] = (
-    OUTPUT_PRODUCT_DERIVED,
-    OUTPUT_PRODUCT_CFR_TRUTH,
-    OUTPUT_PRODUCT_CIR_TRUTH,
-    OUTPUT_PRODUCT_PATH_SAMPLES,
-    OUTPUT_PRODUCT_NLOS_PATH_TRUTH,
-    OUTPUT_PRODUCT_MOTION,
-)
-
 PRODUCT_ALIASES: dict[str, str] = {
     "cfr_observation": OUTPUT_PRODUCT_CFR_OBS,
     "observation": OUTPUT_PRODUCT_CFR_OBS,
@@ -64,6 +57,9 @@ PRODUCT_ALIASES: dict[str, str] = {
     "spatial_spectrum": OUTPUT_PRODUCT_ARRAY,
     "paths": OUTPUT_PRODUCT_PATH_SAMPLES,
     "full_paths": OUTPUT_PRODUCT_PATH_FULL,
+    "labels": OUTPUT_PRODUCT_LINK_LABELS,
+    "link_label": OUTPUT_PRODUCT_LINK_LABELS,
+    "rt_labels": OUTPUT_PRODUCT_LINK_LABELS,
 }
 
 PHY_PRODUCTS = frozenset(
@@ -95,8 +91,12 @@ class RTOutputPlan:
     write_iq_link_library: bool = False
 
     @property
-    def is_custom_products(self) -> bool:
-        return self.profile == "custom"
+    def is_product_aware_full(self) -> bool:
+        return (
+            self.write_full_contract
+            and bool(self.products)
+            and tuple(self.products) != FULL_OUTPUT_PRODUCTS
+        )
 
     @property
     def requires_phy_observation(self) -> bool:
@@ -126,6 +126,10 @@ class RTOutputPlan:
     @property
     def write_nlos_path_truth(self) -> bool:
         return self._writes(OUTPUT_PRODUCT_NLOS_PATH_TRUTH)
+
+    @property
+    def write_link_labels(self) -> bool:
+        return self._writes(OUTPUT_PRODUCT_LINK_LABELS)
 
     @property
     def write_path_full(self) -> bool:
@@ -187,13 +191,10 @@ def build_rt_output_plan(
         normalized = _normalize_products(products)
         return _plan_for_products(
             normalized,
-            profile="custom",
+            profile="full",
             array_sources=array_sources,
         )
 
-    if profile == "custom":
-        msg = "output.profile='custom' requires output.products"
-        raise ValueError(msg)
     if profile == "rt_labels_only":
         return RTOutputPlan(
             profile=profile,
@@ -217,12 +218,6 @@ def build_rt_output_plan(
             compute_nlos_truth=False,
             write_full_contract=False,
             write_iq_link_library=True,
-        )
-    if profile == "rt_lite":
-        return _plan_for_products(
-            RT_LITE_PRODUCTS,
-            profile=profile,
-            array_sources=array_sources,
         )
     return _plan_for_products(
         FULL_OUTPUT_PRODUCTS,
