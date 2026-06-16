@@ -141,6 +141,10 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 产品计划会设置 RT adapter 的 `compute_cfr/compute_cir/compute_path_samples` 标志，
 并在未选择对应产品时关闭 PHY、ranging、array spectrum、IQ、noncooperative、
 calibration 和 visualization，避免“只少写不少算”。
+`array` 产品是 source-aware：`array.spectrum.sources=["truth_cfr"]` 只需要 RT CFR；
+包含 `cfr_est` 或 `rx_grid` 时需要 PHY observation，但可只把 `/array` 写入 HDF5。
+`ranging`/`rtt` 产品会自动开启 ranging estimator，内部使用 observation CFR，
+但不要求把 `/observation` 落盘。
 
 `rt_labels_only` 的目标是大规模视觉预训练或场景筛选标签；它不是信道数据，不能用于
 需要 CFR/CIR/路径顶点可视化的流程。compact table 可通过

@@ -518,6 +518,12 @@ def _validate_custom_full_contract(h5: h5py.File) -> None:
             _require_absent(h5, group_path)
 
     if OUTPUT_PRODUCT_ARRAY in products:
+        _require_present(h5, ("array",), kind=h5py.Group)
+        _require_present(
+            h5,
+            ("array/angle_grid_rad", "array/aoa_heatmap_label"),
+            kind=h5py.Dataset,
+        )
         _validate_array_outputs_if_present(h5)
     else:
         _require_absent(h5, "array")

@@ -91,3 +91,27 @@ def test_custom_rtt_alias_selects_ranging_and_requires_phy():
 def test_compact_profiles_cannot_mix_explicit_products():
     with pytest.raises(ValueError, match="output.products"):
         build_rt_output_plan("rt_labels_only", products=["cfr_truth"])
+
+
+def test_custom_array_truth_source_does_not_require_phy():
+    plan = build_rt_output_plan(
+        "custom",
+        products=["array"],
+        array_sources=["truth_cfr"],
+    )
+
+    assert plan.write_array_outputs is True
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is False
+
+
+def test_custom_array_observation_source_requires_phy():
+    plan = build_rt_output_plan(
+        "custom",
+        products=["array"],
+        array_sources=["cfr_est"],
+    )
+
+    assert plan.write_array_outputs is True
+    assert plan.compute_cfr is True
+    assert plan.requires_phy_observation is True

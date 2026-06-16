@@ -166,6 +166,69 @@ def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: P
         assert "ranging/pdp_peak/one_way_range_est_m" in h5
 
 
+def test_rt_truth_pipeline_custom_array_truth_source_skips_phy_write(tmp_path: Path):
+    output_dir = tmp_path / "custom_array_truth"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=4,
+            output_profile="custom",
+            output_products=("array",),
+            spectrum_config=ArraySpectrumConfig(
+                enabled=False,
+                sources=("truth_cfr",),
+                zenith_bins=5,
+                azimuth_bins=7,
+            ),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "array",
+        )
+        assert "array/spatial_spectrum_truth" in h5
+        assert "array/spatial_spectrum_cfr_est" not in h5
+        assert "channel" not in h5
+        assert "observation" not in h5
+
+
+def test_rt_truth_pipeline_custom_array_observation_source_skips_obs_write(tmp_path: Path):
+    output_dir = tmp_path / "custom_array_cfr_est"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=5,
+            output_profile="custom",
+            output_products=("array",),
+            observation_snr_db=30.0,
+            phy_standard="custom_ofdm",
+            spectrum_config=ArraySpectrumConfig(
+                enabled=False,
+                sources=("cfr_est",),
+                zenith_bins=5,
+                azimuth_bins=7,
+            ),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert "array/spatial_spectrum_truth" not in h5
+        assert "array/spatial_spectrum_cfr_est" in h5
+        assert "channel" not in h5
+        assert "observation" not in h5
+
+
 def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
     output_dir = tmp_path / "phase2_rt_truth_sharded"
 

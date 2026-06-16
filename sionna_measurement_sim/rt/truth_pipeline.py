@@ -189,6 +189,7 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
     plan = config.output_plan or build_rt_output_plan(
         config.output_profile,
         products=config.output_products,
+        array_sources=config.spectrum_config.sources,
     )
     if plan.profile == config.output_profile and plan is config.output_plan:
         return config
@@ -223,8 +224,12 @@ def _normalize_output_profile_config(config: RTTruthRunConfig) -> RTTruthRunConf
             raise ValueError(msg)
         if not plan.write_array_outputs:
             updates["spectrum_config"] = replace(config.spectrum_config, enabled=False)
+        else:
+            updates["spectrum_config"] = replace(config.spectrum_config, enabled=True)
         if not plan.write_ranging:
             updates["ranging_config"] = replace(config.ranging_config, enabled=False)
+        else:
+            updates["ranging_config"] = replace(config.ranging_config, enabled=True)
         if not plan.write_iq:
             updates["iq_config"] = None
         if not plan.write_multiuser:
@@ -426,6 +431,7 @@ def _run_rt_truth_pipeline_single_impl(
     output_plan = config.output_plan or build_rt_output_plan(
         config.output_profile,
         products=config.output_products,
+        array_sources=config.spectrum_config.sources,
     )
     mapping = resolve_link_roles(config.link_config.phy_link_direction)
     link_config = replace(
@@ -536,12 +542,12 @@ def _run_rt_truth_pipeline_single_impl(
         )
     with tracer.span("array_outputs"):
         truth_cfr = adapter_result.truth.cfr if adapter_result.truth is not None else None
+        cfr_est = (
+            observation_bundle.observation.cfr_est
+            if observation_bundle and observation_bundle.observation
+            else None
+        )
         if phy_extra.get("waveform_extras"):
-            cfr_est = (
-                observation_bundle.observation.cfr_est
-                if observation_bundle and observation_bundle.observation
-                else None
-            )
             _attach_phy_array_outputs(
                 phy_extra,
                 derived,
@@ -559,6 +565,17 @@ def _run_rt_truth_pipeline_single_impl(
                 config,
                 derived,
                 truth_cfr,
+                rx_orientation_rad=adapter_result.rx_orientation_rad,
+            )
+        elif (
+            cfr_est is not None
+            and config.spectrum_config.enabled
+            and "cfr_est" in config.spectrum_config.sources
+        ):
+            phy_extra["array_outputs"] = _build_cfr_est_array_outputs(
+                config,
+                derived,
+                cfr_est,
                 rx_orientation_rad=adapter_result.rx_orientation_rad,
             )
     with tracer.span("ranging"):
@@ -961,6 +978,7 @@ def _write_single_manifest(
             build_rt_output_plan(
                 config.output_profile,
                 products=config.output_products,
+                array_sources=config.spectrum_config.sources,
             ).products
         ),
         "results_h5": results_path.as_posix(),
@@ -1873,6 +1891,53 @@ def _build_truth_array_outputs(
         resolve_link_roles(config.link_config.phy_link_direction),
     )
     outputs["spatial_spectrum_truth"] = build_bartlett_spectrum(
+        samples,
+        rx_num_rows=resolved_antenna.rx_num_rows,
+        rx_num_cols=resolved_antenna.rx_num_cols,
+        rx_spacing_lambda=tuple(float(v) for v in resolved_antenna.rx_spacing_lambda),
+        rx_orientation_rad=rx_orientation_rad,
+        config=config.spectrum_config,
+    )
+    return outputs
+
+
+def _build_cfr_est_array_outputs(
+    config,
+    derived,
+    cfr_est: np.ndarray,
+    *,
+    rx_orientation_rad: np.ndarray | None = None,
+) -> dict:
+    from sionna_measurement_sim.phy.spatial_spectrum import (
+        build_angle_grid_rad,
+        build_aoa_heatmap_label,
+        build_bartlett_spectrum,
+        project_cfr_to_ul_receiver_samples,
+    )
+
+    samples = project_cfr_to_ul_receiver_samples(cfr_est)
+    link_shape = samples.shape[:3]
+    aoa_2d = np.stack(
+        (
+            derived.first_path_aoa_zenith_rad,
+            derived.first_path_aoa_azimuth_rad,
+        ),
+        axis=-1,
+    ).astype(np.float32, copy=False)
+    aoa = np.broadcast_to(aoa_2d[np.newaxis, ...], (link_shape[0], *aoa_2d.shape))
+    angle_grid = build_angle_grid_rad(config.spectrum_config)
+    labels, heatmap = build_aoa_heatmap_label(aoa, angle_grid, link_shape)
+    outputs: dict[str, object] = {
+        "aoa_label_rad": labels,
+        "aoa_heatmap_label": heatmap,
+        "angle_grid_rad": angle_grid,
+        "spectrum_policy": config.spectrum_config.policy,
+    }
+    resolved_antenna = _build_resolved_antenna(
+        config,
+        resolve_link_roles(config.link_config.phy_link_direction),
+    )
+    outputs["spatial_spectrum_cfr_est"] = build_bartlett_spectrum(
         samples,
         rx_num_rows=resolved_antenna.rx_num_rows,
         rx_num_cols=resolved_antenna.rx_num_cols,

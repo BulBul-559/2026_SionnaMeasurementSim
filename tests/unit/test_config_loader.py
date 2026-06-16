@@ -159,6 +159,49 @@ array:
         load_config(config_path)
 
 
+def test_custom_array_truth_source_allows_phy_disabled(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["array"]
+array:
+  spectrum:
+    sources: ["truth_cfr"]
+phy:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.products == ["array"]
+    assert cfg.array.spectrum.sources == ["truth_cfr"]
+    assert cfg.phy.enabled is False
+
+
+def test_custom_array_observation_source_requires_phy_enabled(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  profile: "custom"
+  products: ["array"]
+array:
+  spectrum:
+    sources: ["cfr_est"]
+phy:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="phy.enabled"):
+        load_config(config_path)
+
+
 def test_phy_iq_clean_output_is_canonical_clean_selector(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

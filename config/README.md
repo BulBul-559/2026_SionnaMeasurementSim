@@ -193,6 +193,12 @@ visualization、calibration、noncooperative mixed IQ、observed IQ 和 full pat
 IQ 配置时默认使用 `clean_output: "time"`。该模式的文件用于后续在线组合多 UE clean IQ，噪声、CFO/timing、
 AGC/clipping 等应在在线混合后统一添加。
 
+`output.profile: "custom"` 下，`products` 是主开关：选择 `array` 会自动开启
+`array.spectrum`，选择 `ranging`/`rtt` 会自动开启 ranging estimator。`array`
+产品的 PHY 依赖由 `array.spectrum.sources` 决定：只包含 `truth_cfr` 时不需要 PHY；
+包含 `cfr_est` 或 `rx_grid` 时必须 `phy.enabled=true`，pipeline 会内部运行 PHY，
+但若未同时选择 `cfr_obs`，HDF5 仍可只写 `/array`。
+
 #### `output.sharding`
 
 | 字段 | 类型 | 默认值 | 说明 |

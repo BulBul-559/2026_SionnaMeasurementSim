@@ -74,6 +74,7 @@ PHY_PRODUCTS = frozenset(
         OUTPUT_PRODUCT_MULTIUSER,
     }
 )
+OBSERVATION_ARRAY_SOURCES = frozenset({"cfr_est", "rx_grid"})
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class RTOutputPlan:
     profile: str = "full"
     contract_name: str = FULL_CONTRACT_NAME
     products: tuple[str, ...] = FULL_OUTPUT_PRODUCTS
+    array_sources: tuple[str, ...] = ()
     compute_cfr: bool = True
     compute_cir: bool = True
     compute_path_samples: bool = True
@@ -97,7 +99,12 @@ class RTOutputPlan:
 
     @property
     def requires_phy_observation(self) -> bool:
-        return bool(set(self.products) & PHY_PRODUCTS)
+        if set(self.products) & PHY_PRODUCTS:
+            return True
+        return (
+            OUTPUT_PRODUCT_ARRAY in self.products
+            and bool(set(self.array_sources) & OBSERVATION_ARRAY_SOURCES)
+        )
 
     @property
     def write_derived(self) -> bool:
@@ -162,6 +169,7 @@ class RTOutputPlan:
 def build_rt_output_plan(
     profile: str,
     products: Iterable[str] | None = None,
+    array_sources: Iterable[str] | None = None,
 ) -> RTOutputPlan:
     """Return the concrete RT output plan for a validated profile/product set."""
 
@@ -176,7 +184,11 @@ def build_rt_output_plan(
             msg = "output.products cannot be combined with compact output profiles"
             raise ValueError(msg)
         normalized = _normalize_products(products)
-        return _plan_for_products(normalized, profile="custom")
+        return _plan_for_products(
+            normalized,
+            profile="custom",
+            array_sources=array_sources,
+        )
 
     if profile == "custom":
         msg = "output.profile='custom' requires output.products"
@@ -206,12 +218,26 @@ def build_rt_output_plan(
             write_iq_link_library=True,
         )
     if profile == "rt_lite":
-        return _plan_for_products(RT_LITE_PRODUCTS, profile=profile)
-    return _plan_for_products(FULL_OUTPUT_PRODUCTS, profile=profile)
+        return _plan_for_products(
+            RT_LITE_PRODUCTS,
+            profile=profile,
+            array_sources=array_sources,
+        )
+    return _plan_for_products(
+        FULL_OUTPUT_PRODUCTS,
+        profile=profile,
+        array_sources=array_sources,
+    )
 
 
-def _plan_for_products(products: tuple[str, ...], *, profile: str) -> RTOutputPlan:
+def _plan_for_products(
+    products: tuple[str, ...],
+    *,
+    profile: str,
+    array_sources: Iterable[str] | None = None,
+) -> RTOutputPlan:
     product_set = set(products)
+    resolved_array_sources = tuple(str(source) for source in (array_sources or ()))
     compute_cfr = bool(
         product_set
         & {
@@ -229,6 +255,7 @@ def _plan_for_products(products: tuple[str, ...], *, profile: str) -> RTOutputPl
     return RTOutputPlan(
         profile=profile,
         products=products,
+        array_sources=resolved_array_sources,
         compute_cfr=compute_cfr,
         compute_cir=compute_cir,
         compute_path_samples=compute_path_samples,

@@ -753,6 +753,7 @@ class MeasurementConfig(BaseModel):
             output_plan = build_rt_output_plan(
                 self.output.profile,
                 products=self.output.products,
+                array_sources=self.array.spectrum.sources,
             )
             if output_plan.requires_phy_observation and not self.phy.enabled:
                 raise ValueError(
