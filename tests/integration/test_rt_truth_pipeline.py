@@ -9,6 +9,7 @@ from sionna_measurement_sim.config.schema import OutputShardingConfig
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.io.hdf5_reader import read_link_labels, read_truth_cfr
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
+from sionna_measurement_sim.ranging.config import RangingConfig
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
 from sionna_measurement_sim.visualization.config import VisualizationRunConfig
 from sionna_measurement_sim.visualization.path_plots import plot_path_samples
@@ -104,6 +105,65 @@ def test_rt_truth_pipeline_custom_cfr_truth_skips_heavy_outputs(tmp_path: Path):
     assert manifest["output_profile"] == "custom"
     assert manifest["output_products"] == ["cfr_truth"]
     assert manifest["config_snapshot"]["output_products"] == ["cfr_truth"]
+
+
+def test_rt_truth_pipeline_custom_cfr_obs_skips_truth_outputs(tmp_path: Path):
+    output_dir = tmp_path / "custom_cfr_obs"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=2,
+            output_profile="custom",
+            output_products=("cfr_obs",),
+            observation_snr_db=30.0,
+            phy_standard="custom_ofdm",
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "cfr_obs",
+        )
+        assert "channel" not in h5
+        assert "paths" not in h5
+        assert "derived" not in h5
+        assert "observation/cfr_est" in h5
+        assert "evaluation/nmse_db" in h5
+        assert "ranging" not in h5
+
+
+def test_rt_truth_pipeline_custom_ranging_can_skip_observation_write(tmp_path: Path):
+    output_dir = tmp_path / "custom_ranging"
+
+    results_path = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=16,
+            seed=3,
+            output_profile="custom",
+            output_products=("rtt",),
+            observation_snr_db=40.0,
+            phy_standard="custom_ofdm",
+            ranging_config=RangingConfig(enabled=True),
+        )
+    )
+
+    validate_hdf5_contract(results_path)
+    with h5py.File(results_path, "r") as h5:
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
+            "ranging",
+        )
+        assert "channel" not in h5
+        assert "observation" not in h5
+        assert "ranging/default_estimator" in h5
+        assert "ranging/pdp_peak/one_way_range_est_m" in h5
 
 
 def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):

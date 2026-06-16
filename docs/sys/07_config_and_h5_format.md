@@ -1300,9 +1300,10 @@ schema `2.2.0` 新增 product-aware custom full contract：
 - 新增 `output.profile: "custom"` + `output.products`。custom 输出只要求所选产品
   对应的 group/dataset 存在，不再强制 `/derived`、`/paths/samples`、
   `/paths/nlos_truth` 或 `/observation`。
-- `products: ["cfr_truth"]` 是首个强验证的最小产品组合：它只写
-  `/channel/truth/cfr`、truth link summary 和基础 metadata，跳过 CIR、path samples、
-  NLoS truth、PHY observation、ranging、array、IQ、multiuser、calibration 和 motion。
+- `products: ["cfr_truth"]`、`["cfr_obs"]` 和 `["rtt"]`/`["ranging"]`
+  已有 pipeline/schema 测试覆盖。`cfr_truth` 只写 `/channel/truth/cfr`、
+  truth link summary 和基础 metadata；`cfr_obs` 可只写 PHY observation 而不写 truth CFR；
+  `ranging` 可内部使用 observation estimator，但 HDF5 只写 `/ranging`。
 
 ### 2.28 禁止事项
 
