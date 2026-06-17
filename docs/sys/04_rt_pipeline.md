@@ -171,9 +171,13 @@ NR SRS；它可内部运行普通 SRS observation，但 HDF5 可以只保留 `/m
 
 显式开启 `output.sharding.bundle.enabled=true` 时，pipeline 改走实验 bundle 外壳：每个
 shard 仍完整计算 domain result，但先返回 `PreparedShardOutput`，再由
-`HDF5ResultBundleWriter` 把多个 fragment append 到同一个 bundle HDF5。manifest result
-条目记录 `bundle_h5`、`bundle_fragment_id`、`append_start` 和 `append_count`。该模式保留
-fallback 拆分语义，但不改变默认生产路径。
+`HDF5ResultBundleWriter` 把多个 fragment append 到 bundle HDF5。parallel workers 会拿到
+连续 shard range，每个 worker 只写自己的 `bundle_worker{worker_index}_*.h5`；当该 worker
+达到 `bundle.max_planned_shards_per_bundle` 后再开下一个 bundle 文件，因此不同 worker
+不会共享同一个 HDF5 写句柄。manifest result 条目记录 `bundle_h5`、
+`bundle_fragment_id`、`append_start` 和 `append_count`。该模式保留 fallback 拆分语义：
+bundle 容量按计划 shard 计算，fallback 子 shard 会 append 到当前 worker 的当前 bundle，
+所以实际 fragment 数可能超过计划 shard 数；默认生产路径不变。
 
 **链路方向口径：**
 

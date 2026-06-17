@@ -166,7 +166,9 @@ schema `2.3.0` 起历史 `rt_lite` 和 `custom` profile 已移除。原 `custom`
 computed shard fragment 写入 `bundles/bundle_worker{worker_index}_{bundle_index}.h5`，
 manifest 中每个 result 条目记录 `bundle_h5`、`bundle_fragment_id`、`append_start` 和
 `append_count`。`bundle.max_planned_shards_per_bundle` 控制每个 bundle 文件最多包含多少个
-计划 shard；fallback 子 shard 会写入当前 bundle，因此实际 fragment 数可能大于计划数。
+计划 shard；parallel workers 会按连续 shard range 分配，每个 worker 只写自己的 bundle
+文件，避免多个进程共享同一个 HDF5 写句柄。fallback 子 shard 会写入当前 worker 的当前
+bundle，因此实际 fragment 数可能大于计划数。
 `bundle.bundles_dir` 必须是相对路径，`bundle.filename_pattern` 必须包含
 `{worker_index...}` 和 `{bundle_index...}`；可选使用 `{shard_start}`、`{shard_end}`、
 `{shard_count}`。

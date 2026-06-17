@@ -570,6 +570,182 @@ def test_bundled_sharded_pipeline_keeps_fallback_children_in_current_bundle(
         )
 
 
+def test_bundled_sharded_pipeline_partitions_bundles_by_worker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label_with_counts(tmp_path, tx_count=2, rx_count=6)
+    output_dir = tmp_path / "bundle_parallel_out"
+    executor_max_workers: list[int] = []
+    submitted_workers: list[tuple[int, list[int], int | None]] = []
+
+    class _ImmediateFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class _ImmediateExecutor:
+        def __init__(self, max_workers: int):
+            executor_max_workers.append(max_workers)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def submit(self, fn, config, worker_index, specs, gpu_id):
+            submitted_workers.append(
+                (
+                    int(worker_index),
+                    [int(spec.shard_index) for spec in specs],
+                    gpu_id,
+                )
+            )
+            return _ImmediateFuture(fn(config, worker_index, specs, gpu_id))
+
+    def fake_prepare(
+        config: RTTruthRunConfig,
+        tracer,
+        *,
+        start: float,
+        output_dir: Path,
+        logs_dir: Path,
+        prepare_only: bool = False,
+    ) -> truth_pipeline.PreparedShardOutput:
+        del tracer, start, output_dir, logs_dir
+        assert prepare_only
+        assert config.shard_spec is not None
+        spec = config.shard_spec
+        ue_index = int(spec.ue_start)
+        base = create_phase1_minimal_result()
+        result = replace(
+            base,
+            metadata=replace(base.metadata, output_products=("cfr_truth",)),
+            topology=replace(
+                base.topology,
+                tx_positions_m=np.asarray(
+                    [[float(ue_index), 0.0, 1.5]],
+                    dtype=np.float32,
+                ),
+                tx_labels=(f"ue{ue_index}",),
+            ),
+            truth=replace(
+                base.truth,
+                cfr=np.full(
+                    (1, 1, 1, 1, 8),
+                    np.complex64(float(ue_index + 1)),
+                    dtype=np.complex64,
+                ),
+            ),
+            cir_truth=None,
+            shard=ShardMetadata(
+                shard_index=spec.shard_index,
+                shard_count=spec.shard_count,
+                axis=spec.axis,
+                global_rx_start=0,
+                global_rx_indices=np.asarray([0], dtype=np.int64),
+                global_tx_indices=np.asarray([ue_index], dtype=np.int64),
+            ),
+        )
+        return truth_pipeline.PreparedShardOutput(
+            result=result,
+            output_plan=config.output_plan,
+            scene_id="fake_scene",
+            phase=3,
+            elapsed_seconds=0.01,
+            raw_cfr_shape=result.truth.cfr.shape,
+            internal_cfr_shape=result.truth.cfr.shape,
+            path_count=0,
+            observation_snr_db=None,
+            software_versions={},
+            shard_metadata=result.shard,
+        )
+
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_run_rt_truth_pipeline_single_impl",
+        fake_prepare,
+    )
+    monkeypatch.setattr(truth_pipeline, "ProcessPoolExecutor", _ImmediateExecutor)
+    monkeypatch.setattr(truth_pipeline, "as_completed", lambda futures: list(futures))
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            max_bs=2,
+            max_ue=6,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=1,
+                parallel_workers=2,
+                gpu_ids=[0, 1],
+                visualization_mode="none",
+                bundle=OutputBundleConfig(
+                    enabled=True,
+                    max_planned_shards_per_bundle=2,
+                    validate_schema=True,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    assert executor_max_workers == [2]
+    assert submitted_workers == [
+        (0, [0, 1, 2], 0),
+        (1, [3, 4, 5], 1),
+    ]
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["sharding"]["parallel_workers"] == 2
+    assert manifest["sharding"]["planned_shard_count"] == 6
+    assert manifest["sharding"]["result_file_count"] == 4
+    bundle_names = [Path(item["bundle_h5"]).name for item in manifest["bundles"]]
+    assert bundle_names == [
+        "bundle_worker000_000.h5",
+        "bundle_worker000_001.h5",
+        "bundle_worker001_000.h5",
+        "bundle_worker001_001.h5",
+    ]
+    assert len(set(bundle_names)) == len(bundle_names)
+    assert [item["worker_index"] for item in manifest["bundles"]] == [0, 0, 1, 1]
+    assert [item["planned_shard_indices"] for item in manifest["bundles"]] == [
+        [0, 1],
+        [2],
+        [3, 4],
+        [5],
+    ]
+    assert [item["global_ue_indices"] for item in manifest["bundles"]] == [
+        [0, 1],
+        [2],
+        [3, 4],
+        [5],
+    ]
+    assert [Path(item["bundle_h5"]).name for item in manifest["results"]] == [
+        "bundle_worker000_000.h5",
+        "bundle_worker000_000.h5",
+        "bundle_worker000_001.h5",
+        "bundle_worker001_000.h5",
+        "bundle_worker001_000.h5",
+        "bundle_worker001_001.h5",
+    ]
+
+    for bundle in manifest["bundles"]:
+        bundle_path = Path(bundle["bundle_h5"])
+        validate_hdf5_contract(bundle_path)
+        index = read_bundle_index(bundle_path)
+        np.testing.assert_array_equal(
+            index["global_ue_indices"],
+            np.asarray(bundle["global_ue_indices"], dtype=np.int64),
+        )
+
+
 def _write_label(tmp_path: Path) -> Path:
     label_path = tmp_path / "label.json"
     bs_points = [
