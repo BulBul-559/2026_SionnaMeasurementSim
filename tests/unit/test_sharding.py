@@ -392,6 +392,184 @@ def test_bundled_sharded_pipeline_writes_appendable_h5_and_manifest(
         assert h5["channel/truth/cfr"].maxshape[0] is None
 
 
+def test_bundled_sharded_pipeline_keeps_fallback_children_in_current_bundle(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "bundle_fallback_out"
+    failed_once: set[tuple[int, int]] = set()
+    cleanup_calls: list[bool] = []
+
+    def fake_prepare(
+        config: RTTruthRunConfig,
+        tracer,
+        *,
+        start: float,
+        output_dir: Path,
+        logs_dir: Path,
+        prepare_only: bool = False,
+    ) -> truth_pipeline.PreparedShardOutput:
+        del tracer, start, output_dir, logs_dir
+        assert prepare_only
+        assert config.shard_spec is not None
+        spec = config.shard_spec
+        key = (int(spec.ue_start), int(spec.ue_count or 0))
+        if key == (0, 2) and key not in failed_once:
+            failed_once.add(key)
+            raise RuntimeError(
+                "drjit.cuda.ad.TensorXf.__mul__(): jit_var_counter(): "
+                "tried to create an array with 4314885120 entries, "
+                "which exceeds the limit of 2^32 == 4294967296 entries."
+            )
+        ue_count = int(spec.ue_count or 0)
+        ue_indices = np.arange(
+            int(spec.ue_start),
+            int(spec.ue_start) + ue_count,
+            dtype=np.int64,
+        )
+        base = create_phase1_minimal_result()
+        result = replace(
+            base,
+            metadata=replace(base.metadata, output_products=("cfr_truth",)),
+            topology=replace(
+                base.topology,
+                tx_positions_m=np.column_stack(
+                    [
+                        ue_indices.astype(np.float32),
+                        np.zeros(ue_count, dtype=np.float32),
+                        np.full(ue_count, 1.5, dtype=np.float32),
+                    ]
+                ).astype(np.float32),
+                tx_labels=tuple(f"ue{index}" for index in ue_indices),
+            ),
+            devices=type(base.devices).static(snapshots=1, tx=ue_count, rx=1),
+            truth=replace(
+                base.truth,
+                cfr=np.full(
+                    (ue_count, 1, 1, 1, 8),
+                    np.complex64(float(int(spec.ue_start) + 1)),
+                    dtype=np.complex64,
+                ),
+                path_power_db=np.full((ue_count, 1), -60.0, dtype=np.float32),
+                has_geometric_signal=np.full((ue_count, 1), True, dtype=np.bool_),
+                geometric_path_count=np.ones((ue_count, 1), dtype=np.int32),
+                los_exists=np.full((ue_count, 1), True, dtype=np.bool_),
+                nlos_exists=np.full((ue_count, 1), False, dtype=np.bool_),
+            ),
+            cir_truth=None,
+            shard=ShardMetadata(
+                shard_index=spec.shard_index,
+                shard_count=spec.shard_count,
+                axis=spec.axis,
+                global_rx_start=0,
+                global_rx_indices=np.asarray([0], dtype=np.int64),
+                global_tx_indices=ue_indices,
+            ),
+        )
+        return truth_pipeline.PreparedShardOutput(
+            result=result,
+            output_plan=config.output_plan,
+            scene_id="fake_scene",
+            phase=3,
+            elapsed_seconds=0.01,
+            raw_cfr_shape=result.truth.cfr.shape,
+            internal_cfr_shape=result.truth.cfr.shape,
+            path_count=0,
+            observation_snr_db=None,
+            software_versions={},
+            shard_metadata=result.shard,
+        )
+
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_run_rt_truth_pipeline_single_impl",
+        fake_prepare,
+    )
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_clear_accelerator_caches",
+        lambda: cleanup_calls.append(True),
+    )
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            max_bs=2,
+            max_ue=4,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=2,
+                parallel_workers=1,
+                visualization_mode="none",
+                bundle=OutputBundleConfig(
+                    enabled=True,
+                    max_planned_shards_per_bundle=2,
+                    validate_schema=True,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["sharding"]["planned_shard_count"] == 2
+    assert manifest["sharding"]["result_file_count"] == 1
+    assert manifest["sharding"]["fallback"]["split_count"] == 1
+    assert cleanup_calls
+    assert len(manifest["results"]) == 3
+    assert [item["shard_id"] for item in manifest["results"]] == [
+        "000_00",
+        "000_01",
+        "001",
+    ]
+    assert [item["parent_shard_index"] for item in manifest["results"]] == [0, 0, 1]
+    assert [item["fallback_level"] for item in manifest["results"]] == [1, 1, 0]
+    assert [item["global_ue_indices"] for item in manifest["results"]] == [
+        [0],
+        [1],
+        [2, 3],
+    ]
+    assert [
+        (item["append_start"], item["append_count"]) for item in manifest["results"]
+    ] == [(0, 1), (1, 1), (2, 2)]
+
+    assert len(manifest["bundles"]) == 1
+    bundle_summary = manifest["bundles"][0]
+    assert bundle_summary["planned_shard_indices"] == [0, 1]
+    assert bundle_summary["fragment_count"] == 3
+    assert bundle_summary["ue_count"] == 4
+    assert bundle_summary["global_ue_indices"] == [0, 1, 2, 3]
+    assert bundle_summary["schema_validated"] is True
+
+    bundle_path = output_dir / "bundles" / "bundle_worker000_000.h5"
+    validate_hdf5_contract(bundle_path)
+    index = read_bundle_index(bundle_path)
+    assert index["fragment_id"] == ["000_00", "000_01", "001"]
+    np.testing.assert_array_equal(
+        index["shard_offsets"],
+        np.asarray([[0, 1], [1, 1], [2, 2]], dtype=np.int64),
+    )
+    np.testing.assert_array_equal(
+        index["global_ue_indices"],
+        np.asarray([0, 1, 2, 3], dtype=np.int64),
+    )
+    with h5py.File(bundle_path, "r") as h5:
+        assert h5["channel/truth/cfr"].shape == (4, 1, 1, 1, 8)
+        np.testing.assert_array_equal(
+            h5["bundle/parent_shard_index"][()],
+            np.asarray([0, 0, 1], dtype=np.int32),
+        )
+        np.testing.assert_array_equal(
+            h5["bundle/fallback_level"][()],
+            np.asarray([1, 1, 0], dtype=np.int32),
+        )
+
+
 def _write_label(tmp_path: Path) -> Path:
     label_path = tmp_path / "label.json"
     bs_points = [
