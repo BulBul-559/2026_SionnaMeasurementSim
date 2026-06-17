@@ -8,6 +8,7 @@
 ```bash
 uv run python -m sionna_measurement_sim.app.cli benchmark rt ...
 uv run python -m sionna_measurement_sim.app.cli benchmark write ...
+uv run python -m sionna_measurement_sim.app.cli benchmark sharding ...
 uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 ```
 
@@ -134,6 +135,44 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`：初版 bundle 已降低文件数、
 文件大小和 validate 时间；后续 lightweight fragment recorder 优化去掉内存 HDF5 二次序列化后，
 synthetic waveform 对照中的 bundle writer 本体和总 wall time 已快于 shard files。
+
+## Real Sharding 对照
+
+`benchmark sharding` 会跑真实的轻量 `run_rt_truth_pipeline()` 两遍，固定
+`output_products=("cfr_truth",)` 并开启 UE shard，用同一组场景/label/RT 参数比较两种
+写盘路径：
+
+| `write_mode` | 说明 |
+|---|---|
+| `shard_files` | 默认生产路径：每个计算 shard 写一个自包含 `results/result_xxx.h5` |
+| `bundle_append` | 实验路径：多个 shard fragment append 到 `bundles/bundle_workerxxx_yyy.h5` |
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
+  --output-dir outputs/benchmark_sharding_smoke \
+  --label-file tests/fixtures/scenes/test/test5.json \
+  --scene-file tests/fixtures/scenes/test/scene.xml \
+  --max-bs 1 --max-ue 3 --num-subcarriers 8 --max-depth 1 \
+  --shard-size 1 --bundle-max-planned-shards 2 \
+  --compression mixed --gzip-level 1 \
+  --no-write-hardware-samples
+```
+
+每个正式 iteration 会生成 `sharding_iter_000_shard_files/` 和
+`sharding_iter_000_bundle_append/` 两个真实 pipeline 输出目录，并从各自
+`manifest/manifest.json` 汇总：
+
+| 指标 | 说明 |
+|---|---|
+| `rt_solve_s` | RT solve 总耗时 |
+| `hdf5_write_s` | 默认 shard HDF5 写入 span |
+| `hdf5_bundle_write_s` / `hdf5_bundle_append_s` | bundle 写入和 append span |
+| `schema_validate_s` | schema validation 总耗时 |
+| `planned_shard_count` / `fragment_count` | 计划 shard 数和实际 fragment 数 |
+| `file_count` / `file_size_bytes` | HDF5 artifact 数量和总大小 |
+| `dataset_write_count` | tracer 记录的 HDF5 dataset 写入次数 |
 
 ## Spectrum-Only
 

@@ -9,6 +9,7 @@ from typing import Any
 from sionna_measurement_sim.benchmark.runner import (
     BenchmarkOptions,
     run_rt_benchmark,
+    run_sharding_benchmark,
     run_spectrum_benchmark,
     run_write_benchmark,
 )
@@ -24,6 +25,7 @@ def add_benchmark_parser(subparsers: argparse._SubParsersAction) -> None:
     modes = benchmark.add_subparsers(dest="benchmark_mode", required=True)
     _add_rt_parser(modes)
     _add_write_parser(modes)
+    _add_sharding_parser(modes)
     _add_spectrum_parser(modes)
 
 
@@ -44,6 +46,8 @@ def run_benchmark_from_args(args: argparse.Namespace) -> Path:
         return run_rt_benchmark(options, _rt_parameters(args))
     if args.benchmark_mode == "write":
         return run_write_benchmark(options, _write_parameters(args))
+    if args.benchmark_mode == "sharding":
+        return run_sharding_benchmark(options, _sharding_parameters(args))
     if args.benchmark_mode == "spectrum":
         return run_spectrum_benchmark(options, _spectrum_parameters(args))
     msg = f"Unsupported benchmark mode: {args.benchmark_mode!r}"
@@ -143,6 +147,29 @@ def _add_write_parser(modes: argparse._SubParsersAction) -> None:
     )
 
 
+def _add_sharding_parser(modes: argparse._SubParsersAction) -> None:
+    parser = modes.add_parser(
+        "sharding",
+        help="Benchmark real sharded HDF5 files versus appendable bundle HDF5.",
+    )
+    _add_common(parser, default_output="outputs/benchmark_sharding")
+    parser.add_argument("--label-file", default=None)
+    parser.add_argument("--scene-file", default=None)
+    parser.add_argument("--max-bs", type=int, default=1)
+    parser.add_argument("--max-ue", type=int, default=3)
+    parser.add_argument("--num-subcarriers", type=int, default=8)
+    parser.add_argument("--max-depth", type=int, default=1)
+    parser.add_argument("--shard-size", type=int, default=1)
+    parser.add_argument("--parallel-workers", type=int, default=1)
+    parser.add_argument("--bundle-max-planned-shards", type=int, default=2)
+    parser.add_argument(
+        "--compression",
+        default="mixed",
+        choices=["gzip", "lzf", "none", "mixed"],
+    )
+    parser.add_argument("--gzip-level", type=int, default=1)
+
+
 def _add_spectrum_parser(modes: argparse._SubParsersAction) -> None:
     parser = modes.add_parser("spectrum", help="Benchmark Bartlett spectrum core.")
     _add_common(parser, default_output="outputs/benchmark_spectrum")
@@ -200,6 +227,22 @@ def _write_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "compression": args.compression,
         "gzip_level": args.gzip_level,
         "validate_schema": args.validate_schema,
+    }
+
+
+def _sharding_parameters(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "label_file": args.label_file,
+        "scene_file": args.scene_file,
+        "max_bs": args.max_bs,
+        "max_ue": args.max_ue,
+        "num_subcarriers": args.num_subcarriers,
+        "max_depth": args.max_depth,
+        "shard_size": args.shard_size,
+        "parallel_workers": args.parallel_workers,
+        "bundle_max_planned_shards": args.bundle_max_planned_shards,
+        "compression": args.compression,
+        "gzip_level": args.gzip_level,
     }
 
 

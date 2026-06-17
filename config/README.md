@@ -145,13 +145,19 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
   --output-dir outputs/benchmark_write_smoke \
   --tx-count 1 --rx-count 2 --rx-ant 2 --subcarriers 16
 
+uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
+  --output-dir outputs/benchmark_sharding_smoke \
+  --max-bs 1 --max-ue 3 --shard-size 1 --bundle-max-planned-shards 2
+
 uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
   --output-dir outputs/benchmark_spectrum_smoke \
   --links 4 --rx-ant 4 --subcarriers 32 --zenith-bins 9 --azimuth-bins 13
 ```
 
 每个 benchmark 都写 `benchmark_summary.json`、`benchmark_rows.csv`、
-`config_snapshot.json` 和可选 `logs/perf_*`，默认输出到 ignored `outputs/` 下。
+`config_snapshot.json` 和可选 `logs/perf_*`，默认输出到 ignored `outputs/` 下。其中
+`benchmark sharding` 会跑真实轻量 `cfr_truth` shard pipeline，用于比较默认
+`results/result_xxx.h5` 与实验 append bundle 的写盘成本。
 
 ### `input` — 输入数据
 

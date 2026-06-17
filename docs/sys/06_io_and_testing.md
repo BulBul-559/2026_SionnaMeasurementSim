@@ -178,8 +178,10 @@ summary 在成功和失败运行中都会尽量写出，包含 `status`、`excep
 dataset 写入发出 `hdf5.dataset_write` event，因此 `benchmark write` 可以直接复用这套
 统计来比较 raw bytes、storage bytes、compression ratio 和最慢/最大 dataset。
 
-`benchmark rt/write/spectrum` 输出 `benchmark_summary.json`、`benchmark_rows.csv` 和
-`config_snapshot.json`；这些是性能 artifact，不属于正式 HDF5 schema。
+`benchmark rt/write/sharding/spectrum` 输出 `benchmark_summary.json`、`benchmark_rows.csv` 和
+`config_snapshot.json`；其中 `benchmark sharding` 会跑真实轻量 `cfr_truth` shard pipeline，
+对比默认 `results/result_xxx.h5` 与实验 append bundle。这些是性能 artifact，不属于正式
+HDF5 schema。
 
 ### `label_parser.py`
 

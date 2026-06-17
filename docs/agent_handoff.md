@@ -212,6 +212,7 @@ pipeline 里重新手写 ranging 字段拷贝。
 ```text
 benchmark rt       # RT-only，不跑 PHY/HDF5/可视化
 benchmark write    # synthetic MeasurementSimulationResult -> HDF5 writer/schema
+benchmark sharding # real cfr_truth sharded pipeline -> shard files vs append bundle
 benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 ```
 
@@ -219,8 +220,11 @@ benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 synthetic 结果显示 bundle 明显减少文件数、文件大小和 schema validate 时间；lightweight
 fragment recorder 优化去掉内存 HDF5 二次序列化后，waveform synthetic 对照中的 bundle writer
 本体和总 wall time 已快于 shard files，CFR-only 小样本总 wall time 基本持平；详见
-`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`。benchmark 输出是 ignored
-`outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
+`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`。`benchmark sharding` 则跑真实
+轻量 `cfr_truth` sharded pipeline，两次输出分别落到 `sharding_iter_*_shard_files/` 和
+`sharding_iter_*_bundle_append/`，用于比较 `hdf5_write` 与
+`hdf5_bundle_write`/`hdf5_bundle_append`、schema validate、文件数和 manifest artifact。
+benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 RT labels-only 输出可用以下模板生成：
 

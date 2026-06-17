@@ -89,11 +89,14 @@ visualization: # 采样可视化
 ```bash
 uv run python -m sionna_measurement_sim.app.cli benchmark rt ...
 uv run python -m sionna_measurement_sim.app.cli benchmark write ...
+uv run python -m sionna_measurement_sim.app.cli benchmark sharding ...
 uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 ```
 
 每个 benchmark 输出 `benchmark_summary.json`、`benchmark_rows.csv`、`config_snapshot.json`
 以及可选 `logs/perf_events*.jsonl`、`logs/hardware_samples*.csv`、`logs/perf_summary*.json`。
+`benchmark sharding` 会跑真实轻量 `cfr_truth` shard pipeline，对比默认
+`results/result_xxx.h5` 与实验 append bundle 的写盘和 schema validate 成本。
 
 #### `input` — 输入数据
 

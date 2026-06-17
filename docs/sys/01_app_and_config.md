@@ -14,7 +14,7 @@
 | `run-observation` | RT + PHY 观测 | `run_rt_truth_pipeline()` |
 | `run-full` | 全功能端到端 | `run_rt_truth_pipeline()` |
 | `run-batch` | 批量实验 | `run_batch_experiment()` |
-| `benchmark rt/write/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、Bartlett 空间谱成本 | `benchmark.runner` |
+| `benchmark rt/write/sharding/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、Bartlett 空间谱成本 | `benchmark.runner` |
 
 核心流程：CLI 解析参数 → 构建 `RTTruthRunConfig` → 调用 `run_rt_truth_pipeline()` → 输出 HDF5 路径。
 
@@ -66,12 +66,13 @@ schema `2.3.0` 起，历史 `rt_lite` 和 `custom` profile 已破坏式移除。
 ```
 
 `benchmark` 是性能工程入口，不生成正式仿真数据契约，默认只接受显式路径或合成参数，
-输出到 ignored `outputs/`。三种第一版模式：
+输出到 ignored `outputs/`。当前模式：
 
 | 命令 | 输出 | 用途 |
 |------|------|------|
 | `benchmark rt` | `benchmark_summary.json`、`benchmark_rows.csv`、`logs/perf_summary*.json` | 复用 RT solve 能力，测 `rt_solve_s`、path_count、truth CFR shape/bytes 和硬件峰值 |
 | `benchmark write` | 合成 HDF5 + JSON/CSV summary | 测 writer wall time、schema validate time、文件大小、raw/storage bytes 和 compression ratio |
+| `benchmark sharding` | 两个真实轻量 sharded pipeline 输出目录 + JSON/CSV summary | 对比默认 `results/result_xxx.h5` 与实验 append bundle 的 RT、HDF5 write、schema validate、文件数和 manifest artifact |
 | `benchmark spectrum` | JSON/CSV summary | 直接调用 Bartlett 空间谱核心，测 per-source time、输出 shape/bytes、chunk count 和 finite sanity |
 
 示例：
@@ -80,6 +81,10 @@ schema `2.3.0` 起，历史 `rt_lite` 和 `custom` profile 已破坏式移除。
 uv run python -m sionna_measurement_sim.app.cli benchmark write \
   --output-dir outputs/benchmark_write_smoke \
   --tx-count 1 --rx-count 2 --rx-ant 2 --subcarriers 16
+
+uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
+  --output-dir outputs/benchmark_sharding_smoke \
+  --max-bs 1 --max-ue 3 --shard-size 1 --bundle-max-planned-shards 2
 ```
 
 ## 批处理 (`app/batch_runner.py`)

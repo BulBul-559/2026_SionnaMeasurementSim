@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from sionna_measurement_sim.config.schema import OutputBundleConfig, OutputShardingConfig
 from sionna_measurement_sim.domain.antenna import AntennaSpec
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
 from sionna_measurement_sim.domain.channel import RTTruthResult
@@ -316,6 +317,186 @@ def run_write_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -
             artifacts={"output_dir": output_dir.as_posix()},
         )
     return output_dir / f"{options.summary_name}.json"
+
+
+def run_sharding_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -> Path:
+    """Run real sharded pipeline outputs as shard files and appendable bundles."""
+
+    output_dir = options.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tracer = _start_tracer(options, "sharding")
+    rows: list[dict[str, Any]] = []
+    status = "success"
+    exception: BaseException | None = None
+    try:
+        for iteration, is_warmup in _iteration_plan(options):
+            for write_mode in ("shard_files", "bundle_append"):
+                rows.append(
+                    _run_sharding_comparison_iteration(
+                        output_dir,
+                        tracer,
+                        options=options,
+                        parameters=parameters,
+                        iteration=iteration,
+                        is_warmup=is_warmup,
+                        write_mode=write_mode,
+                    )
+                )
+    except Exception as exc:  # pragma: no cover - exercised through callers
+        status = "failed"
+        exception = exc
+        raise
+    finally:
+        perf_summary = tracer.finish(
+            {"benchmark_type": "sharding"},
+            status=status,
+            exception=exception,
+        )
+        _write_benchmark_outputs(
+            output_dir=output_dir,
+            summary_name=options.summary_name,
+            benchmark_type="sharding",
+            status=status,
+            parameters={**parameters, **_options_snapshot(options)},
+            rows=rows,
+            perf_summary=perf_summary,
+            artifacts={"output_dir": output_dir.as_posix()},
+        )
+    return output_dir / f"{options.summary_name}.json"
+
+
+def _run_sharding_comparison_iteration(
+    output_dir: Path,
+    tracer: PerfTracer,
+    *,
+    options: BenchmarkOptions,
+    parameters: dict[str, Any],
+    iteration: int,
+    is_warmup: bool,
+    write_mode: str,
+) -> dict[str, Any]:
+    from sionna_measurement_sim.rt.truth_pipeline import run_rt_truth_pipeline
+
+    run_dir = output_dir / f"sharding_iter_{iteration:03d}_{write_mode}"
+    config = _sharding_run_config(
+        options,
+        parameters,
+        output_dir=run_dir,
+        seed=options.seed + iteration,
+        bundle_enabled=write_mode == "bundle_append",
+    )
+    row: dict[str, Any] = {
+        "iteration": iteration,
+        "warmup": is_warmup,
+        "benchmark_type": "sharding",
+        "write_mode": write_mode,
+    }
+    iter_start = time.perf_counter()
+    with tracer.span(
+        "sharding.pipeline_run",
+        iteration=iteration,
+        warmup=is_warmup,
+        write_mode=write_mode,
+    ):
+        run_rt_truth_pipeline(config)
+    manifest_path = run_dir / "manifest" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_paths = _sharding_artifact_paths(manifest)
+    stage_totals = dict(manifest.get("performance", {}).get("stage_totals_s", {}))
+    dataset_write_summary = dict(
+        manifest.get("performance", {}).get("dataset_write_summary", {})
+    )
+    row.update(
+        {
+            "status": "success",
+            "wall_time_s": time.perf_counter() - iter_start,
+            "pipeline_stage_s": _stage_duration(
+                tracer,
+                "sharding.pipeline_run",
+                iteration=iteration,
+            ),
+            "rt_solve_s": float(stage_totals.get("rt_solve", 0.0)),
+            "hdf5_write_s": float(stage_totals.get("hdf5_write", 0.0)),
+            "hdf5_bundle_write_s": float(stage_totals.get("hdf5_bundle_write", 0.0)),
+            "hdf5_bundle_append_s": float(stage_totals.get("hdf5_bundle_append", 0.0)),
+            "schema_validate_s": float(stage_totals.get("schema_validate", 0.0)),
+            "planned_shard_count": int(
+                manifest.get("sharding", {}).get("planned_shard_count", 0)
+            ),
+            "fragment_count": len(manifest.get("results", [])),
+            "file_count": len(artifact_paths),
+            "file_size_bytes": sum(path.stat().st_size for path in artifact_paths),
+            "dataset_write_count": int(dataset_write_summary.get("dataset_count", 0)),
+            "dataset_raw_bytes": int(dataset_write_summary.get("total_raw_bytes", 0)),
+            "dataset_storage_bytes": int(
+                dataset_write_summary.get("total_storage_bytes", 0)
+            ),
+            "result_dir": run_dir.as_posix(),
+            "manifest_path": manifest_path.as_posix(),
+            "artifact_paths": [path.as_posix() for path in artifact_paths],
+        }
+    )
+    if write_mode == "bundle_append":
+        row["bundle_count"] = len(manifest.get("bundles", []))
+        row["bundle_max_planned_shards"] = int(
+            parameters.get("bundle_max_planned_shards", 2)
+        )
+    return row
+
+
+def _sharding_run_config(
+    options: BenchmarkOptions,
+    parameters: dict[str, Any],
+    *,
+    output_dir: Path,
+    seed: int,
+    bundle_enabled: bool,
+):
+    from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig
+
+    default_label_file = Path("tests/fixtures/scenes/test/test5.json")
+    default_scene_file = Path("tests/fixtures/scenes/test/scene.xml")
+
+    return RTTruthRunConfig(
+        label_file=Path(parameters.get("label_file") or default_label_file),
+        scene_file=Path(parameters.get("scene_file") or default_scene_file),
+        output_dir=output_dir,
+        num_subcarriers=int(parameters.get("num_subcarriers") or 8),
+        seed=seed,
+        device=options.device,
+        max_depth=int(parameters.get("max_depth") or 1),
+        max_bs=int(parameters.get("max_bs") or 1),
+        max_ue=int(parameters.get("max_ue") or 3),
+        output_products=("cfr_truth",),
+        hdf5_compression=str(parameters.get("compression", "mixed")),
+        hdf5_gzip_level=int(parameters.get("gzip_level", 1)),
+        debug_config=BenchmarkDebugConfig(
+            hardware_interval_s=options.debug_hardware_interval_s,
+            write_hardware_samples=options.write_hardware_samples,
+        ),
+        output_sharding_config=OutputShardingConfig(
+            enabled=True,
+            shard_size=int(parameters.get("shard_size") or 1),
+            parallel_workers=int(parameters.get("parallel_workers") or 1),
+            visualization_mode="none",
+            bundle=OutputBundleConfig(
+                enabled=bundle_enabled,
+                max_planned_shards_per_bundle=max(
+                    int(parameters.get("bundle_max_planned_shards") or 2),
+                    1,
+                ),
+                validate_schema=True,
+            ),
+        ),
+    )
+
+
+def _sharding_artifact_paths(manifest: dict[str, Any]) -> list[Path]:
+    if manifest.get("phase") == "bundled_sharded_run_full":
+        paths = [Path(str(item["bundle_h5"])) for item in manifest.get("bundles", [])]
+    else:
+        paths = [Path(str(item["result_h5"])) for item in manifest.get("results", [])]
+    return sorted(set(paths), key=lambda path: path.as_posix())
 
 
 def _run_write_single_iteration(

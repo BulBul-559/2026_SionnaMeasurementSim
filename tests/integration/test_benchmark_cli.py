@@ -158,6 +158,55 @@ def test_benchmark_rt_cli_fixture_outputs_summary(tmp_path: Path):
     assert summary["iterations"][0]["truth_cfr_shape"] == [2, 1, 1, 1, 8]
 
 
+def test_benchmark_sharding_cli_compares_real_shards_and_bundles(tmp_path: Path):
+    output_dir = tmp_path / "sharding"
+
+    assert main(
+        [
+            "benchmark",
+            "sharding",
+            "--output-dir",
+            str(output_dir),
+            "--label-file",
+            "tests/fixtures/scenes/test/test5.json",
+            "--scene-file",
+            "tests/fixtures/scenes/test/scene.xml",
+            "--max-bs",
+            "1",
+            "--max-ue",
+            "3",
+            "--num-subcarriers",
+            "8",
+            "--max-depth",
+            "1",
+            "--shard-size",
+            "1",
+            "--bundle-max-planned-shards",
+            "2",
+            "--compression",
+            "mixed",
+            "--gzip-level",
+            "1",
+            "--no-write-hardware-samples",
+        ]
+    ) == 0
+
+    summary = _load_summary(output_dir / "benchmark_summary.json")
+    assert summary["benchmark_type"] == "sharding"
+    assert summary["status"] == "success"
+    modes = {row["write_mode"] for row in summary["iterations"]}
+    assert modes == {"shard_files", "bundle_append"}
+    rows_by_mode = {row["write_mode"]: row for row in summary["iterations"]}
+    assert rows_by_mode["shard_files"]["file_count"] == 3
+    assert rows_by_mode["bundle_append"]["file_count"] == 2
+    assert rows_by_mode["bundle_append"]["fragment_count"] == 3
+    assert rows_by_mode["bundle_append"]["hdf5_bundle_append_s"] > 0.0
+    assert rows_by_mode["shard_files"]["hdf5_write_s"] > 0.0
+    assert set(summary["aggregate_by_write_mode"]) == {"shard_files", "bundle_append"}
+    assert (output_dir / "sharding_iter_000_shard_files" / "manifest" / "manifest.json").is_file()
+    assert (output_dir / "sharding_iter_000_bundle_append" / "manifest" / "manifest.json").is_file()
+
+
 def test_debug_tracing_writes_failure_summary_on_pipeline_error(tmp_path: Path):
     output_dir = tmp_path / "failed_pipeline"
 
