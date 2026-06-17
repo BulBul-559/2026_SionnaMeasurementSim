@@ -8,6 +8,7 @@ import h5py
 import numpy as np
 
 from sionna_measurement_sim.domain.constants import (
+    BUNDLE_CONTRACT_NAME,
     FULL_CONTRACT_NAME,
     IQ_LINK_LIBRARY_CONTRACT_NAME,
     OUTPUT_PRODUCT_ARRAY,
@@ -401,6 +402,25 @@ IQ_LINK_LIBRARY_REQUIRED_DATASETS = (
     "link/rx_role",
 )
 
+BUNDLE_REQUIRED_DATASETS = (
+    "meta/schema_version",
+    "meta/contract_name",
+    "meta/output_profile",
+    "bundle/source_contract_name",
+    "bundle/ue_axis_role",
+    "bundle/layout_version",
+    "bundle/append_axis_policy",
+    "bundle/fragment_count",
+    "bundle/ue_count",
+    "bundle/fragment_id",
+    "bundle/shard_index",
+    "bundle/parent_shard_index",
+    "bundle/fallback_level",
+    "bundle/fallback_reason",
+    "bundle/shard_offsets",
+    "bundle/global_ue_indices",
+)
+
 
 def validate_hdf5_contract(path: str | Path) -> None:
     """Validate the minimal truth HDF5 contract."""
@@ -419,6 +439,9 @@ def validate_hdf5_contract(path: str | Path) -> None:
             return
         if contract_name == IQ_LINK_LIBRARY_CONTRACT_NAME:
             _validate_iq_link_library_contract(h5)
+            return
+        if contract_name == BUNDLE_CONTRACT_NAME:
+            _validate_bundle_contract(h5)
             return
         if contract_name != FULL_CONTRACT_NAME:
             msg = f"Unsupported HDF5 contract_name: {contract_name!r}"
@@ -604,6 +627,83 @@ def _validate_product_aware_full_contract(h5: h5py.File) -> None:
     _validate_shard_if_present(h5)
     _validate_units(h5)
     _validate_values(h5)
+
+
+def _validate_bundle_contract(h5: h5py.File) -> None:
+    _require_absent(h5, "shard")
+    _require_present(h5, ("meta", "bundle"), kind=h5py.Group)
+    _require_present(h5, BUNDLE_REQUIRED_DATASETS, kind=h5py.Dataset)
+    source_contract = _read_string(h5["bundle/source_contract_name"])
+    if source_contract not in (
+        FULL_CONTRACT_NAME,
+        RT_LABELS_CONTRACT_NAME,
+        IQ_LINK_LIBRARY_CONTRACT_NAME,
+    ):
+        msg = f"Unsupported bundle source contract: {source_contract!r}"
+        raise SchemaValidationError(msg)
+    ue_axis_role = _read_string(h5["bundle/ue_axis_role"])
+    if ue_axis_role not in ("tx", "rx"):
+        msg = "/bundle/ue_axis_role must be tx or rx"
+        raise SchemaValidationError(msg)
+
+    fragment_count = int(h5["bundle/fragment_count"][()])
+    ue_count = int(h5["bundle/ue_count"][()])
+    offsets = h5["bundle/shard_offsets"][()]
+    global_ue = h5["bundle/global_ue_indices"][()]
+    if fragment_count < 1:
+        raise SchemaValidationError("/bundle/fragment_count must be positive")
+    if offsets.shape != (fragment_count, 2):
+        msg = "/bundle/shard_offsets must have shape [fragment,2]"
+        raise SchemaValidationError(msg)
+    if h5["bundle/fragment_id"].shape[0] != fragment_count:
+        msg = "/bundle/fragment_id length must match fragment_count"
+        raise SchemaValidationError(msg)
+    if global_ue.shape != (ue_count,):
+        msg = "/bundle/global_ue_indices length must match ue_count"
+        raise SchemaValidationError(msg)
+    cursor = 0
+    for start, count in offsets:
+        if int(start) != cursor or int(count) < 1:
+            msg = "/bundle/shard_offsets must be contiguous positive [start,count] rows"
+            raise SchemaValidationError(msg)
+        cursor += int(count)
+    if cursor != ue_count:
+        msg = "/bundle/shard_offsets total must match ue_count"
+        raise SchemaValidationError(msg)
+
+    if "frequency/frequencies_hz" in h5:
+        frequencies = h5["frequency/frequencies_hz"][()]
+        if not np.all(np.isfinite(frequencies)) or np.any(np.diff(frequencies) <= 0):
+            msg = "/frequency/frequencies_hz must be finite and strictly increasing"
+            raise SchemaValidationError(msg)
+    if "channel/truth/cfr" in h5:
+        cfr = h5["channel/truth/cfr"]
+        append_axis = 0 if ue_axis_role == "tx" else 1
+        if cfr.ndim != 5:
+            msg = f"/channel/truth/cfr must be rank 5, got {cfr.shape}"
+            raise SchemaValidationError(msg)
+        if cfr.shape[append_axis] != ue_count:
+            msg = "/channel/truth/cfr append axis must match /bundle/ue_count"
+            raise SchemaValidationError(msg)
+        values = cfr[()]
+        if values.size and not np.any(np.isfinite(values)):
+            msg = "/channel/truth/cfr must contain at least one finite value"
+            raise SchemaValidationError(msg)
+    topology_path = (
+        "topology/tx_positions_m" if ue_axis_role == "tx" else "topology/rx_positions_m"
+    )
+    if topology_path in h5 and h5[topology_path].shape[0] != ue_count:
+        msg = f"/{topology_path} must match /bundle/ue_count"
+        raise SchemaValidationError(msg)
+    if "observation/cfr_est" in h5:
+        cfr_est = h5["observation/cfr_est"]
+        append_axis = 1 if ue_axis_role == "tx" else 2
+        if cfr_est.ndim != 6:
+            msg = f"/observation/cfr_est must be rank 6, got {cfr_est.shape}"
+            raise SchemaValidationError(msg)
+        if cfr_est.shape[append_axis] != ue_count:
+            msg = "/observation/cfr_est append axis must match /bundle/ue_count"
+            raise SchemaValidationError(msg)
 
 
 def _validate_rt_labels_contract(h5: h5py.File) -> None:

@@ -35,6 +35,24 @@ def read_truth_cfr(path: str | Path) -> Any:
         return h5["channel/truth/cfr"][()]
 
 
+def read_bundle_index(path: str | Path) -> dict[str, Any]:
+    """Read appendable bundle fragment offsets and global UE indices."""
+
+    validate_hdf5_contract(path)
+    with h5py.File(path, "r") as h5:
+        if "bundle" not in h5:
+            msg = f"{path} is not an HDF5 result bundle"
+            raise KeyError(msg)
+        return {
+            "fragment_count": int(h5["bundle/fragment_count"][()]),
+            "ue_count": int(h5["bundle/ue_count"][()]),
+            "ue_axis_role": _decode(h5["bundle/ue_axis_role"][()]),
+            "fragment_id": [_decode(value) for value in h5["bundle/fragment_id"][()]],
+            "shard_offsets": np.asarray(h5["bundle/shard_offsets"][()]),
+            "global_ue_indices": np.asarray(h5["bundle/global_ue_indices"][()]),
+        }
+
+
 def iter_link_labels(path: str | Path):
     """Yield compact `/labels/link` tables from one HDF5 file or sharded run dir."""
 

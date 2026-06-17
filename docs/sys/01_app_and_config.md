@@ -173,6 +173,7 @@ CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Py
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 通用定位模板 |
+| `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；显式开启 `output.sharding.bundle.enabled` |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 64 PRB NR SRS 生产任务模板；当前推荐 `shard_size=5`、`compression="mixed"`、`gzip_level=1` |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。

@@ -58,6 +58,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 NR SRS 64 PRB direct-array 仿真任务模板；默认 panel 0p2、`shard_size=5`、23 dBm + absolute thermal noise、基础硬件损伤开启；100 MHz FR1 背景下只仿真 64 PRB occupied bandwidth（768 subcarrier） |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
+| `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；测试多个计算 shard 写入较大 bundle HDF5 |
 | `config/perf/nr_srs_7x500_sharded.yaml` | 7×500 NR SRS direct uplink shard 历史确认测试 |
 | `config/perf/nr_srs_6x5_rt_refraction_*.yaml` | NR SRS 100 MHz RT 参数 sweep 模板，用于对比 refraction/diffuse/max_depth |
 
@@ -236,11 +237,21 @@ full-contract products，或在只需要 link-level 标签时改用 `rt_labels_o
 | `fallback.split_factor` | int | 2 | 每次失败拆成几个子 shard |
 | `fallback.retry_errors` | list[str] | `["cuda_oom", "drjit_array_limit"]` | 允许自动回退的错误类型 |
 | `fallback.failure_policy` | str | `fail_run` | 到最小 shard 仍失败时终止运行 |
+| `bundle.enabled` | bool | false | 实验性 append bundle 写盘；默认关闭 |
+| `bundle.max_planned_shards_per_bundle` | int | 10 | 每个 bundle 文件最多包含多少个计划 shard |
+| `bundle.bundles_dir` | str | `bundles` | bundle HDF5 文件子目录，必须是相对路径 |
+| `bundle.filename_pattern` | str | `bundle_worker{worker_index:03d}_{bundle_index:03d}.h5` | bundle 文件名模板；必须包含 worker 和 bundle index |
+| `bundle.validate_schema` | bool | true | bundle 写完后是否立即跑 schema validator |
 
 shard 模式下，`run-full` 返回输出目录，`results/` 保存所有 `result_xxx.h5`，
 `manifest/manifest.json` 汇总所有 result 文件。每个 HDF5 内有 `/shard` group，
-记录局部 TX/RX 索引对应的全局 BS/UE 索引。本项目不把 shard 物理合并成单个巨大
-HDF5。CLI 会把最终 YAML 写到输出根目录的 `run_config.yaml`；
+记录局部 TX/RX 索引对应的全局 BS/UE 索引。默认生产路径保持“一个计算 shard 一个
+HDF5”，不会物理合并。开启 `bundle.enabled=true` 时，pipeline 改为把多个计算 shard
+作为 fragment append 到较大的 `bundles/bundle_workerxxx_yyy.h5`，并在 `/bundle`
+记录 `shard_offsets`、`global_ue_indices`、`fragment_id` 和源 shard 信息；manifest
+中的每个 result 条目会指向对应 bundle 和 append 区间。该模式仍属实验性，主要用于
+减少重复 metadata、探索训练读取效率和写盘开销。CLI 会把最终 YAML 写到输出根目录的
+`run_config.yaml`；
 `manifest/config_snapshot.json` 还会保存 resolved 运行配置，保证数据目录自包含。
 本地队列和验收包装脚本的附加产物也应保持 output-local：运行日志写
 `logs/run.log`，heatmap 日志写 `logs/heatmap.log`，任务级汇总写

@@ -81,54 +81,63 @@ def write_measurement_result(
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
-            _write_meta(h5, result)
-            _write_input(h5, result)
-            _write_shard(h5, result)
-            _write_topology(h5, result)
-            _write_devices(h5, result)
-            _write_antenna(h5, result)
-            _write_scene(h5, result)
-            _write_frequency(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_DERIVED):
-                _write_derived(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_LINK_LABELS):
-                _write_rt_link_labels(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_CFR_TRUTH):
-                _write_truth(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_PATH_SAMPLES):
-                _write_path_samples(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_NLOS_PATH_TRUTH):
-                _write_nlos_path_truth(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_PATH_FULL):
-                _write_path_full(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_CIR_TRUTH):
-                _write_cir_truth(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_CFR_OBS):
-                _write_waveform(h5, result)
-                _write_observation(h5, result)
-                _write_impairments(h5, result)
-                _write_receiver(h5, result)
-                _write_evaluation(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_ARRAY):
-                _write_array(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_IQ):
-                _write_iq(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_MULTIUSER):
-                _write_multiuser(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_RANGING):
-                _write_ranging(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_CALIBRATION):
-                _write_calibration(h5, result)
-            if _product_enabled(result, OUTPUT_PRODUCT_MOTION):
-                _write_motion(h5, result)
-            _write_link(h5, result)
-            _write_runtime(h5, result)
+            write_measurement_result_to_h5(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
         _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
+
+
+def write_measurement_result_to_h5(
+    h5: h5py.File | h5py.Group,
+    result: MeasurementSimulationResult,
+) -> None:
+    """Write a full-contract result into an already-open HDF5 handle."""
+
+    _write_meta(h5, result)
+    _write_input(h5, result)
+    _write_shard(h5, result)
+    _write_topology(h5, result)
+    _write_devices(h5, result)
+    _write_antenna(h5, result)
+    _write_scene(h5, result)
+    _write_frequency(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_DERIVED):
+        _write_derived(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_LINK_LABELS):
+        _write_rt_link_labels(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_CFR_TRUTH):
+        _write_truth(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_PATH_SAMPLES):
+        _write_path_samples(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_NLOS_PATH_TRUTH):
+        _write_nlos_path_truth(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_PATH_FULL):
+        _write_path_full(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_CIR_TRUTH):
+        _write_cir_truth(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_CFR_OBS):
+        _write_waveform(h5, result)
+        _write_observation(h5, result)
+        _write_impairments(h5, result)
+        _write_receiver(h5, result)
+        _write_evaluation(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_ARRAY):
+        _write_array(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_IQ):
+        _write_iq(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_MULTIUSER):
+        _write_multiuser(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_RANGING):
+        _write_ranging(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_CALIBRATION):
+        _write_calibration(h5, result)
+    if _product_enabled(result, OUTPUT_PRODUCT_MOTION):
+        _write_motion(h5, result)
+    _write_link(h5, result)
+    _write_runtime(h5, result)
 
 
 def _product_enabled(result: MeasurementSimulationResult, product: str) -> bool:
@@ -156,24 +165,33 @@ def write_rt_labels_result(
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
-            _write_meta(h5, result)
-            _write_input(h5, result)
-            _write_shard(h5, result)
-            _write_topology(h5, result)
-            _write_devices(h5, result)
-            _write_antenna(h5, result)
-            _write_scene(h5, result)
-            _write_frequency(h5, result)
-            _write_derived(h5, result)
-            _write_rt_link_labels(h5, result)
-            _write_link(h5, result)
-            _write_runtime(h5, result)
+            write_rt_labels_result_to_h5(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
         _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
+
+
+def write_rt_labels_result_to_h5(
+    h5: h5py.File | h5py.Group,
+    result: RTLabelsOnlyResult,
+) -> None:
+    """Write a compact RT labels result into an already-open HDF5 handle."""
+
+    _write_meta(h5, result)
+    _write_input(h5, result)
+    _write_shard(h5, result)
+    _write_topology(h5, result)
+    _write_devices(h5, result)
+    _write_antenna(h5, result)
+    _write_scene(h5, result)
+    _write_frequency(h5, result)
+    _write_derived(h5, result)
+    _write_rt_link_labels(h5, result)
+    _write_link(h5, result)
+    _write_runtime(h5, result)
 
 
 def write_iq_link_library_result(
@@ -196,23 +214,32 @@ def write_iq_link_library_result(
     tracer_token = _ACTIVE_TRACER.set(tracer)
     try:
         with h5py.File(output_path, "w") as h5:
-            _write_meta(h5, result)
-            _write_input(h5, result)
-            _write_shard(h5, result)
-            _write_topology(h5, result)
-            _write_devices(h5, result)
-            _write_antenna(h5, result)
-            _write_scene(h5, result)
-            _write_frequency(h5, result)
-            _write_iq(h5, result)
-            _write_link(h5, result)
-            _write_runtime(h5, result)
+            write_iq_link_library_result_to_h5(h5, result)
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
         _ACTIVE_GZIP_LEVEL.reset(gzip_level_token)
         _ACTIVE_COMPRESSION.reset(compression_token)
 
     return output_path
+
+
+def write_iq_link_library_result_to_h5(
+    h5: h5py.File | h5py.Group,
+    result: IQLinkLibraryResult,
+) -> None:
+    """Write a compact IQ link-library result into an already-open HDF5 handle."""
+
+    _write_meta(h5, result)
+    _write_input(h5, result)
+    _write_shard(h5, result)
+    _write_topology(h5, result)
+    _write_devices(h5, result)
+    _write_antenna(h5, result)
+    _write_scene(h5, result)
+    _write_frequency(h5, result)
+    _write_iq(h5, result)
+    _write_link(h5, result)
+    _write_runtime(h5, result)
 
 
 def _validate_compression_args(compression: str, gzip_level: int) -> None:

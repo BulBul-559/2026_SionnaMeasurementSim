@@ -58,6 +58,54 @@ def test_load_default_mvp_config():
     assert cfg.phy.srs.multiuser.resource_strategy == "comb_offset"
 
 
+def test_output_sharding_bundle_config_loads_append_mode(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  sharding:
+    enabled: true
+    shard_size: 5
+    parallel_workers: 2
+    bundle:
+      enabled: true
+      max_planned_shards_per_bundle: 4
+      bundles_dir: bundles_exp
+      filename_pattern: "bundle_{worker_index:02d}_{bundle_index:04d}.h5"
+      validate_schema: false
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.sharding.bundle.enabled is True
+    assert cfg.output.sharding.bundle.max_planned_shards_per_bundle == 4
+    assert cfg.output.sharding.bundle.bundles_dir == "bundles_exp"
+    assert cfg.output.sharding.bundle.filename_pattern == (
+        "bundle_{worker_index:02d}_{bundle_index:04d}.h5"
+    )
+    assert cfg.output.sharding.bundle.validate_schema is False
+
+
+def test_output_sharding_bundle_rejects_absolute_bundle_dir(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  sharding:
+    enabled: true
+    bundle:
+      enabled: true
+      bundles_dir: "/tmp/bundles"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="bundles_dir"):
+        load_config(config_path)
+
+
 def test_old_tx_rx_config_fields_are_rejected(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

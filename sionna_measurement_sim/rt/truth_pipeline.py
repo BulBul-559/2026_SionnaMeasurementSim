@@ -54,6 +54,11 @@ from sionna_measurement_sim.domain.topology import (
     resolve_role_topology,
     resolved_global_indices,
 )
+from sionna_measurement_sim.io.hdf5_bundle_writer import (
+    BundleAppendSummary,
+    BundleResult,
+    HDF5ResultBundleWriter,
+)
 from sionna_measurement_sim.io.hdf5_writer import (
     write_iq_link_library_result,
     write_measurement_result,
@@ -172,6 +177,26 @@ class RTTruthRunConfig:
     noncooperative_config: Any | None = None
     ranging_config: RangingConfig = field(default_factory=RangingConfig)
     visualization_config: VisualizationRunConfig = field(default_factory=VisualizationRunConfig)
+
+
+@dataclass(frozen=True)
+class PreparedShardOutput:
+    """Computed shard result before HDF5 materialization."""
+
+    result: BundleResult
+    output_plan: RTOutputPlan
+    scene_id: str
+    phase: int
+    elapsed_seconds: float
+    raw_cfr_shape: tuple[int, ...] | None
+    internal_cfr_shape: tuple[int, ...] | None
+    path_count: int
+    observation_snr_db: float | None
+    software_versions: dict[str, object]
+    shard_metadata: ShardMetadata | None
+    diagnostics: DiagnosticsReport | None = None
+    ranging: Any | None = None
+    batching_stats: dict[str, object] = field(default_factory=dict)
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -414,6 +439,8 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     sharding = config.output_sharding_config
     if sharding is None or not getattr(sharding, "enabled", False):
         return _run_rt_truth_pipeline_single(config)
+    if bool(getattr(getattr(sharding, "bundle", None), "enabled", False)):
+        return run_bundled_sharded_rt_truth_pipeline(config)
 
     output_dir = config.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -502,6 +529,131 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     return output_dir
 
 
+def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
+    """Run UE shards and append computed fragments into per-worker bundle HDF5 files."""
+
+    sharding = config.output_sharding_config
+    bundle_cfg = getattr(sharding, "bundle", None)
+    if sharding is None or bundle_cfg is None:
+        return _run_rt_truth_pipeline_single(config)
+
+    output_dir = config.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir = _shard_manifest_dir(config)
+    bundles_dir = output_dir / Path(str(getattr(bundle_cfg, "bundles_dir", "bundles")))
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    start = time.perf_counter()
+    shard_specs = _build_shard_specs(config)
+    shard_count = len(shard_specs)
+    parallel_workers = min(
+        max(int(getattr(sharding, "parallel_workers", 1)), 1),
+        shard_count,
+    )
+    gpu_ids = [int(gpu_id) for gpu_id in getattr(sharding, "gpu_ids", [])]
+    worker_specs = _assign_specs_to_bundle_workers(shard_specs, parallel_workers)
+    worker_results: list[dict[str, object]] = []
+
+    if parallel_workers <= 1:
+        gpu_id = gpu_ids[0] if gpu_ids else None
+        worker_results.append(_run_bundle_worker(config, 0, worker_specs[0], gpu_id))
+    else:
+        with ProcessPoolExecutor(max_workers=parallel_workers) as executor:
+            futures = {}
+            for worker_index, specs in enumerate(worker_specs):
+                if not specs:
+                    continue
+                gpu_id = gpu_ids[worker_index % len(gpu_ids)] if gpu_ids else None
+                future = executor.submit(
+                    _run_bundle_worker,
+                    config,
+                    worker_index,
+                    specs,
+                    gpu_id,
+                )
+                futures[future] = worker_index
+            for future in as_completed(futures):
+                worker_results.append(future.result())
+
+    shard_results: list[dict[str, object]] = []
+    shard_attempts: list[dict[str, object]] = []
+    bundles: list[dict[str, object]] = []
+    perf_summaries: list[dict[str, object]] = []
+    for item in worker_results:
+        shard_results.extend(list(item.get("results", [])))
+        shard_attempts.extend(list(item.get("attempts", [])))
+        bundles.extend(list(item.get("bundles", [])))
+        summary = item.get("perf_summary")
+        if isinstance(summary, dict) and summary:
+            perf_summaries.append(summary)
+
+    shard_results.sort(
+        key=lambda item: (
+            min([int(i) for i in item.get("global_ue_indices", [])] or [0]),
+            str(item.get("shard_id", "")),
+        )
+    )
+    shard_attempts.sort(key=lambda item: str(item.get("shard_id", "")))
+    bundles.sort(key=lambda item: str(item.get("bundle_h5", "")))
+    elapsed_seconds = time.perf_counter() - start
+    config_snapshot_path = write_manifest(
+        manifest_dir / "config_snapshot.json",
+        _config_snapshot(config),
+    )
+    attempts_path = _write_shard_attempts(manifest_dir, shard_attempts)
+    aggregate_manifest = {
+        "phase": "bundled_sharded_run_full",
+        "results_h5": "",
+        "results": shard_results,
+        "bundles": bundles,
+        "bundles_dir": bundles_dir.as_posix(),
+        "manifest_dir": manifest_dir.as_posix(),
+        "config_snapshot_path": config_snapshot_path.as_posix(),
+        "shard_attempts_path": attempts_path.as_posix() if attempts_path else "",
+        "label_file": config.label_file.as_posix(),
+        "scene_file": config.scene_file.as_posix(),
+        "scene_id": config.scene_id or config.scene_file.stem,
+        "map_id": config.map_id,
+        "elapsed_seconds": elapsed_seconds,
+        "sharding": {
+            "enabled": True,
+            "axis": _normalize_shard_axis(getattr(sharding, "axis", "ue")),
+            "requested_axis": str(getattr(sharding, "axis", "ue")),
+            "shard_size": int(getattr(sharding, "shard_size", config.max_ue)),
+            "planned_shard_count": shard_count,
+            "result_file_count": len(bundles),
+            "parallel_workers": parallel_workers,
+            "gpu_ids": gpu_ids,
+            "filename_pattern": getattr(
+                sharding, "filename_pattern", "result_{shard_index:03d}.h5"
+            ),
+            "results_dir": getattr(sharding, "results_dir", "results"),
+            "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
+            "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
+            "fallback": _sharding_fallback_summary(sharding, shard_attempts),
+            "bundle": {
+                "enabled": True,
+                "max_planned_shards_per_bundle": int(
+                    getattr(bundle_cfg, "max_planned_shards_per_bundle", 10)
+                ),
+                "bundles_dir": str(getattr(bundle_cfg, "bundles_dir", "bundles")),
+                "filename_pattern": str(
+                    getattr(
+                        bundle_cfg,
+                        "filename_pattern",
+                        "bundle_worker{worker_index:03d}_{bundle_index:03d}.h5",
+                    )
+                ),
+                "validate_schema": bool(getattr(bundle_cfg, "validate_schema", True)),
+            },
+        },
+        "config_snapshot": _config_snapshot(config),
+        "performance": _aggregate_bundle_worker_performance(perf_summaries),
+    }
+    write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
+    return output_dir
+
+
 def _run_rt_truth_pipeline_single(config: RTTruthRunConfig) -> Path:
     """Run Phase 2 minimal RT truth and write HDF5, manifest, and log."""
 
@@ -540,7 +692,8 @@ def _run_rt_truth_pipeline_single_impl(
     start: float,
     output_dir: Path,
     logs_dir: Path,
-) -> Path:
+    prepare_only: bool = False,
+) -> Path | PreparedShardOutput:
     output_plan = config.output_plan or build_rt_output_plan(
         config.output_profile,
         products=config.output_products,
@@ -793,6 +946,21 @@ def _run_rt_truth_pipeline_single_impl(
             link=link_config,
             shard=shard_metadata,
         )
+        prepared = PreparedShardOutput(
+            result=iq_library_result,
+            output_plan=output_plan,
+            scene_id=scene_id,
+            phase=phase,
+            elapsed_seconds=elapsed_seconds,
+            raw_cfr_shape=adapter_result.raw_cfr_shape,
+            internal_cfr_shape=adapter_result.internal_cfr_shape,
+            path_count=int(adapter_result.link_summary.geometric_path_count.sum()),
+            observation_snr_db=config.observation_snr_db,
+            software_versions=dict(adapter_result.runtime_versions),
+            shard_metadata=shard_metadata,
+        )
+        if prepare_only:
+            return prepared
         with tracer.span("hdf5_write"):
             results_path = write_iq_link_library_result(
                 output_dir / config.hdf5_filename,
@@ -844,6 +1012,21 @@ def _run_rt_truth_pipeline_single_impl(
             link=link_config,
             shard=shard_metadata,
         )
+        prepared = PreparedShardOutput(
+            result=labels_result,
+            output_plan=output_plan,
+            scene_id=scene_id,
+            phase=phase,
+            elapsed_seconds=elapsed_seconds,
+            raw_cfr_shape=adapter_result.raw_cfr_shape,
+            internal_cfr_shape=adapter_result.internal_cfr_shape,
+            path_count=int(adapter_result.link_summary.geometric_path_count.sum()),
+            observation_snr_db=config.observation_snr_db,
+            software_versions=dict(adapter_result.runtime_versions),
+            shard_metadata=shard_metadata,
+        )
+        if prepare_only:
+            return prepared
         with tracer.span("hdf5_write"):
             results_path = write_rt_labels_result(
                 output_dir / config.hdf5_filename,
@@ -966,6 +1149,26 @@ def _run_rt_truth_pipeline_single_impl(
         ),
     )
 
+    batching_stats = dict(phy_extra.get("diagnostics", {})).get("batching_stats", {})
+    prepared = PreparedShardOutput(
+        result=result,
+        output_plan=output_plan,
+        scene_id=scene_id,
+        phase=phase,
+        elapsed_seconds=elapsed_seconds,
+        raw_cfr_shape=adapter_result.raw_cfr_shape,
+        internal_cfr_shape=adapter_result.internal_cfr_shape,
+        path_count=_adapter_path_count(adapter_result),
+        observation_snr_db=config.observation_snr_db,
+        software_versions=dict(adapter_result.runtime_versions),
+        shard_metadata=shard_metadata,
+        diagnostics=result.diagnostics,
+        ranging=result.ranging,
+        batching_stats=dict(batching_stats),
+    )
+    if prepare_only:
+        return prepared
+
     with tracer.span("hdf5_write"):
         results_path = write_measurement_result(
             output_dir / config.hdf5_filename,
@@ -1002,7 +1205,6 @@ def _run_rt_truth_pipeline_single_impl(
         "observation_snr_db": config.observation_snr_db,
         "elapsed_seconds": elapsed_seconds,
     }
-    batching_stats = dict(phy_extra.get("diagnostics", {})).get("batching_stats", {})
     if batching_stats:
         manifest_data["nr_pusch_batching"] = batching_stats
     if visualization_summary is not None:
@@ -1446,6 +1648,368 @@ def _run_shard_spec_attempt(
     }
 
 
+def _assign_specs_to_bundle_workers(
+    shard_specs: list[ShardSpec],
+    parallel_workers: int,
+) -> list[list[ShardSpec]]:
+    """Assign contiguous shard ranges to bundle workers."""
+
+    if not shard_specs:
+        return []
+    worker_count = min(max(int(parallel_workers), 1), len(shard_specs))
+    base, remainder = divmod(len(shard_specs), worker_count)
+    groups: list[list[ShardSpec]] = []
+    start = 0
+    for worker_index in range(worker_count):
+        size = base + (1 if worker_index < remainder else 0)
+        groups.append(shard_specs[start : start + size])
+        start += size
+    return groups
+
+
+def _chunk_specs_for_bundles(
+    specs: list[ShardSpec],
+    max_planned_shards_per_bundle: int,
+) -> list[list[ShardSpec]]:
+    max_items = max(int(max_planned_shards_per_bundle), 1)
+    return [specs[index : index + max_items] for index in range(0, len(specs), max_items)]
+
+
+def _bundle_file_path(
+    config: RTTruthRunConfig,
+    *,
+    worker_index: int,
+    bundle_index: int,
+    specs: list[ShardSpec],
+) -> Path:
+    sharding = config.output_sharding_config
+    bundle_cfg = getattr(sharding, "bundle", None)
+    bundles_dir = config.output_dir / Path(str(getattr(bundle_cfg, "bundles_dir", "bundles")))
+    pattern = str(
+        getattr(
+            bundle_cfg,
+            "filename_pattern",
+            "bundle_worker{worker_index:03d}_{bundle_index:03d}.h5",
+        )
+    )
+    shard_indices = [int(spec.shard_index) for spec in specs]
+    try:
+        filename = pattern.format(
+            worker_index=int(worker_index),
+            bundle_index=int(bundle_index),
+            shard_start=min(shard_indices) if shard_indices else 0,
+            shard_end=max(shard_indices) if shard_indices else 0,
+            shard_count=len(specs),
+        )
+    except KeyError as exc:
+        msg = f"Unknown output.sharding.bundle.filename_pattern token: {exc}"
+        raise ValueError(msg) from exc
+    path = Path(filename)
+    if path.is_absolute():
+        msg = "output.sharding.bundle.filename_pattern must produce a relative path"
+        raise ValueError(msg)
+    return bundles_dir / path
+
+
+def _run_bundle_worker(
+    config: RTTruthRunConfig,
+    worker_index: int,
+    specs: list[ShardSpec],
+    gpu_id: int | None,
+) -> dict[str, object]:
+    """Run one bundle worker and append each computed shard to bundle HDF5 files."""
+
+    if gpu_id is not None and str(config.device).startswith("cuda"):
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    worker_id = f"bundle_worker_{worker_index:03d}"
+    tracer = PerfTracer(config.output_dir, config.debug_config, worker_id=worker_id)
+    tracer.start()
+    bundle_cfg = getattr(getattr(config, "output_sharding_config", None), "bundle", None)
+    max_planned = int(getattr(bundle_cfg, "max_planned_shards_per_bundle", 10))
+    validate_schema = bool(getattr(bundle_cfg, "validate_schema", True))
+    results: list[dict[str, object]] = []
+    attempts: list[dict[str, object]] = []
+    bundles: list[dict[str, object]] = []
+    try:
+        for bundle_index, bundle_specs in enumerate(
+            _chunk_specs_for_bundles(specs, max_planned)
+        ):
+            if not bundle_specs:
+                continue
+            bundle_path = _bundle_file_path(
+                config,
+                worker_index=worker_index,
+                bundle_index=bundle_index,
+                specs=bundle_specs,
+            )
+            result_start = len(results)
+            with tracer.span(
+                "hdf5_bundle_write",
+                bundle_index=bundle_index,
+                planned_shard_count=len(bundle_specs),
+            ):
+                with HDF5ResultBundleWriter(
+                    bundle_path,
+                    compression=config.hdf5_compression,
+                    gzip_level=config.hdf5_gzip_level,
+                    tracer=tracer,
+                ) as writer:
+                    for spec in bundle_specs:
+                        outcome = _run_bundle_spec_attempt(
+                            config,
+                            spec,
+                            gpu_id,
+                            writer,
+                            tracer,
+                            reason="",
+                            bundle_path=bundle_path,
+                        )
+                        results.extend(outcome["results"])
+                        attempts.extend(outcome["attempts"])
+            if validate_schema:
+                with tracer.span("schema_validate", bundle_index=bundle_index):
+                    validate_hdf5_contract(bundle_path)
+            fragment_results = results[result_start:]
+            bundles.append(
+                _bundle_manifest_summary(
+                    bundle_path,
+                    worker_index=worker_index,
+                    bundle_index=bundle_index,
+                    planned_specs=bundle_specs,
+                    fragment_results=fragment_results,
+                    schema_validated=validate_schema,
+                )
+            )
+    except Exception as exc:
+        perf_summary = tracer.finish(
+            {
+                "worker_index": worker_index,
+                "gpu_id": gpu_id,
+                "bundle_count": len(bundles),
+                "result_count": len(results),
+            },
+            status="failed",
+            exception=exc,
+        )
+        if perf_summary:
+            perf_summary["worker_index"] = worker_index
+        raise
+    perf_summary = tracer.finish(
+        {
+            "worker_index": worker_index,
+            "gpu_id": gpu_id,
+            "bundle_count": len(bundles),
+            "result_count": len(results),
+        }
+    )
+    if perf_summary:
+        perf_summary["worker_index"] = worker_index
+    return {
+        "worker_index": worker_index,
+        "results": results,
+        "attempts": attempts,
+        "bundles": bundles,
+        "perf_summary": perf_summary,
+    }
+
+
+def _run_bundle_spec_attempt(
+    config: RTTruthRunConfig,
+    spec: ShardSpec,
+    gpu_id: int | None,
+    writer: HDF5ResultBundleWriter,
+    tracer: PerfTracer,
+    *,
+    reason: str,
+    bundle_path: Path,
+) -> dict[str, list[dict[str, object]]]:
+    shard_config = _build_shard_run_config(config, spec)
+    attempt: dict[str, object] = {
+        "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
+        "shard_index": spec.shard_index,
+        "parent_shard_index": (
+            spec.parent_shard_index
+            if spec.parent_shard_index is not None
+            else spec.shard_index
+        ),
+        "fallback_level": spec.fallback_level,
+        "ue_start": spec.ue_start,
+        "ue_count": spec.ue_count,
+        "reason": reason or spec.fallback_reason,
+        "status": "started",
+        "bundle_h5": bundle_path.as_posix(),
+    }
+    try:
+        prepared = _run_rt_truth_pipeline_single_impl(
+            shard_config,
+            tracer,
+            start=time.perf_counter(),
+            output_dir=shard_config.output_dir,
+            logs_dir=shard_config.output_dir / "logs",
+            prepare_only=True,
+        )
+    except Exception as exc:
+        retry_error = _classify_retryable_shard_error(exc)
+        attempt.update(
+            {
+                "status": "failed",
+                "retry_error": retry_error or "",
+                "error": str(exc),
+            }
+        )
+        if not _can_fallback_shard(config, spec, retry_error):
+            raise
+        _clear_accelerator_caches()
+        split_factor = int(
+            getattr(
+                getattr(config.output_sharding_config, "fallback", None),
+                "split_factor",
+                2,
+            )
+        )
+        children = _split_shard_spec_for_fallback(
+            spec,
+            retry_error or "retryable",
+            split_factor=split_factor,
+        )
+        attempt.update(
+            {
+                "status": "split",
+                "children": [child.shard_id for child in children],
+            }
+        )
+        results: list[dict[str, object]] = []
+        attempts: list[dict[str, object]] = [attempt]
+        for child in children:
+            _clear_accelerator_caches()
+            outcome = _run_bundle_spec_attempt(
+                config,
+                child,
+                gpu_id,
+                writer,
+                tracer,
+                reason=retry_error or "retryable",
+                bundle_path=bundle_path,
+            )
+            results.extend(outcome["results"])
+            attempts.extend(outcome["attempts"])
+        return {"results": results, "attempts": attempts}
+
+    if not isinstance(prepared, PreparedShardOutput):
+        msg = "prepare_only pipeline must return PreparedShardOutput"
+        raise TypeError(msg)
+    try:
+        with tracer.span("hdf5_bundle_append", shard_id=_shard_spec_id(spec)):
+            append_summary = writer.append_result(
+                prepared.result,
+                shard_spec=spec,
+                fragment_id=_shard_spec_id(spec),
+            )
+    except Exception as exc:
+        attempt.update({"status": "failed", "error": str(exc), "retry_error": ""})
+        raise
+    attempt["status"] = "succeeded"
+    return {
+        "results": [
+            _prepared_bundle_fragment_summary(
+                shard_config,
+                prepared,
+                append_summary,
+                bundle_path,
+            )
+        ],
+        "attempts": [attempt],
+    }
+
+
+def _bundle_manifest_summary(
+    bundle_path: Path,
+    *,
+    worker_index: int,
+    bundle_index: int,
+    planned_specs: list[ShardSpec],
+    fragment_results: list[dict[str, object]],
+    schema_validated: bool,
+) -> dict[str, object]:
+    ue_indices: list[int] = []
+    for item in fragment_results:
+        ue_indices.extend(int(index) for index in item.get("global_ue_indices", []))
+    return {
+        "bundle_h5": bundle_path.as_posix(),
+        "worker_index": int(worker_index),
+        "bundle_index": int(bundle_index),
+        "planned_shard_indices": [int(spec.shard_index) for spec in planned_specs],
+        "fragment_count": len(fragment_results),
+        "ue_count": len(ue_indices),
+        "global_ue_indices": ue_indices,
+        "schema_validated": bool(schema_validated),
+    }
+
+
+def _prepared_bundle_fragment_summary(
+    config: RTTruthRunConfig,
+    prepared: PreparedShardOutput,
+    append_summary: BundleAppendSummary,
+    bundle_path: Path,
+) -> dict[str, object]:
+    spec = config.shard_spec
+    if spec is None:
+        msg = "bundle fragment summary requires shard_spec"
+        raise ValueError(msg)
+    shard = prepared.shard_metadata
+    tx_indices = (
+        shard.global_tx_indices.astype(int).tolist()
+        if shard is not None
+        else list(append_summary.global_ue_indices)
+    )
+    rx_indices = (
+        shard.global_rx_indices.astype(int).tolist()
+        if shard is not None
+        else list(range(int(config.max_bs)))
+    )
+    link = getattr(prepared.result, "link", None)
+    tx_role = str(getattr(link, "tx_role", "tx"))
+    rx_role = str(getattr(link, "rx_role", "rx"))
+    if tx_role == "bs":
+        bs_indices = tx_indices
+    elif rx_role == "bs":
+        bs_indices = rx_indices
+    else:
+        bs_indices = rx_indices
+    ue_indices = [int(index) for index in append_summary.global_ue_indices]
+    summary: dict[str, object] = {
+        "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
+        "shard_index": spec.shard_index,
+        "shard_count": spec.shard_count,
+        "parent_shard_index": append_summary.parent_shard_index,
+        "fallback_level": append_summary.fallback_level,
+        "fallback_reason": append_summary.fallback_reason,
+        "axis": spec.axis,
+        "result_h5": bundle_path.as_posix(),
+        "bundle_h5": bundle_path.as_posix(),
+        "bundle_fragment_id": append_summary.fragment_id,
+        "append_start": append_summary.append_start,
+        "append_count": append_summary.append_count,
+        "manifest": "",
+        "ue_start": spec.ue_start,
+        "ue_count": append_summary.append_count,
+        "global_rx_start": int(rx_indices[0] if rx_indices else 0),
+        "global_rx_count": len(rx_indices),
+        "global_rx_indices": rx_indices,
+        "global_tx_indices": tx_indices,
+        "global_ue_count": len(ue_indices),
+        "global_ue_indices": ue_indices,
+        "global_bs_indices": bs_indices,
+        "raw_cfr_shape": prepared.raw_cfr_shape,
+        "internal_cfr_shape": prepared.internal_cfr_shape,
+        "path_count": prepared.path_count,
+        "observation_snr_db": prepared.observation_snr_db,
+    }
+    if prepared.batching_stats:
+        summary["nr_pusch_batching"] = dict(prepared.batching_stats)
+    return summary
+
+
 def _clear_accelerator_caches() -> None:
     """Release best-effort accelerator caches before retrying a smaller shard."""
 
@@ -1694,6 +2258,50 @@ def _aggregate_shard_performance(
         "sum_shard_duration_s": sum(total_durations) if total_durations else None,
         "hardware_summary": hardware,
         "dataset_write_summary": dataset_writes,
+    }
+
+
+def _aggregate_bundle_worker_performance(
+    perf_summaries: list[dict[str, object]],
+) -> dict[str, object]:
+    worker_summaries: list[dict[str, object]] = []
+    stage_totals: dict[str, float] = {}
+    total_durations: list[float] = []
+    for summary in perf_summaries:
+        worker_summary = {
+            "worker_index": summary.get("worker_index"),
+            "worker_id": summary.get("worker_id"),
+            "summary_path": str(summary.get("summary_path", "")),
+            "total_duration_s": summary.get("total_duration_s"),
+            "stage_totals_s": summary.get("stage_totals_s", {}),
+            "hardware_summary": summary.get("hardware_summary", {}),
+            "dataset_write_summary": summary.get("dataset_write_summary", {}),
+            "bundle_count": summary.get("bundle_count"),
+            "result_count": summary.get("result_count"),
+            "logs": summary.get("logs", {}),
+        }
+        if not worker_summary["summary_path"]:
+            logs = summary.get("logs", {})
+            if isinstance(logs, dict):
+                events_path = str(logs.get("events", ""))
+                worker_summary["summary_path"] = events_path.replace(
+                    "perf_events",
+                    "perf_summary",
+                ).replace(".jsonl", ".json")
+        worker_summaries.append(worker_summary)
+        total_duration = summary.get("total_duration_s")
+        if isinstance(total_duration, (int, float)):
+            total_durations.append(float(total_duration))
+        for name, value in dict(summary.get("stage_totals_s", {})).items():
+            stage_totals[str(name)] = stage_totals.get(str(name), 0.0) + float(value)
+    return {
+        "enabled": bool(worker_summaries),
+        "worker_summaries": worker_summaries,
+        "stage_totals_s": stage_totals,
+        "max_worker_duration_s": max(total_durations) if total_durations else None,
+        "sum_worker_duration_s": sum(total_durations) if total_durations else None,
+        "hardware_summary": _aggregate_perf_hardware(perf_summaries),
+        "dataset_write_summary": _aggregate_perf_dataset_writes(perf_summaries),
     }
 
 
@@ -2242,6 +2850,43 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
                         getattr(config.output_sharding_config, "fallback", None),
                         "retry_errors",
                         [],
+                    )
+                ),
+            },
+            "bundle": {
+                "enabled": bool(
+                    getattr(
+                        getattr(config.output_sharding_config, "bundle", None),
+                        "enabled",
+                        False,
+                    )
+                ),
+                "max_planned_shards_per_bundle": int(
+                    getattr(
+                        getattr(config.output_sharding_config, "bundle", None),
+                        "max_planned_shards_per_bundle",
+                        10,
+                    )
+                ),
+                "bundles_dir": str(
+                    getattr(
+                        getattr(config.output_sharding_config, "bundle", None),
+                        "bundles_dir",
+                        "bundles",
+                    )
+                ),
+                "filename_pattern": str(
+                    getattr(
+                        getattr(config.output_sharding_config, "bundle", None),
+                        "filename_pattern",
+                        "bundle_worker{worker_index:03d}_{bundle_index:03d}.h5",
+                    )
+                ),
+                "validate_schema": bool(
+                    getattr(
+                        getattr(config.output_sharding_config, "bundle", None),
+                        "validate_schema",
+                        True,
                     )
                 ),
             },

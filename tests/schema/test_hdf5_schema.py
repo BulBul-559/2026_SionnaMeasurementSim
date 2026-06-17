@@ -16,7 +16,9 @@ from sionna_measurement_sim.domain.observation import (
 )
 from sionna_measurement_sim.domain.path import PathSamples
 from sionna_measurement_sim.domain.results import ShardMetadata, create_phase1_minimal_result
+from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_reader import (
+    read_bundle_index,
     read_link_labels,
     read_metadata,
     read_truth_cfr,
@@ -232,6 +234,62 @@ def test_readback_preserves_metadata_and_truth_cfr(tmp_path: Path):
     assert metadata["config_snapshot"]
     assert cfr.shape == (1, 1, 1, 1, 8)
     assert cfr.dtype == np.dtype("complex64")
+
+
+def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
+    base = create_phase1_minimal_result()
+    first = replace(
+        base,
+        shard=ShardMetadata(
+            shard_index=0,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.array([0], dtype=np.int64),
+            global_tx_indices=np.array([0], dtype=np.int64),
+        ),
+    )
+    second = replace(
+        base,
+        topology=replace(
+            base.topology,
+            tx_positions_m=base.topology.tx_positions_m
+            + np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+            tx_labels=("tx1",),
+        ),
+        truth=replace(base.truth, cfr=base.truth.cfr * np.complex64(2.0 + 0.0j)),
+        shard=ShardMetadata(
+            shard_index=1,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.array([0], dtype=np.int64),
+            global_tx_indices=np.array([1], dtype=np.int64),
+        ),
+    )
+    output_path = tmp_path / "bundles" / "bundle_000.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["fragment_count"] == 2
+    assert index["ue_count"] == 2
+    np.testing.assert_array_equal(index["shard_offsets"], np.array([[0, 1], [1, 1]]))
+    np.testing.assert_array_equal(index["global_ue_indices"], np.array([0, 1]))
+    cfr = read_truth_cfr(output_path)
+    assert cfr.shape == (2, 1, 1, 1, 8)
+    np.testing.assert_allclose(cfr[0], base.truth.cfr[0])
+    np.testing.assert_allclose(cfr[1], base.truth.cfr[0] * np.complex64(2.0 + 0.0j))
+    with h5py.File(output_path, "r") as h5:
+        assert h5["meta/contract_name"][()].decode("utf-8") == (
+            "sionna_measurement_sim_bundle_hdf5"
+        )
+        assert h5["topology/tx_positions_m"].shape == (2, 3)
+        assert h5["topology/rx_positions_m"].shape == (1, 3)
+        assert h5["channel/truth/cfr"].maxshape[0] is None
 
 
 def test_product_full_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):

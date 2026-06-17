@@ -1,14 +1,22 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
+import h5py
 import numpy as np
 
-from sionna_measurement_sim.config.schema import OutputShardingConfig
+from sionna_measurement_sim.config.schema import OutputBundleConfig, OutputShardingConfig
+from sionna_measurement_sim.domain.results import (
+    ShardMetadata,
+    create_phase1_minimal_result,
+)
+from sionna_measurement_sim.io.hdf5_reader import read_bundle_index
 from sionna_measurement_sim.io.label_parser import (
     count_topology_points,
     load_role_topology_from_label,
     load_topology_from_label,
 )
+from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.rt import truth_pipeline
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, _build_shard_specs
 
@@ -261,6 +269,127 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
         [1],
         [2, 3],
     ]
+
+
+def test_bundled_sharded_pipeline_writes_appendable_h5_and_manifest(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "bundle_out"
+
+    def fake_prepare(
+        config: RTTruthRunConfig,
+        tracer,
+        *,
+        start: float,
+        output_dir: Path,
+        logs_dir: Path,
+        prepare_only: bool = False,
+    ) -> truth_pipeline.PreparedShardOutput:
+        del tracer, start, output_dir, logs_dir
+        assert prepare_only
+        assert config.shard_spec is not None
+        spec = config.shard_spec
+        ue_index = int(spec.ue_start)
+        base = create_phase1_minimal_result()
+        result = replace(
+            base,
+            topology=replace(
+                base.topology,
+                tx_positions_m=np.asarray(
+                    [[float(ue_index), 0.0, 1.5]],
+                    dtype=np.float32,
+                ),
+                tx_labels=(f"ue{ue_index}",),
+            ),
+            truth=replace(
+                base.truth,
+                cfr=base.truth.cfr * np.complex64(float(ue_index + 1)),
+            ),
+            shard=ShardMetadata(
+                shard_index=spec.shard_index,
+                shard_count=spec.shard_count,
+                axis=spec.axis,
+                global_rx_start=0,
+                global_rx_indices=np.asarray([0], dtype=np.int64),
+                global_tx_indices=np.asarray([ue_index], dtype=np.int64),
+            ),
+        )
+        return truth_pipeline.PreparedShardOutput(
+            result=result,
+            output_plan=config.output_plan,
+            scene_id="fake_scene",
+            phase=3,
+            elapsed_seconds=0.01,
+            raw_cfr_shape=result.truth.cfr.shape,
+            internal_cfr_shape=result.truth.cfr.shape,
+            path_count=0,
+            observation_snr_db=None,
+            software_versions={},
+            shard_metadata=result.shard,
+        )
+
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_run_rt_truth_pipeline_single_impl",
+        fake_prepare,
+    )
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            max_bs=2,
+            max_ue=3,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=1,
+                parallel_workers=1,
+                visualization_mode="none",
+                bundle=OutputBundleConfig(
+                    enabled=True,
+                    max_planned_shards_per_bundle=2,
+                    validate_schema=True,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["phase"] == "bundled_sharded_run_full"
+    assert manifest["sharding"]["result_file_count"] == 2
+    assert manifest["sharding"]["bundle"]["enabled"] is True
+    assert len(manifest["results"]) == 3
+    assert [item["global_ue_indices"] for item in manifest["results"]] == [
+        [0],
+        [1],
+        [2],
+    ]
+
+    first_bundle = output_dir / "bundles" / "bundle_worker000_000.h5"
+    second_bundle = output_dir / "bundles" / "bundle_worker000_001.h5"
+    validate_hdf5_contract(first_bundle)
+    validate_hdf5_contract(second_bundle)
+    np.testing.assert_array_equal(
+        read_bundle_index(first_bundle)["global_ue_indices"],
+        np.asarray([0, 1], dtype=np.int64),
+    )
+    np.testing.assert_array_equal(
+        read_bundle_index(second_bundle)["global_ue_indices"],
+        np.asarray([2], dtype=np.int64),
+    )
+
+    with h5py.File(first_bundle, "r") as h5:
+        assert h5["channel/truth/cfr"].shape == (2, 1, 1, 1, 8)
+        np.testing.assert_allclose(h5["channel/truth/cfr"][0], np.complex64(1.0))
+        np.testing.assert_allclose(h5["channel/truth/cfr"][1], np.complex64(2.0))
+        np.testing.assert_array_equal(h5["bundle/shard_offsets"][()], [[0, 1], [1, 1]])
+        assert h5["channel/truth/cfr"].maxshape[0] is None
 
 
 def _write_label(tmp_path: Path) -> Path:

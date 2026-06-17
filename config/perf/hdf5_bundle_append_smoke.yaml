@@ -1,0 +1,96 @@
+runtime:
+  seed: 42
+  device: "cpu"
+
+debug:
+  enabled: true
+  hardware_interval_s: 1.0
+  link_log_interval: 250
+  torch_synchronize: false
+  write_hardware_samples: false
+
+input:
+  label_file: "tests/fixtures/scenes/test/test5.json"
+  scene_file: "tests/fixtures/scenes/test/scene.xml"
+  scene_id: "bundle_append_smoke"
+  map_id: ""
+  max_bs: 1
+  max_ue: 4
+
+output:
+  profile: "full"
+  products: ["cfr_truth"]
+  root_dir: "outputs/perf_hdf5_bundle_append_smoke"
+  hdf5_filename: "results.h5"
+  compression: "mixed"
+  gzip_level: 1
+  save_full_paths: false
+  sharding:
+    enabled: true
+    axis: "ue"
+    shard_size: 1
+    filename_pattern: "result_{shard_index:03d}.h5"
+    parallel_workers: 1
+    gpu_ids: []
+    visualization_mode: "none"
+    bundle:
+      enabled: true
+      max_planned_shards_per_bundle: 2
+      bundles_dir: "bundles"
+      filename_pattern: "bundle_worker{worker_index:03d}_{bundle_index:03d}.h5"
+      validate_schema: true
+
+carrier:
+  center_frequency_hz: 3500000000.0
+  bandwidth_hz: 20000000.0
+  num_subcarriers: 8
+
+antenna:
+  bs_array:
+    num_rows: 1
+    num_cols: 1
+    polarization: "V"
+    pattern: "iso"
+  ue_array:
+    num_rows: 1
+    num_cols: 1
+    polarization: "V"
+    pattern: "iso"
+
+visualization:
+  enabled: false
+  output_dir: "figures"
+  plots: []
+
+rt:
+  max_depth: 1
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: false
+  diffraction: false
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+
+phy:
+  enabled: false
+  standard: "custom_ofdm"
+  snr_db: 30.0
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: true
+  profile_id: "synthetic_default"

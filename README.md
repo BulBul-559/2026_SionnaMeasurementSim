@@ -228,6 +228,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz NR SRS subset 定位模板 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3 BS × 3000 UE shard 性能回归模板 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6 BS × 8884 UE 4 GPU shard 验收模板 |
+| `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；多个计算 shard 打包进较大的 HDF5 bundle |
 
 完整字段说明见 [config/README.md](config/README.md)。配置加载时自动进行 pydantic schema 校验。
 
@@ -240,6 +241,7 @@ outputs/<run_dir>/
   run_config.yaml       # run-full 写入的最终 YAML 配置
   summary.json          # 可选队列/验收脚本汇总，不属于 HDF5 schema
   results/              # result_xxx.h5，自包含 HDF5 shard
+  bundles/              # 可选实验 bundle HDF5；开启 output.sharding.bundle.enabled 时生成
   manifest/             # aggregate manifest、per-shard manifest、config snapshot
   logs/                 # run.log、heatmap.log、debug/perf 日志
   figures/              # 可选采样可视化；index.json + standard/multiuser/iq/heatmaps 子目录
@@ -248,6 +250,11 @@ outputs/<run_dir>/
 `run_config.yaml` 保存 YAML 加载和 CLI 覆盖后的最终运行配置，便于把单个输出目录作为
 可复现实验单元。`manifest/manifest.json` 是 shard 数据集入口，记录全局 UE 覆盖范围、
 resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json` 路径。
+默认 shard 模式仍然是一个计算 shard 写一个 `results/result_xxx.h5`。实验性
+`output.sharding.bundle.enabled=true` 会改为把多个 shard fragment append 到
+`bundles/bundle_workerxxx_yyy.h5`，并在 `/bundle` 记录 fragment offset、全局 UE index
+和源 shard 信息；manifest 仍是训练/分析入口。bundle 模式当前用于写盘/读取性能探索，
+不会替代默认生产路径。
 本地队列、验收和 heatmap 包装脚本也应把运行日志、heatmap 日志和汇总 JSON 放回同一个
 run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避免在
 `outputs/` 根目录生成 sidecar 文件。
@@ -262,6 +269,7 @@ run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避
 |-------|------|
 | `/meta` | schema 版本、运行 ID、随机种子、配置快照、`output_profile`、`output_products` |
 | `/shard` | shard 模式下的局部 TX/RX 到全局 BS/UE 索引映射 |
+| `/bundle` | 实验 bundle 模式下的 append offset、fragment id、全局 UE/TX/RX 索引 |
 | `/input` | 标签文件、场景文件 |
 | `/topology` | TX/RX 三维位置 |
 | `/scene` | 场景文件、`scene_id`、`map_id` |

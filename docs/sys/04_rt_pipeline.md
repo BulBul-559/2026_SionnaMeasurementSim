@@ -98,9 +98,11 @@ def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path
 ```
 
 普通模式返回输出 HDF5 文件路径。CLI 会把最终有效 YAML 写到输出根目录
-`run_config.yaml`。启用 `output.sharding.enabled=true` 时返回输出目录路径，目录下包含
+`run_config.yaml`。启用 `output.sharding.enabled=true` 时返回输出目录路径，默认目录下包含
 `run_config.yaml`、`results/result_xxx.h5`、`manifest/manifest.json`、
-`manifest/config_snapshot.json` 和可选 `logs/`。外层队列或 heatmap wrapper 的
+`manifest/config_snapshot.json` 和可选 `logs/`。实验性
+`output.sharding.bundle.enabled=true` 会额外使用 `bundles/bundle_workerxxx_yyy.h5`
+作为 appendable shard bundle。外层队列或 heatmap wrapper 的
 `run.log`、`heatmap.log`、`summary.json` 也应写在该输出目录内。
 
 **内部流程：**
@@ -165,7 +167,13 @@ NR SRS；它可内部运行普通 SRS observation，但 HDF5 可以只保留 `/m
 
 **Shard 外壳：**
 
-`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`，每个 shard 调用同一个单次 pipeline，但写入独立 `results/result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，`manifest/manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。若某个 shard 因 CUDA OOM 或 Dr.Jit 2^32 单数组上限失败，fallback 会把该 UE range 递归拆成更小 result 文件，例如 `result_089_00.h5`、`result_089_01.h5`，最终仍由 manifest 对外呈现连续 UE 覆盖。
+`run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`。默认路径下，每个 shard 调用同一个单次 pipeline，并写入独立 `results/result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，`manifest/manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。若某个 shard 因 CUDA OOM 或 Dr.Jit 2^32 单数组上限失败，fallback 会把该 UE range 递归拆成更小 result 文件，例如 `result_089_00.h5`、`result_089_01.h5`，最终仍由 manifest 对外呈现连续 UE 覆盖。
+
+显式开启 `output.sharding.bundle.enabled=true` 时，pipeline 改走实验 bundle 外壳：每个
+shard 仍完整计算 domain result，但先返回 `PreparedShardOutput`，再由
+`HDF5ResultBundleWriter` 把多个 fragment append 到同一个 bundle HDF5。manifest result
+条目记录 `bundle_h5`、`bundle_fragment_id`、`append_start` 和 `append_count`。该模式保留
+fallback 拆分语义，但不改变默认生产路径。
 
 **链路方向口径：**
 

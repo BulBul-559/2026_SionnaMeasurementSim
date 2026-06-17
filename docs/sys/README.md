@@ -40,7 +40,10 @@
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
 - 当前 64 PRB SRS 正式任务模板推荐 `output.sharding.shard_size=5`、
   `output.compression="mixed"`、`output.gzip_level=1`。
-- 大规模输出采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，不建议合成单个巨大 HDF5。
+- 大规模输出默认采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，
+  不建议在生产路径合成单个巨大 HDF5。实验性 `output.sharding.bundle.enabled=true`
+  可把多个计算 shard append 到较大的 `bundles/bundle_workerxxx_yyy.h5`，用于写盘/训练读取
+  性能探索；manifest 仍是入口。
 - 当前 schema 版本是 `2.3.0`；`output.profile` 只保留 `full`、
   `rt_labels_only` 和 `iq_link_library` 三种真实契约。labels-only 使用
   `sionna_measurement_rt_labels` compact HDF5 contract 并只写 `/labels/link/*`

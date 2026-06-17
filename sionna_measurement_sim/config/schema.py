@@ -79,6 +79,30 @@ class ShardingFallbackConfig(BaseModel):
         return self
 
 
+class OutputBundleConfig(BaseModel):
+    enabled: bool = False
+    max_planned_shards_per_bundle: int = Field(default=10, ge=1)
+    bundles_dir: str = Field(default="bundles")
+    filename_pattern: str = Field(
+        default="bundle_worker{worker_index:03d}_{bundle_index:03d}.h5"
+    )
+    validate_schema: bool = True
+
+    @model_validator(mode="after")
+    def check_bundle_values(self) -> OutputBundleConfig:
+        if not self.bundles_dir or Path(self.bundles_dir).is_absolute():
+            raise ValueError("output.sharding.bundle.bundles_dir must be a relative path")
+        if "{worker_index" not in self.filename_pattern:
+            raise ValueError(
+                "output.sharding.bundle.filename_pattern must include {worker_index...}"
+            )
+        if "{bundle_index" not in self.filename_pattern:
+            raise ValueError(
+                "output.sharding.bundle.filename_pattern must include {bundle_index...}"
+            )
+        return self
+
+
 class OutputShardingConfig(BaseModel):
     enabled: bool = False
     axis: str = Field(default="ue")
@@ -90,6 +114,7 @@ class OutputShardingConfig(BaseModel):
     gpu_ids: list[int] = Field(default_factory=list)
     visualization_mode: str = Field(default="first_shard")
     fallback: ShardingFallbackConfig = Field(default_factory=ShardingFallbackConfig)
+    bundle: OutputBundleConfig = Field(default_factory=OutputBundleConfig)
 
     @model_validator(mode="after")
     def check_sharding_values(self) -> OutputShardingConfig:

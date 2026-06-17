@@ -58,6 +58,12 @@ gzip dataset 的压缩等级。正式 64PRB full 仿真推荐从 `mixed` + `gzip
 起步：它保留路径表/稀疏数组 gzip，但跳过 `/waveform/rx_grid`、
 `/observation/cfr_est` 等高熵复数观测数组压缩，以降低写盘 CPU 开销；数据数值和 HDF5
 schema 不变，但文件体积通常略增。
+默认大规模 sharding 仍是一个计算 shard 写一个 `results/result_xxx.h5`，由
+`manifest/manifest.json` 汇总。实验性 `output.sharding.bundle.enabled=true` 可把多个
+计算 shard fragment append 到 `bundles/bundle_workerxxx_yyy.h5`，root contract 为
+`sionna_measurement_sim_bundle_hdf5`，`/bundle/shard_offsets` 和
+`/bundle/global_ue_indices` 给训练 loader 定位样本。bundle 模式当前用于写盘和读取效率
+探索，不替代默认生产路径；涉及 schema/reader/manifest 时要同时覆盖 bundle contract。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。
 新输出不再写 array 兼容别名

@@ -27,17 +27,22 @@ manifest、`benchmark write`。
 当前状态：已增加 `output.compression: "mixed"` 与 `output.gzip_level`。正式 full 仿真中
 高熵复数观测数组跳过 gzip，路径表/稀疏数组继续 gzip；`gzip_level: 1` 是当前 64 PRB
 任务推荐值。`front3d_0002 0p5` full 对照中 `hdf5_write` 从约 365 s 降到约 114 s，
-详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。
+详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。2026-06-17 已落地
+实验性 `output.sharding.bundle.enabled`：每个 worker 可把多个 computed shard fragment
+append 到 `bundles/bundle_workerxxx_yyy.h5`，并补了 bundle writer/schema/reader/manifest
+smoke 测试；默认生产路径仍是一个 shard 一个 `results/result_xxx.h5`。
 
-下一步方向：用户建议的 “compute chunk 小批量 + write batch 缓冲/append” 值得作为二阶段
-实验，但当前探针显示单纯 one-file 或 extendable 大数组不一定更快；收益主要可能来自减少重复
+下一步方向：用户建议的 “compute chunk 小批量 + write batch 缓冲/append” 已有第一版
+bundle contract，需要用真实 shard 和 `benchmark write` 对比默认 shard 文件、bundle
+大小、chunk shape、flush 策略和 schema validate 开关；收益主要可能来自减少重复
 metadata/group/attrs/schema 成本，而不是大数组写入本身。
 
 验收标准：继续比较 buffered writer、bundle HDF5 contract、chunk shape、flush 策略、并行写文件数和
 schema validate 开关；输出推荐配置和风险说明；真实 shard 或 `benchmark write` 有可复现实验结果。
 
 重点提醒：优化写盘不能破坏 HDF5 schema、自包含 shard 和 manifest 契约。不要让多个 GPU worker
-同时写同一个 HDF5；若做 bundle/append 模式，需要新增 reader/schema/manifest 适配和 checkpoint。
+同时写同一个 HDF5；当前 bundle 实现按 worker 独立写 bundle 文件，训练入口仍应通过
+manifest 和 `/bundle/shard_offsets` 定位，不要假设 bundle 文件名或 fragment 顺序。
 
 ### PERF-002: RT 参数调优实验
 

@@ -49,6 +49,25 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 该 compact contract 只保存 clean per-link IQ 和必要元数据，不写 `/channel`、`/paths`、
 `/derived`、`/waveform`、`/observation`、`/array`、`/ranging`、`/multiuser` 或损伤/评估组。
 
+### `hdf5_bundle_writer.py` — 实验 Append Bundle 写入
+
+`HDF5ResultBundleWriter` 是 opt-in 实验 writer，用于
+`output.sharding.bundle.enabled=true`。它不会改变默认 `write_measurement_result()`
+或一个 shard 一个 `results/result_xxx.h5` 的路径。bundle writer 会先复用现有 writer
+把每个 domain result 写成内存 HDF5 fragment，再把携带 resolved UE 轴的 dataset append
+到 `bundles/bundle_workerxxx_yyy.h5`。例如 uplink 下：
+
+```text
+/channel/truth/cfr       [bundle_ue, bs, bs_ant, ue_ant, subcarrier]
+/topology/tx_positions_m [bundle_ue, 3]
+/bundle/shard_offsets    [fragment, 2]
+/bundle/global_ue_indices [bundle_ue]
+```
+
+固定 metadata 只复制一次；无法安全 append 的 dataset 会保留到
+`/bundle/fragments/<fragment_id>/...` sidecar，避免丢失 fragment 原始数据。PerfTracer 会把
+bundle dataset append 也记录为 `hdf5.dataset_write` event。
+
 ### `schema_validator.py` — HDF5 契约校验
 
 ```python
@@ -58,8 +77,9 @@ def validate_hdf5_contract(path: str | Path) -> None
 在 HDF5 写入后自动调用（也在测试中独立使用）。validator 会先读取
 `/meta/contract_name` 分流：`sionna_measurement_sim_hdf5` 走 full/product-aware full contract，
 `sionna_measurement_rt_labels` 走 compact RT labels-only contract，
-`sionna_measurement_iq_link_library` 走 compact clean IQ contract。`output_profile="full"`
-且 `/meta/output_products` 不是完整产品列表时，validator 只要求所选产品对应的 group/dataset；
+`sionna_measurement_iq_link_library` 走 compact clean IQ contract，
+`sionna_measurement_sim_bundle_hdf5` 走实验 bundle contract。`output_profile="full"` 且
+`/meta/output_products` 不是完整产品列表时，validator 只要求所选产品对应的 group/dataset；
 默认 `full` 仍按完整 full contract 检查。full contract 检查：
 
 1. **必填 group**：`meta`、`channel/truth`、`paths/samples`、`runtime`、`link` 等
@@ -109,12 +129,18 @@ def validate_hdf5_contract(path: str | Path) -> None
 
 RT labels-only contract 额外检查 `/labels/link/*` 的 flattened link shape、单位、
 本地/全局 TX/RX index、valid link 上的 finite delay/range，以及禁止 full-only group。
+bundle contract 检查 `/bundle/shard_offsets` 的连续性、`global_ue_indices` 长度、
+append 轴与 `/channel/truth/cfr`、`/observation/cfr_est` 或 topology dataset 的一致性，并禁止
+root `/shard`。sidecar fragment dataset 当前只做保留，不作为主 contract 的训练读取入口。
 
 ### `hdf5_reader.py`
 
 提供便捷的 HDF5 读回函数，自动调用 `validate_hdf5_contract`。`read_truth_cfr()`
 用于 full contract；`read_link_labels()` 和 `iter_link_labels()` 用于 compact
-RT labels-only 单文件或 sharded run 目录。
+RT labels-only 单文件或 sharded run 目录。`read_bundle_index()` 读取实验 bundle 的
+`fragment_count`、`ue_count`、`shard_offsets` 和 `global_ue_indices`，用于训练 loader
+按 append 区间定位样本；`read_truth_cfr()` 可直接读取 bundle root 上的
+`/channel/truth/cfr`。
 
 ### `manifest.py`
 
@@ -125,6 +151,9 @@ def write_manifest(path: str | Path, data: dict) -> Path
 输出 JSON manifest，记录运行参数、CFR shape、路径数、耗时、诊断摘要。启用
 `output.sharding.enabled=true` 时，`manifest/manifest.json` 是 aggregate 入口，记录每个
 `results/result_xxx.h5` 的全局 BS/UE 索引、resolved TX/RX 索引、schema/debug 信息和性能摘要。
+当 `output.sharding.bundle.enabled=true` 时，manifest 的 result 条目改为指向
+`bundle_h5`、`bundle_fragment_id`、`append_start` 和 `append_count`；`bundles` 列表汇总每个
+bundle 文件的 planned shard、fragment 数、UE 覆盖范围和 schema 校验状态。
 `manifest/` 同目录还会保存 `config_snapshot.json`；CLI 运行时，输出根目录会保存最终 YAML
 `run_config.yaml`；若发生自动 shard fallback，会额外写 `shard_attempts.jsonl`。
 队列、验收、可视化后处理等 wrapper 产生的运行级 artifact 必须继续写在同一个 run
