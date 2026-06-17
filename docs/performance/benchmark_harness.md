@@ -9,6 +9,7 @@
 uv run python -m sionna_measurement_sim.app.cli benchmark rt ...
 uv run python -m sionna_measurement_sim.app.cli benchmark write ...
 uv run python -m sionna_measurement_sim.app.cli benchmark sharding ...
+uv run python -m sionna_measurement_sim.app.cli benchmark readback ...
 uv run python -m sionna_measurement_sim.app.cli benchmark spectrum ...
 ```
 
@@ -183,6 +184,37 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
 降低文件数、文件大小、dataset write event 数、schema validate 时间和 manifest batch readback
 时间；小 payload 下 bundle writer 固定成本仍明显，且同进程 mode 顺序会让 RT warm cache
 影响端到端 wall time。
+
+## Readback-Only
+
+`benchmark readback` 不跑 RT 或写 HDF5，只从已有 run 目录、`manifest/manifest.json`、
+单个 shard HDF5 或 bundle HDF5 读取指定 dataset。它通过
+`iter_manifest_dataset_batches()` 形成训练式 batch，用于隔离 shard 文件数、bundle layout、
+batch fragments 和 batch UE 上限对读取吞吐的影响。
+
+示例：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark readback \
+  --output-dir outputs/benchmark_readback_smoke \
+  --input-path outputs/benchmark_sharding_smoke/sharding_iter_000_bundle_append \
+  --dataset channel/truth/cfr \
+  --batch-fragments 16 \
+  --batch-ue 0 \
+  --repeat 5 \
+  --no-write-hardware-samples
+```
+
+主要指标：
+
+| 指标 | 说明 |
+|---|---|
+| `readback_s` | 一次完整 manifest-aware dataset 迭代耗时 |
+| `readback_mib_per_s` | 按 materialized numpy payload 估算的 MiB/s |
+| `readback_batch_count` / `readback_fragment_count` | batch 数和读取的 manifest fragment 数 |
+| `readback_source_file_count` | 读取触达的 HDF5 文件数 |
+| `readback_bundled_fragment_count` | 来自 append bundle 的 fragment 数 |
+| `readback_global_ue_count` | batch reader 返回的全局 UE 条目数 |
 
 ## Spectrum-Only
 

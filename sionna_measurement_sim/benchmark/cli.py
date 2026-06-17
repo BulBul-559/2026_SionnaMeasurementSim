@@ -8,6 +8,7 @@ from typing import Any
 
 from sionna_measurement_sim.benchmark.runner import (
     BenchmarkOptions,
+    run_readback_benchmark,
     run_rt_benchmark,
     run_sharding_benchmark,
     run_spectrum_benchmark,
@@ -16,7 +17,7 @@ from sionna_measurement_sim.benchmark.runner import (
 
 
 def add_benchmark_parser(subparsers: argparse._SubParsersAction) -> None:
-    """Register `benchmark rt|write|spectrum` under the main CLI."""
+    """Register benchmark subcommands under the main CLI."""
 
     benchmark = subparsers.add_parser(
         "benchmark",
@@ -26,6 +27,7 @@ def add_benchmark_parser(subparsers: argparse._SubParsersAction) -> None:
     _add_rt_parser(modes)
     _add_write_parser(modes)
     _add_sharding_parser(modes)
+    _add_readback_parser(modes)
     _add_spectrum_parser(modes)
 
 
@@ -48,6 +50,8 @@ def run_benchmark_from_args(args: argparse.Namespace) -> Path:
         return run_write_benchmark(options, _write_parameters(args))
     if args.benchmark_mode == "sharding":
         return run_sharding_benchmark(options, _sharding_parameters(args))
+    if args.benchmark_mode == "readback":
+        return run_readback_benchmark(options, _readback_parameters(args))
     if args.benchmark_mode == "spectrum":
         return run_spectrum_benchmark(options, _spectrum_parameters(args))
     msg = f"Unsupported benchmark mode: {args.benchmark_mode!r}"
@@ -198,6 +202,36 @@ def _add_spectrum_parser(modes: argparse._SubParsersAction) -> None:
     parser.add_argument("--link-chunk-size", type=int, default=512)
 
 
+def _add_readback_parser(modes: argparse._SubParsersAction) -> None:
+    parser = modes.add_parser(
+        "readback",
+        help="Benchmark manifest-aware dataset readback throughput.",
+    )
+    _add_common(parser, default_output="outputs/benchmark_readback")
+    parser.add_argument(
+        "--input-path",
+        required=True,
+        help="Run directory, manifest.json, HDF5 shard, or bundle HDF5 to read.",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="channel/truth/cfr",
+        help="Dataset path to read through the manifest-aware reader.",
+    )
+    parser.add_argument(
+        "--batch-fragments",
+        type=int,
+        default=32,
+        help="Maximum manifest fragments per readback batch.",
+    )
+    parser.add_argument(
+        "--batch-ue",
+        type=int,
+        default=0,
+        help="Maximum UE entries per readback batch; 0 disables this limit.",
+    )
+
+
 def _add_bool_pair(parser: argparse.ArgumentParser, name: str) -> None:
     dest = name.replace("-", "_")
     parser.add_argument(f"--{name}", dest=dest, action="store_true")
@@ -279,4 +313,13 @@ def _spectrum_parameters(args: argparse.Namespace) -> dict[str, Any]:
             source.strip() for source in args.sources.split(",") if source.strip()
         ),
         "link_chunk_size": args.link_chunk_size,
+    }
+
+
+def _readback_parameters(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "input_path": args.input_path,
+        "dataset": args.dataset,
+        "batch_fragments": args.batch_fragments,
+        "batch_ue": args.batch_ue,
     }

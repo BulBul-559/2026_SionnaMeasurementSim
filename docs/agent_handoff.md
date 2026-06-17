@@ -216,6 +216,7 @@ pipeline 里重新手写 ranging 字段拷贝。
 benchmark rt       # RT-only，不跑 PHY/HDF5/可视化
 benchmark write    # synthetic MeasurementSimulationResult -> HDF5 writer/schema
 benchmark sharding # real cfr_truth sharded pipeline -> shard files vs append bundle
+benchmark readback # existing run/manifest/HDF5 -> manifest-aware dataset batch throughput
 benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 ```
 
@@ -231,7 +232,8 @@ fragment recorder 优化去掉内存 HDF5 二次序列化后，waveform syntheti
 bundle 减少文件数、文件大小、dataset write event、schema validate 时间和
 manifest-aware CFR readback 时间；当前 readback probe 使用 `iter_manifest_dataset_batches()`
 按训练式 batch 读取。小 payload 下 writer 固定成本仍明显，且同进程 mode 顺序会污染端到端
-wall time。
+wall time。`benchmark readback --input-path <run-or-manifest>` 可对已有 shard 或 bundle 输出
+单独复测 `iter_manifest_dataset_batches()` 吞吐，适合后续真实大 payload/loader 对照。
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 RT labels-only 输出可用以下模板生成：

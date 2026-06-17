@@ -366,6 +366,72 @@ def run_sharding_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]
     return output_dir / f"{options.summary_name}.json"
 
 
+def run_readback_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -> Path:
+    """Benchmark manifest-aware dataset readback from an existing output path."""
+
+    output_dir = options.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tracer = _start_tracer(options, "readback")
+    rows: list[dict[str, Any]] = []
+    status = "success"
+    exception: BaseException | None = None
+    input_path = Path(str(parameters["input_path"]))
+    dataset_path = str(parameters.get("dataset") or "channel/truth/cfr")
+    batch_fragments = int(parameters.get("batch_fragments") or 32)
+    batch_ue_value = int(parameters.get("batch_ue") or 0)
+    max_ue = batch_ue_value if batch_ue_value > 0 else None
+    try:
+        for iteration, is_warmup in _iteration_plan(options):
+            row: dict[str, Any] = {
+                "iteration": iteration,
+                "warmup": is_warmup,
+                "benchmark_type": "readback",
+                "input_path": input_path.as_posix(),
+                "dataset_path": dataset_path,
+                "batch_fragments": batch_fragments,
+                "batch_ue": batch_ue_value,
+            }
+            row.update(
+                _measure_manifest_readback(
+                    tracer,
+                    input_path,
+                    dataset_path=dataset_path,
+                    max_fragments=batch_fragments,
+                    max_ue=max_ue,
+                    iteration=iteration,
+                    is_warmup=is_warmup,
+                    write_mode="",
+                    span_name="readback.dataset",
+                )
+            )
+            row["status"] = "success"
+            rows.append(row)
+    except Exception as exc:  # pragma: no cover - exercised through callers
+        status = "failed"
+        exception = exc
+        raise
+    finally:
+        perf_summary = tracer.finish(
+            {"benchmark_type": "readback"},
+            status=status,
+            exception=exception,
+        )
+        _write_benchmark_outputs(
+            output_dir=output_dir,
+            summary_name=options.summary_name,
+            benchmark_type="readback",
+            status=status,
+            parameters={**parameters, **_options_snapshot(options)},
+            rows=rows,
+            perf_summary=perf_summary,
+            artifacts={
+                "input_path": input_path.as_posix(),
+                "output_dir": output_dir.as_posix(),
+            },
+        )
+    return output_dir / f"{options.summary_name}.json"
+
+
 def _run_sharding_comparison_iteration(
     output_dir: Path,
     tracer: PerfTracer,
@@ -407,14 +473,16 @@ def _run_sharding_comparison_iteration(
     dataset_write_summary = dict(
         manifest.get("performance", {}).get("dataset_write_summary", {})
     )
-    readback_summary = _measure_sharding_readback(
+    readback_summary = _measure_manifest_readback(
         tracer,
         manifest_path,
         dataset_path=str(parameters.get("readback_dataset") or "channel/truth/cfr"),
         max_fragments=int(parameters.get("readback_batch_fragments") or 16),
+        max_ue=None,
         iteration=iteration,
         is_warmup=is_warmup,
         write_mode=write_mode,
+        span_name="sharding.dataset_readback",
     )
     row.update(
         {
@@ -510,49 +578,64 @@ def _sharding_artifact_paths(manifest: dict[str, Any]) -> list[Path]:
     return sorted(set(paths), key=lambda path: path.as_posix())
 
 
-def _measure_sharding_readback(
+def _measure_manifest_readback(
     tracer: PerfTracer,
-    manifest_path: Path,
+    input_path: Path,
     *,
     dataset_path: str,
     max_fragments: int,
+    max_ue: int | None,
     iteration: int,
     is_warmup: bool,
     write_mode: str,
+    span_name: str,
 ) -> dict[str, Any]:
     start = time.perf_counter()
     bytes_read = 0
     batch_count = 0
     fragment_count = 0
+    bundled_fragment_count = 0
     finite_rates: list[float] = []
     global_ue_count = 0
+    source_paths: set[str] = set()
     with tracer.span(
-        "sharding.dataset_readback",
+        span_name,
         iteration=iteration,
         warmup=is_warmup,
         write_mode=write_mode,
         dataset_path=dataset_path,
         max_fragments=max_fragments,
+        max_ue=max_ue or 0,
     ):
         for batch in iter_manifest_dataset_batches(
-            manifest_path,
+            input_path,
             dataset_path,
             max_fragments=max_fragments,
+            max_ue=max_ue,
         ):
             array = np.asarray(batch.data)
             batch_count += 1
             fragment_count += len(batch.fragments)
+            bundled_fragment_count += sum(1 for fragment in batch.fragments if fragment.bundled)
+            source_paths.update(path.as_posix() for path in batch.source_paths)
             bytes_read += int(array.nbytes)
             global_ue_count += len(batch.global_ue_indices)
             if array.size:
                 finite_rates.append(float(np.mean(np.isfinite(array))))
+    duration_s = time.perf_counter() - start
     return {
         "readback_dataset": dataset_path,
         "readback_batch_fragments": max_fragments,
-        "readback_s": time.perf_counter() - start,
+        "readback_batch_ue": max_ue or 0,
+        "readback_s": duration_s,
         "readback_batch_count": batch_count,
         "readback_fragment_count": fragment_count,
+        "readback_bundled_fragment_count": bundled_fragment_count,
+        "readback_source_file_count": len(source_paths),
         "readback_bytes": bytes_read,
+        "readback_mib_per_s": (
+            float(bytes_read / (1024 * 1024) / duration_s) if duration_s > 0 else 0.0
+        ),
         "readback_global_ue_count": global_ue_count,
         "readback_finite_rate_min": min(finite_rates) if finite_rates else 1.0,
     }

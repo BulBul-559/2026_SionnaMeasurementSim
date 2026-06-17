@@ -24,7 +24,7 @@
 - `../todo/feature.md`：NR SRS 标准完整性、ranging 和研究功能增强。
 - `../todo/structure.md`：reader、数据契约、benchmark 入口和 legacy 模块整理。
 - `../todo/performance.md`：写盘、RT、空间谱、GPU 调度和大规模运行优化。
-- `../performance/benchmark_harness.md`：当前 `benchmark rt/write/sharding/spectrum` 入口和输出格式。
+- `../performance/benchmark_harness.md`：当前 `benchmark rt/write/sharding/readback/spectrum` 入口和输出格式。
 - `indoor_fr1_100mhz_validation.md`：室内 FR1 100 MHz SRS/PUSCH 验证和成本结论。
 - `../performance/README.md`：历史性能实验记录索引和 legacy 审查状态。
 
@@ -59,8 +59,8 @@
   `/array/spatial_spectrum_label` 和 `/array/spatial_spectrum_srs` 已移除。
 - `phy.tx_power_dbm` 已接入 SRS/PUSCH 发射 grid；默认 `relative_snr` 保持配置 SNR，
   `absolute_thermal` 使用 kTB + NF 固定噪声。
-- 当前 CLI 提供 `benchmark rt/write/sharding/spectrum`，分别隔离 RT solve、HDF5
-  writer/schema validate、真实 shard/bundle 写盘和 Bartlett 空间谱成本；输出为 ignored
+- 当前 CLI 提供 `benchmark rt/write/sharding/readback/spectrum`，分别隔离 RT solve、HDF5
+  writer/schema validate、真实 shard/bundle 写盘、manifest batch 读取和 Bartlett 空间谱成本；输出为 ignored
   `outputs/` 下的 JSON/CSV/log artifact。
 - `/derived` 保留 truth 语义，`first_path_propagation_range_m` 表示最早路径传播距离；
   估计型 ToA/range 写在 `/ranging`。

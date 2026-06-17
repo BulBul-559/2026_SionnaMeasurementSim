@@ -21,7 +21,7 @@
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
-- `benchmark rt/write/sharding/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘和 Bartlett 空间谱成本
+- `benchmark rt/write/sharding/readback/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest 读取吞吐和 Bartlett 空间谱成本
 - `output.profile` 只保留三种真实输出契约：`full`、`rt_labels_only`、`iq_link_library`；`full` 可通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
 - HDF5 schema `2.3.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
 - 批量实验（多 seed/SNR 自动分批）
@@ -87,6 +87,14 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
     --max-bs 1 --max-ue 3 --shard-size 1 \
     --bundle-max-planned-shards 2 \
     --no-write-hardware-samples
+
+# 只测已有 run/manifest 的训练式 dataset 读取吞吐
+uv run python -m sionna_measurement_sim.app.cli benchmark readback \
+    --output-dir outputs/benchmark_readback_smoke \
+    --input-path outputs/benchmark_sharding_smoke/sharding_iter_000_bundle_append \
+    --dataset channel/truth/cfr \
+    --batch-fragments 16 \
+    --no-write-hardware-samples
 ```
 
 项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
@@ -115,6 +123,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
 | `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 与 `--gzip-level`）和 schema validate |
 | `benchmark sharding` | 跑真实轻量 sharded pipeline，对比默认 `results/result_xxx.h5` 与实验 append bundle |
+| `benchmark readback` | 读取已有 run/manifest/HDF5，测 `iter_manifest_dataset_batches()` 的 batch 吞吐 |
 | `benchmark spectrum` | 合成 array samples，仅测 Bartlett 空间谱核心 |
 
 ## NR PUSCH MIMO 使用
@@ -400,7 +409,7 @@ SionnaMeasurementSim/
 | [todo/structure](docs/todo/structure.md) | 数据契约、reader、benchmark 入口和 legacy 模块 TODO |
 | [todo/performance](docs/todo/performance.md) | 大规模运行、写盘、RT、空间谱和 GPU 调度 TODO |
 | [todo/bug](docs/todo/bug.md) | 已确认缺陷和回归 TODO |
-| [benchmark_harness](docs/performance/benchmark_harness.md) | benchmark rt/write/sharding/spectrum 输出格式和推荐命令 |
+| [benchmark_harness](docs/performance/benchmark_harness.md) | benchmark rt/write/sharding/readback/spectrum 输出格式和推荐命令 |
 | [indoor_fr1_100mhz_validation](docs/sys/indoor_fr1_100mhz_validation.md) | Bistro FR1 100 MHz probe 与全量成本估算 |
 | [performance](docs/performance/README.md) | 历史性能实验记录索引和 legacy 审查状态 |
 

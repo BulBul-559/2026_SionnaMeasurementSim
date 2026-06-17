@@ -215,6 +215,52 @@ def test_benchmark_sharding_cli_compares_real_shards_and_bundles(tmp_path: Path)
     assert (output_dir / "sharding_iter_000_shard_files" / "manifest" / "manifest.json").is_file()
     assert (output_dir / "sharding_iter_000_bundle_append" / "manifest" / "manifest.json").is_file()
 
+    shard_readback_dir = tmp_path / "readback_shards"
+    assert main(
+        [
+            "benchmark",
+            "readback",
+            "--output-dir",
+            str(shard_readback_dir),
+            "--input-path",
+            str(output_dir / "sharding_iter_000_shard_files"),
+            "--dataset",
+            "channel/truth/cfr",
+            "--batch-fragments",
+            "16",
+            "--no-write-hardware-samples",
+        ]
+    ) == 0
+    shard_readback = _load_summary(shard_readback_dir / "benchmark_summary.json")
+    assert shard_readback["benchmark_type"] == "readback"
+    assert shard_readback["iterations"][0]["readback_fragment_count"] == 3
+    assert shard_readback["iterations"][0]["readback_source_file_count"] == 3
+    assert shard_readback["iterations"][0]["readback_batch_count"] == 1
+
+    bundle_readback_dir = tmp_path / "readback_bundles"
+    assert main(
+        [
+            "benchmark",
+            "readback",
+            "--output-dir",
+            str(bundle_readback_dir),
+            "--input-path",
+            str(output_dir / "sharding_iter_000_bundle_append"),
+            "--dataset",
+            "channel/truth/cfr",
+            "--batch-fragments",
+            "16",
+            "--no-write-hardware-samples",
+        ]
+    ) == 0
+    bundle_readback = _load_summary(bundle_readback_dir / "benchmark_summary.json")
+    assert bundle_readback["benchmark_type"] == "readback"
+    assert bundle_readback["iterations"][0]["readback_fragment_count"] == 3
+    assert bundle_readback["iterations"][0]["readback_bundled_fragment_count"] == 3
+    assert bundle_readback["iterations"][0]["readback_source_file_count"] == 2
+    assert bundle_readback["iterations"][0]["readback_batch_count"] == 1
+    assert bundle_readback["iterations"][0]["readback_mib_per_s"] > 0.0
+
 
 def test_debug_tracing_writes_failure_summary_on_pipeline_error(tmp_path: Path):
     output_dir = tmp_path / "failed_pipeline"

@@ -14,7 +14,7 @@
 | `run-observation` | RT + PHY 观测 | `run_rt_truth_pipeline()` |
 | `run-full` | 全功能端到端 | `run_rt_truth_pipeline()` |
 | `run-batch` | 批量实验 | `run_batch_experiment()` |
-| `benchmark rt/write/sharding/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、Bartlett 空间谱成本 | `benchmark.runner` |
+| `benchmark rt/write/sharding/readback/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest batch 读取、Bartlett 空间谱成本 | `benchmark.runner` |
 
 核心流程：CLI 解析参数 → 构建 `RTTruthRunConfig` → 调用 `run_rt_truth_pipeline()` → 输出 HDF5 路径。
 

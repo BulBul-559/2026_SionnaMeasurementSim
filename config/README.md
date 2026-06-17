@@ -150,6 +150,11 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
   --max-bs 1 --max-ue 3 --shard-size 1 --bundle-max-planned-shards 2 \
   --readback-dataset channel/truth/cfr --readback-batch-fragments 16
 
+uv run python -m sionna_measurement_sim.app.cli benchmark readback \
+  --output-dir outputs/benchmark_readback_smoke \
+  --input-path outputs/benchmark_sharding_smoke/sharding_iter_000_bundle_append \
+  --dataset channel/truth/cfr --batch-fragments 16
+
 uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
   --output-dir outputs/benchmark_spectrum_smoke \
   --links 4 --rx-ant 4 --subcarriers 32 --zenith-bins 9 --azimuth-bins 13
@@ -159,7 +164,8 @@ uv run python -m sionna_measurement_sim.app.cli benchmark spectrum \
 `config_snapshot.json` 和可选 `logs/perf_*`，默认输出到 ignored `outputs/` 下。其中
 `benchmark sharding` 会跑真实轻量 `cfr_truth` shard pipeline，用于比较默认
 `results/result_xxx.h5` 与实验 append bundle 的写盘成本，并通过 manifest-aware batch
-reader 记录指定 dataset 的训练式读回成本。
+reader 记录指定 dataset 的训练式读回成本；`benchmark readback` 则可对已有
+run/manifest/HDF5 单独复测 `iter_manifest_dataset_batches()` 吞吐。
 
 ### `input` — 输入数据
 
