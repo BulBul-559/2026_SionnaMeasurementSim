@@ -5,9 +5,17 @@ from types import SimpleNamespace
 import h5py
 import numpy as np
 
-from sionna_measurement_sim.config.schema import OutputShardingConfig
+from sionna_measurement_sim.config.schema import (
+    DebugConfig,
+    OutputBundleConfig,
+    OutputShardingConfig,
+)
 from sionna_measurement_sim.domain.array import ArraySpectrumConfig
-from sionna_measurement_sim.io.hdf5_reader import read_link_labels, read_truth_cfr
+from sionna_measurement_sim.io.hdf5_reader import (
+    read_bundle_index,
+    read_link_labels,
+    read_truth_cfr,
+)
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.ranging.config import RangingConfig
 from sionna_measurement_sim.rt.truth_pipeline import RTTruthRunConfig, run_rt_truth_pipeline
@@ -434,6 +442,107 @@ def test_rt_truth_pipeline_writes_rx_sharded_outputs(tmp_path: Path):
                 h5["shard/global_tx_indices"][()],
                 np.asarray(expected_ue, dtype=np.int64),
             )
+
+
+def test_rt_truth_pipeline_writes_appendable_bundle_outputs(tmp_path: Path):
+    output_dir = tmp_path / "phase2_rt_truth_bundle"
+
+    result_dir = run_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=Path("tests/fixtures/scenes/test/test5.json"),
+            scene_file=Path("tests/fixtures/scenes/test/scene.xml"),
+            output_dir=output_dir,
+            num_subcarriers=8,
+            seed=1,
+            max_bs=1,
+            max_ue=3,
+            max_depth=1,
+            output_products=("cfr_truth",),
+            debug_config=DebugConfig(enabled=True, write_hardware_samples=False),
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=1,
+                parallel_workers=1,
+                visualization_mode="none",
+                bundle=OutputBundleConfig(
+                    enabled=True,
+                    max_planned_shards_per_bundle=2,
+                    validate_schema=True,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    assert list((output_dir / "results").glob("*.h5")) == []
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["phase"] == "bundled_sharded_run_full"
+    assert manifest["results_h5"] == ""
+    assert manifest["sharding"]["planned_shard_count"] == 3
+    assert manifest["sharding"]["result_file_count"] == 2
+    assert manifest["sharding"]["bundle"]["enabled"] is True
+    assert manifest["sharding"]["bundle"]["max_planned_shards_per_bundle"] == 2
+    assert manifest["sharding"]["fallback"]["split_count"] == 0
+    assert [item["global_ue_indices"] for item in manifest["results"]] == [
+        [0],
+        [1],
+        [2],
+    ]
+    assert [
+        (item["append_start"], item["append_count"]) for item in manifest["results"]
+    ] == [(0, 1), (1, 1), (0, 1)]
+
+    bundle_paths = [Path(item["bundle_h5"]) for item in manifest["bundles"]]
+    assert [path.name for path in bundle_paths] == [
+        "bundle_worker000_000.h5",
+        "bundle_worker000_001.h5",
+    ]
+    assert [item["fragment_count"] for item in manifest["bundles"]] == [2, 1]
+    assert [item["global_ue_indices"] for item in manifest["bundles"]] == [
+        [0, 1],
+        [2],
+    ]
+    assert all(item["schema_validated"] for item in manifest["bundles"])
+    assert [Path(item["bundle_h5"]).name for item in manifest["results"]] == [
+        "bundle_worker000_000.h5",
+        "bundle_worker000_000.h5",
+        "bundle_worker000_001.h5",
+    ]
+
+    for bundle_path, expected_ue, expected_offsets in zip(
+        bundle_paths,
+        ([0, 1], [2]),
+        ([[0, 1], [1, 1]], [[0, 1]]),
+        strict=True,
+    ):
+        validate_hdf5_contract(bundle_path)
+        index = read_bundle_index(bundle_path)
+        np.testing.assert_array_equal(
+            index["global_ue_indices"],
+            np.asarray(expected_ue, dtype=np.int64),
+        )
+        np.testing.assert_array_equal(
+            index["shard_offsets"],
+            np.asarray(expected_offsets, dtype=np.int64),
+        )
+        cfr = read_truth_cfr(bundle_path)
+        assert cfr.shape == (len(expected_ue), 1, 1, 1, 8)
+        assert np.any(np.isfinite(cfr))
+        with h5py.File(bundle_path, "r") as h5:
+            assert h5["channel/truth/cfr"].maxshape[0] is None
+            assert h5["topology/tx_positions_m"].shape == (len(expected_ue), 3)
+            assert h5["bundle/source_contract_name"][()].decode("utf-8") == (
+                "sionna_measurement_sim_hdf5"
+            )
+
+    performance = manifest["performance"]
+    assert performance["enabled"] is True
+    assert "hdf5_bundle_append" in performance["stage_totals_s"]
+    assert "hdf5_bundle_write" in performance["stage_totals_s"]
+    assert "schema_validate" in performance["stage_totals_s"]
+    assert performance["dataset_write_summary"]["dataset_count"] > 0
 
 
 def test_rt_truth_pipeline_can_write_rt_labels_only_profile(tmp_path: Path):
