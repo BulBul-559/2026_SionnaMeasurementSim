@@ -156,6 +156,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
   --scene-file tests/fixtures/scenes/test/scene.xml \
   --max-bs 1 --max-ue 3 --num-subcarriers 8 --max-depth 1 \
   --shard-size 1 --bundle-max-planned-shards 2 \
+  --readback-dataset channel/truth/cfr \
   --compression mixed --gzip-level 1 \
   --no-write-hardware-samples
 ```
@@ -173,11 +174,13 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
 | `planned_shard_count` / `fragment_count` | 计划 shard 数和实际 fragment 数 |
 | `file_count` / `file_size_bytes` | HDF5 artifact 数量和总大小 |
 | `dataset_write_count` | tracer 记录的 HDF5 dataset 写入次数 |
+| `readback_s` / `readback_bytes` | 通过 `iter_manifest_dataset()` 读回指定 dataset 的耗时和字节数 |
 
 2026-06-17 的第一轮真实 `cfr_truth` 对照见
 `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`。该结果显示 bundle
-降低文件数、文件大小、dataset write event 数和 schema validate 时间；小 payload 下 bundle
-writer 固定成本仍明显，且同进程 mode 顺序会让 RT warm cache 影响端到端 wall time。
+降低文件数、文件大小、dataset write event 数、schema validate 时间和 manifest readback
+时间；小 payload 下 bundle writer 固定成本仍明显，且同进程 mode 顺序会让 RT warm cache
+影响端到端 wall time。
 
 ## Spectrum-Only
 

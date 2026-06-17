@@ -39,10 +39,10 @@ bundle 降低文件数、文件大小和 schema validate 时间；lightweight fr
 shared dataset cache 已移除内存 HDF5 fragment 二次序列化，synthetic waveform 对照中 bundle
 writer 本体和总 wall time 已快于 shard files。真实轻量 `cfr_truth` 对照见
 `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`：bundle 降低文件数、
-体积、dataset write event 数和 schema validate 时间，但小 payload 下 bundle writer 固定成本
-仍明显，且同进程 RT warm cache 会污染 end-to-end wall time。下一步需要在更大真实 shard
-和训练 loader 上对比默认 shard 文件、bundle 读取吞吐、chunk shape、flush 策略和 schema
-validate 开关。
+体积、dataset write event 数、schema validate 时间和 manifest-aware CFR readback 时间，但
+小 payload 下 bundle writer 固定成本仍明显，且同进程 RT warm cache 会污染 end-to-end wall
+time。下一步需要在更大真实 shard 和训练 loader 上对比默认 shard 文件、bundle 读取吞吐、
+chunk shape、flush 策略和 schema validate 开关。
 
 验收标准：继续比较 buffered writer、bundle HDF5 contract、chunk shape、flush 策略、并行写文件数和
 schema validate 开关；输出推荐配置和风险说明；真实 shard 与 `benchmark write` 均有可复现实验结果，

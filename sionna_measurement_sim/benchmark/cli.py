@@ -163,6 +163,11 @@ def _add_sharding_parser(modes: argparse._SubParsersAction) -> None:
     parser.add_argument("--parallel-workers", type=int, default=1)
     parser.add_argument("--bundle-max-planned-shards", type=int, default=2)
     parser.add_argument(
+        "--readback-dataset",
+        default="channel/truth/cfr",
+        help="Dataset to read back through the manifest after each sharding run.",
+    )
+    parser.add_argument(
         "--compression",
         default="mixed",
         choices=["gzip", "lzf", "none", "mixed"],
@@ -241,6 +246,7 @@ def _sharding_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "shard_size": args.shard_size,
         "parallel_workers": args.parallel_workers,
         "bundle_max_planned_shards": args.bundle_max_planned_shards,
+        "readback_dataset": args.readback_dataset,
         "compression": args.compression,
         "gzip_level": args.gzip_level,
     }

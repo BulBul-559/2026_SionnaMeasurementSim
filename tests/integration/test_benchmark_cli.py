@@ -202,7 +202,13 @@ def test_benchmark_sharding_cli_compares_real_shards_and_bundles(tmp_path: Path)
     assert rows_by_mode["bundle_append"]["fragment_count"] == 3
     assert rows_by_mode["bundle_append"]["hdf5_bundle_append_s"] > 0.0
     assert rows_by_mode["shard_files"]["hdf5_write_s"] > 0.0
+    assert rows_by_mode["bundle_append"]["readback_fragment_count"] == 3
+    assert rows_by_mode["shard_files"]["readback_fragment_count"] == 3
+    assert rows_by_mode["bundle_append"]["readback_bytes"] > 0
+    assert rows_by_mode["shard_files"]["readback_bytes"] > 0
+    assert rows_by_mode["bundle_append"]["readback_finite_rate_min"] == 1.0
     assert set(summary["aggregate_by_write_mode"]) == {"shard_files", "bundle_append"}
+    assert "readback_s_mean" in summary["aggregate_by_write_mode"]["bundle_append"]
     assert (output_dir / "sharding_iter_000_shard_files" / "manifest" / "manifest.json").is_file()
     assert (output_dir / "sharding_iter_000_bundle_append" / "manifest" / "manifest.json").is_file()
 

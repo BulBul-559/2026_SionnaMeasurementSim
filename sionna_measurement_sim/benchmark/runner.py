@@ -37,6 +37,7 @@ from sionna_measurement_sim.domain.results import (
 )
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
+from sionna_measurement_sim.io.hdf5_reader import iter_manifest_dataset
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
@@ -406,6 +407,14 @@ def _run_sharding_comparison_iteration(
     dataset_write_summary = dict(
         manifest.get("performance", {}).get("dataset_write_summary", {})
     )
+    readback_summary = _measure_sharding_readback(
+        tracer,
+        manifest_path,
+        dataset_path=str(parameters.get("readback_dataset") or "channel/truth/cfr"),
+        iteration=iteration,
+        is_warmup=is_warmup,
+        write_mode=write_mode,
+    )
     row.update(
         {
             "status": "success",
@@ -431,6 +440,7 @@ def _run_sharding_comparison_iteration(
             "dataset_storage_bytes": int(
                 dataset_write_summary.get("total_storage_bytes", 0)
             ),
+            **readback_summary,
             "result_dir": run_dir.as_posix(),
             "manifest_path": manifest_path.as_posix(),
             "artifact_paths": [path.as_posix() for path in artifact_paths],
@@ -497,6 +507,44 @@ def _sharding_artifact_paths(manifest: dict[str, Any]) -> list[Path]:
     else:
         paths = [Path(str(item["result_h5"])) for item in manifest.get("results", [])]
     return sorted(set(paths), key=lambda path: path.as_posix())
+
+
+def _measure_sharding_readback(
+    tracer: PerfTracer,
+    manifest_path: Path,
+    *,
+    dataset_path: str,
+    iteration: int,
+    is_warmup: bool,
+    write_mode: str,
+) -> dict[str, Any]:
+    start = time.perf_counter()
+    bytes_read = 0
+    fragment_count = 0
+    finite_rates: list[float] = []
+    global_ue_count = 0
+    with tracer.span(
+        "sharding.dataset_readback",
+        iteration=iteration,
+        warmup=is_warmup,
+        write_mode=write_mode,
+        dataset_path=dataset_path,
+    ):
+        for fragment in iter_manifest_dataset(manifest_path, dataset_path):
+            array = np.asarray(fragment.data)
+            fragment_count += 1
+            bytes_read += int(array.nbytes)
+            global_ue_count += len(fragment.global_ue_indices)
+            if array.size:
+                finite_rates.append(float(np.mean(np.isfinite(array))))
+    return {
+        "readback_dataset": dataset_path,
+        "readback_s": time.perf_counter() - start,
+        "readback_fragment_count": fragment_count,
+        "readback_bytes": bytes_read,
+        "readback_global_ue_count": global_ue_count,
+        "readback_finite_rate_min": min(finite_rates) if finite_rates else 1.0,
+    }
 
 
 def _run_write_single_iteration(

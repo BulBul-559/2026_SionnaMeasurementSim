@@ -226,8 +226,9 @@ fragment recorder 优化去掉内存 HDF5 二次序列化后，waveform syntheti
 `sharding_iter_*_bundle_append/`，用于比较 `hdf5_write` 与
 `hdf5_bundle_write`/`hdf5_bundle_append`、schema validate、文件数和 manifest artifact。
 第一轮真实结果见 `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`：
-bundle 减少文件数、文件大小、dataset write event 和 schema validate 时间；小 payload
-下 writer 固定成本仍明显，且同进程 mode 顺序会污染端到端 wall time。
+bundle 减少文件数、文件大小、dataset write event、schema validate 时间和
+manifest-aware CFR readback 时间；小 payload 下 writer 固定成本仍明显，且同进程 mode
+顺序会污染端到端 wall time。
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 RT labels-only 输出可用以下模板生成：
