@@ -130,9 +130,10 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 | `bundle_append` | 同样 N 个 fragment 按 `--bundle-max-planned-shards` append 到 bundle HDF5 |
 
 `benchmark_summary.json` 会额外写 `aggregate_by_write_mode`，便于比较 `writer_s`、
-`schema_validate_s`、`file_count` 和 `file_size_bytes`。第一轮结果见
-`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`：bundle v1 降低文件数、
-文件大小和 validate 时间，但 writer 本体因内存 fragment 二次序列化仍更慢。
+`schema_validate_s`、`file_count` 和 `file_size_bytes`。2026-06-17 结果见
+`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`：初版 bundle 已降低文件数、
+文件大小和 validate 时间；后续 lightweight fragment recorder 优化去掉内存 HDF5 二次序列化后，
+synthetic waveform 对照中的 bundle writer 本体和总 wall time 已快于 shard files。
 
 ## Spectrum-Only
 

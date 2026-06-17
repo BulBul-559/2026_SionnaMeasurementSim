@@ -53,9 +53,9 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 
 `HDF5ResultBundleWriter` 是 opt-in 实验 writer，用于
 `output.sharding.bundle.enabled=true`。它不会改变默认 `write_measurement_result()`
-或一个 shard 一个 `results/result_xxx.h5` 的路径。bundle writer 会先复用现有 writer
-把每个 domain result 写成内存 HDF5 fragment，再把携带 resolved UE 轴的 dataset append
-到 `bundles/bundle_workerxxx_yyy.h5`。例如 uplink 下：
+或一个 shard 一个 `results/result_xxx.h5` 的路径。bundle writer 会复用现有 writer
+把每个 domain result 记录到轻量 in-memory fragment recorder，再把携带 resolved UE 轴的
+dataset append 到 `bundles/bundle_workerxxx_yyy.h5`。例如 uplink 下：
 
 ```text
 /channel/truth/cfr       [bundle_ue, bs, bs_ant, ue_ant, subcarrier]
@@ -65,8 +65,9 @@ def write_measurement_result(path: str | Path, result: MeasurementSimulationResu
 ```
 
 固定 metadata 只复制一次；无法安全 append 的 dataset 会保留到
-`/bundle/fragments/<fragment_id>/...` sidecar，避免丢失 fragment 原始数据。PerfTracer 会把
-bundle dataset append 也记录为 `hdf5.dataset_write` event。
+`/bundle/fragments/<fragment_id>/...` sidecar，避免丢失 fragment 原始数据。shared dataset
+比对使用 writer 内部 cache，避免每个 fragment 反复读取 bundle HDF5 中的小 metadata。
+PerfTracer 会把 bundle dataset append 也记录为 `hdf5.dataset_write` event。
 
 ### `schema_validator.py` — HDF5 契约校验
 

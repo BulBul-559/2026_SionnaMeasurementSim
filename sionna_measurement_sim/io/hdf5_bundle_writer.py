@@ -49,8 +49,8 @@ class BundleAppendSummary:
 class HDF5ResultBundleWriter:
     """Write multiple shard results into one appendable HDF5 bundle.
 
-    The writer serializes each domain result through the existing HDF5 writer into
-    an in-memory fragment, then appends datasets that carry the resolved UE axis.
+    The writer records each domain result through the existing HDF5 writer into
+    a lightweight in-memory fragment, then appends datasets that carry the resolved UE axis.
     This keeps PHY-standard-specific field handling in the existing writer while
     the bundle layer stays focused on HDF5 layout.
     """
@@ -74,6 +74,7 @@ class HDF5ResultBundleWriter:
         self._ue_count = 0
         self._ue_axis_role: str | None = None
         self._source_contract_name = ""
+        self._shared_dataset_cache: dict[str, np.ndarray] = {}
         self._closed = False
 
     def __enter__(self) -> HDF5ResultBundleWriter:
@@ -94,7 +95,7 @@ class HDF5ResultBundleWriter:
         if self._closed:
             raise ValueError("Cannot append to a closed HDF5ResultBundleWriter")
         fragment_id = fragment_id or _default_fragment_id(self._fragment_count, shard_spec)
-        with _result_as_memory_h5(result) as source:
+        with _result_as_recorded_h5(result) as source:
             if self._fragment_count == 0:
                 self._initialize_from_first_fragment(source)
             context = _bundle_context(source, shard_spec, fragment_id)
@@ -129,7 +130,7 @@ class HDF5ResultBundleWriter:
         self._h5.close()
         self._closed = True
 
-    def _initialize_from_first_fragment(self, source: h5py.File) -> None:
+    def _initialize_from_first_fragment(self, source: _RecordedH5File) -> None:
         contract_name = _read_string(source["meta/contract_name"])
         self._source_contract_name = contract_name
         context = _bundle_context(source, None, "probe")
@@ -146,7 +147,7 @@ class HDF5ResultBundleWriter:
         _copy_scalar(bundle, "append_axis_policy", "resolved_ue_axis")
         _copy_scalar(bundle, "layout_version", "experimental_append_v1")
 
-    def _append_datasets(self, source: h5py.File, context: _FragmentContext) -> None:
+    def _append_datasets(self, source: _RecordedH5File, context: _FragmentContext) -> None:
         for dataset in _iter_datasets(source):
             path = _strip_root(dataset.name)
             if _skip_source_dataset(path):
@@ -159,24 +160,27 @@ class HDF5ResultBundleWriter:
 
     def _copy_shared_or_fragment(
         self,
-        dataset: h5py.Dataset,
+        dataset: h5py.Dataset | _RecordedDataset,
         context: _FragmentContext,
     ) -> None:
         path = _strip_root(dataset.name)
         if path in self._h5:
-            if _dataset_values_equal(self._h5[path], dataset):
+            cached = self._shared_dataset_cache.get(path)
+            if cached is None:
+                cached = np.asarray(self._h5[path][()])
+                self._shared_dataset_cache[path] = cached
+            if _array_values_equal(cached, dataset):
                 return
-            fragment_group = self._h5.require_group(
-                f"bundle/fragments/{context.fragment_id}"
-            )
+            fragment_group = self._h5.require_group(f"bundle/fragments/{context.fragment_id}")
             _copy_dataset_path(fragment_group, path, dataset)
             return
         _copy_dataset_path(self._h5, path, dataset)
+        self._shared_dataset_cache[path] = np.asarray(dataset[()])
 
     def _append_dataset(
         self,
         path: str,
-        source: h5py.Dataset,
+        source: h5py.Dataset | _RecordedDataset,
         axis: int,
     ) -> None:
         array = source[()]
@@ -209,10 +213,7 @@ class HDF5ResultBundleWriter:
             if dim == axis:
                 continue
             if existing != incoming:
-                msg = (
-                    f"/{path} non-append dimension {dim} changed: "
-                    f"{existing} != {incoming}"
-                )
+                msg = f"/{path} non-append dimension {dim} changed: {existing} != {incoming}"
                 raise ValueError(msg)
         old_size = dataset.shape[axis]
         new_size = old_size + array.shape[axis]
@@ -229,7 +230,7 @@ class HDF5ResultBundleWriter:
         path: str,
         array: np.ndarray,
         axis: int,
-        source: h5py.Dataset,
+        source: h5py.Dataset | _RecordedDataset,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"chunks": _chunk_shape(array.shape, axis)}
         if h5py.check_string_dtype(source.dtype) is not None:
@@ -328,18 +329,115 @@ class _FragmentContext:
     fallback_reason: str
 
 
-def _result_as_memory_h5(result: BundleResult) -> h5py.File:
+class _RecordedDataset:
+    """Small dataset facade used to avoid serializing bundle fragments to HDF5."""
+
+    def __init__(self, name: str, data: Any, dtype: Any | None = None) -> None:
+        self.name = name
+        self.attrs: dict[str, Any] = {}
+        self._data = np.asarray(data, dtype=dtype) if dtype is not None else np.asarray(data)
+        self.dtype = self._data.dtype
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return tuple(int(dim) for dim in self._data.shape)
+
+    @property
+    def ndim(self) -> int:
+        return int(self._data.ndim)
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._data[key]
+
+
+class _RecordedGroup:
+    """Minimal h5py-like group facade for existing writer helper reuse."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.attrs: dict[str, Any] = {}
+        self._children: dict[str, _RecordedGroup | _RecordedDataset] = {}
+
+    def require_group(self, name: str) -> _RecordedGroup:
+        group = self
+        for part in _path_parts(name):
+            child = group._children.get(part)
+            if child is None:
+                child = _RecordedGroup(_join_h5_path(group.name, part))
+                group._children[part] = child
+            if not isinstance(child, _RecordedGroup):
+                msg = f"/{name} already exists as a dataset"
+                raise TypeError(msg)
+            group = child
+        return group
+
+    def create_dataset(
+        self,
+        name: str,
+        data: Any,
+        dtype: Any | None = None,
+        **_: Any,
+    ) -> _RecordedDataset:
+        parts = _path_parts(name)
+        if not parts:
+            msg = "Dataset name must not be empty"
+            raise ValueError(msg)
+        group = self.require_group("/".join(parts[:-1])) if len(parts) > 1 else self
+        dataset_name = parts[-1]
+        if dataset_name in group._children:
+            msg = f"/{name} already exists"
+            raise ValueError(msg)
+        dataset = _RecordedDataset(_join_h5_path(group.name, dataset_name), data, dtype=dtype)
+        group._children[dataset_name] = dataset
+        return dataset
+
+    def __contains__(self, path: str) -> bool:
+        try:
+            self[path]
+        except KeyError:
+            return False
+        return True
+
+    def __getitem__(self, path: str) -> _RecordedGroup | _RecordedDataset:
+        item: _RecordedGroup | _RecordedDataset = self
+        for part in _path_parts(path):
+            if not isinstance(item, _RecordedGroup):
+                raise KeyError(path)
+            try:
+                item = item._children[part]
+            except KeyError as exc:
+                raise KeyError(path) from exc
+        return item
+
+    def items(self):
+        return self._children.items()
+
+    def values(self):
+        return self._children.values()
+
+
+class _RecordedH5File(_RecordedGroup):
+    """Root in-memory fragment facade."""
+
+    def __init__(self) -> None:
+        super().__init__("/")
+
+    def __enter__(self) -> _RecordedH5File:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        return
+
+
+def _result_as_recorded_h5(result: BundleResult) -> _RecordedH5File:
     compression_token = _ACTIVE_COMPRESSION.set("none")
     gzip_token = _ACTIVE_GZIP_LEVEL.set(1)
     tracer_token = _ACTIVE_TRACER.set(None)
-    h5: h5py.File | None = None
+    h5 = _RecordedH5File()
     try:
-        h5 = h5py.File(
-            f"bundle_fragment_{id(result)}",
-            "w",
-            driver="core",
-            backing_store=False,
-        )
         if isinstance(result, MeasurementSimulationResult):
             write_measurement_result_to_h5(h5, result)
         elif isinstance(result, RTLabelsOnlyResult):
@@ -350,10 +448,6 @@ def _result_as_memory_h5(result: BundleResult) -> h5py.File:
             msg = f"Unsupported bundle result type: {type(result)!r}"
             raise TypeError(msg)
         return h5
-    except Exception:
-        if h5 is not None:
-            h5.close()
-        raise
     finally:
         _ACTIVE_TRACER.reset(tracer_token)
         _ACTIVE_GZIP_LEVEL.reset(gzip_token)
@@ -361,7 +455,7 @@ def _result_as_memory_h5(result: BundleResult) -> h5py.File:
 
 
 def _bundle_context(
-    source: h5py.File,
+    source: _RecordedH5File,
     shard_spec: ShardSpec | None,
     fragment_id: str,
 ) -> _FragmentContext:
@@ -415,7 +509,7 @@ def _bundle_context(
 
 def _append_axis_for_dataset(
     path: str,
-    dataset: h5py.Dataset,
+    dataset: h5py.Dataset | _RecordedDataset,
     context: _FragmentContext,
 ) -> int | None:
     if dataset.ndim == 0:
@@ -461,20 +555,28 @@ def _skip_source_dataset(path: str) -> bool:
     return path.startswith("meta/") or path.startswith("shard/")
 
 
-def _iter_datasets(group: h5py.Group):
+def _iter_datasets(group: h5py.Group | _RecordedGroup):
     for item in group.values():
-        if isinstance(item, h5py.Dataset):
+        if isinstance(item, (h5py.Dataset, _RecordedDataset)):
             yield item
-        elif isinstance(item, h5py.Group):
+        elif isinstance(item, (h5py.Group, _RecordedGroup)):
             yield from _iter_datasets(item)
 
 
-def _copy_dataset_path(parent: h5py.Group, path: str, source: h5py.Dataset) -> h5py.Dataset:
+def _copy_dataset_path(
+    parent: h5py.Group,
+    path: str,
+    source: h5py.Dataset | _RecordedDataset,
+) -> h5py.Dataset:
     group = _require_parent(parent, path)
     return _copy_dataset(group, Path(path).name, source)
 
 
-def _copy_dataset(group: h5py.Group, name: str, source: h5py.Dataset) -> h5py.Dataset:
+def _copy_dataset(
+    group: h5py.Group,
+    name: str,
+    source: h5py.Dataset | _RecordedDataset,
+) -> h5py.Dataset:
     data = source[()]
     kwargs: dict[str, Any] = {}
     if h5py.check_string_dtype(source.dtype) is not None:
@@ -490,7 +592,7 @@ def _copy_scalar(group: h5py.Group, name: str, value: Any) -> h5py.Dataset:
     return group.create_dataset(name, data=value)
 
 
-def _copy_attrs(source: h5py.Dataset, target: h5py.Dataset) -> None:
+def _copy_attrs(source: h5py.Dataset | _RecordedDataset, target: h5py.Dataset) -> None:
     for key, value in source.attrs.items():
         target.attrs[key] = value
 
@@ -537,15 +639,15 @@ def _upsert_scalar(group: h5py.Group, name: str, value: Any) -> None:
     _copy_scalar(group, name, value)
 
 
-def _dataset_values_equal(left: h5py.Dataset, right: h5py.Dataset) -> bool:
-    if left.shape != right.shape:
+def _array_values_equal(left: np.ndarray, right: h5py.Dataset | _RecordedDataset) -> bool:
+    if tuple(int(dim) for dim in left.shape) != right.shape:
         return False
     if (
         h5py.check_string_dtype(left.dtype) is not None
         or h5py.check_string_dtype(right.dtype) is not None
     ):
-        return np.array_equal(left[()], right[()])
-    return np.array_equal(left[()], right[()], equal_nan=True)
+        return np.array_equal(left, right[()])
+    return np.array_equal(left, right[()], equal_nan=True)
 
 
 def _chunk_shape(shape: tuple[int, ...], append_axis: int) -> tuple[int, ...]:
@@ -556,7 +658,7 @@ def _chunk_shape(shape: tuple[int, ...], append_axis: int) -> tuple[int, ...]:
     return tuple(chunks)
 
 
-def _read_string(dataset: h5py.Dataset) -> str:
+def _read_string(dataset: h5py.Dataset | _RecordedDataset) -> str:
     value = dataset[()]
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -567,6 +669,16 @@ def _attr_string(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+def _path_parts(path: str) -> list[str]:
+    return [part for part in path.strip("/").split("/") if part]
+
+
+def _join_h5_path(parent: str, child: str) -> str:
+    if parent == "/":
+        return f"/{child}"
+    return f"{parent}/{child}"
 
 
 def _strip_root(path: str) -> str:
