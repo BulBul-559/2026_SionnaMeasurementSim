@@ -262,7 +262,8 @@ resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json`
 `output.sharding.bundle.enabled=true` 会改为把多个 shard fragment append 到
 `bundles/bundle_workerxxx_yyy.h5`，并在 `/bundle` 记录 fragment offset、全局 UE index
 和源 shard 信息；manifest 仍是训练/分析入口。bundle 模式当前用于写盘/读取性能探索，
-不会替代默认生产路径。
+不会替代默认生产路径。读取侧可用 `iter_manifest_dataset()` 逐 fragment 访问，也可用
+`iter_manifest_dataset_batches()` 沿 resolved UE 轴拼接训练式 batch。
 本地队列、验收和 heatmap 包装脚本也应把运行日志、heatmap 日志和汇总 JSON 放回同一个
 run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避免在
 `outputs/` 根目录生成 sidecar 文件。

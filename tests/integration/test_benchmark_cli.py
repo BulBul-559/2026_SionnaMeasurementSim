@@ -204,6 +204,9 @@ def test_benchmark_sharding_cli_compares_real_shards_and_bundles(tmp_path: Path)
     assert rows_by_mode["shard_files"]["hdf5_write_s"] > 0.0
     assert rows_by_mode["bundle_append"]["readback_fragment_count"] == 3
     assert rows_by_mode["shard_files"]["readback_fragment_count"] == 3
+    assert rows_by_mode["bundle_append"]["readback_batch_count"] == 1
+    assert rows_by_mode["shard_files"]["readback_batch_count"] == 1
+    assert rows_by_mode["bundle_append"]["readback_batch_fragments"] == 16
     assert rows_by_mode["bundle_append"]["readback_bytes"] > 0
     assert rows_by_mode["shard_files"]["readback_bytes"] > 0
     assert rows_by_mode["bundle_append"]["readback_finite_rate_min"] == 1.0

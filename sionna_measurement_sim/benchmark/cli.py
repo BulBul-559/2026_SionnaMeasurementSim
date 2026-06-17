@@ -168,6 +168,12 @@ def _add_sharding_parser(modes: argparse._SubParsersAction) -> None:
         help="Dataset to read back through the manifest after each sharding run.",
     )
     parser.add_argument(
+        "--readback-batch-fragments",
+        type=int,
+        default=16,
+        help="Maximum manifest fragments per training-style readback batch.",
+    )
+    parser.add_argument(
         "--compression",
         default="mixed",
         choices=["gzip", "lzf", "none", "mixed"],
@@ -247,6 +253,7 @@ def _sharding_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "parallel_workers": args.parallel_workers,
         "bundle_max_planned_shards": args.bundle_max_planned_shards,
         "readback_dataset": args.readback_dataset,
+        "readback_batch_fragments": args.readback_batch_fragments,
         "compression": args.compression,
         "gzip_level": args.gzip_level,
     }

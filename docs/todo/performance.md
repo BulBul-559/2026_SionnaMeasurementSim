@@ -30,7 +30,9 @@ manifest、`benchmark write`。
 详见 `docs/performance/single_scene_full_perf_2026-06-16.md`。2026-06-17 已落地
 实验性 `output.sharding.bundle.enabled`：每个 worker 可把多个 computed shard fragment
 append 到 `bundles/bundle_workerxxx_yyy.h5`，并补了 bundle writer/schema/reader/manifest
-smoke 测试；默认生产路径仍是一个 shard 一个 `results/result_xxx.h5`。
+smoke 测试；reader 已提供 `iter_manifest_dataset_batches()`，可沿 resolved UE 轴把
+manifest fragment 拼接成训练式 batch，并对连续 bundle fragment 复用打开句柄。默认生产路径
+仍是一个 shard 一个 `results/result_xxx.h5`。
 
 下一步方向：用户建议的 “compute chunk 小批量 + write batch 缓冲/append” 已有第一版
 bundle contract，并新增 `benchmark write --bundle-shards` 和 `benchmark sharding` 对照。
@@ -39,9 +41,9 @@ bundle 降低文件数、文件大小和 schema validate 时间；lightweight fr
 shared dataset cache 已移除内存 HDF5 fragment 二次序列化，synthetic waveform 对照中 bundle
 writer 本体和总 wall time 已快于 shard files。真实轻量 `cfr_truth` 对照见
 `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`：bundle 降低文件数、
-体积、dataset write event 数、schema validate 时间和 manifest-aware CFR readback 时间，但
+体积、dataset write event 数、schema validate 时间和 manifest-aware batch CFR readback 时间，但
 小 payload 下 bundle writer 固定成本仍明显，且同进程 RT warm cache 会污染 end-to-end wall
-time。下一步需要在更大真实 shard 和训练 loader 上对比默认 shard 文件、bundle 读取吞吐、
+time。下一步需要在更大真实 shard 和真实训练 loader 上对比默认 shard 文件、bundle 读取吞吐、
 chunk shape、flush 策略和 schema validate 开关。
 
 验收标准：继续比较 buffered writer、bundle HDF5 contract、chunk shape、flush 策略、并行写文件数和

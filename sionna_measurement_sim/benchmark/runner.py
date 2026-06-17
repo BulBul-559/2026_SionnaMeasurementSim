@@ -37,7 +37,7 @@ from sionna_measurement_sim.domain.results import (
 )
 from sionna_measurement_sim.domain.topology import Topology
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
-from sionna_measurement_sim.io.hdf5_reader import iter_manifest_dataset
+from sionna_measurement_sim.io.hdf5_reader import iter_manifest_dataset_batches
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
@@ -411,6 +411,7 @@ def _run_sharding_comparison_iteration(
         tracer,
         manifest_path,
         dataset_path=str(parameters.get("readback_dataset") or "channel/truth/cfr"),
+        max_fragments=int(parameters.get("readback_batch_fragments") or 16),
         iteration=iteration,
         is_warmup=is_warmup,
         write_mode=write_mode,
@@ -514,12 +515,14 @@ def _measure_sharding_readback(
     manifest_path: Path,
     *,
     dataset_path: str,
+    max_fragments: int,
     iteration: int,
     is_warmup: bool,
     write_mode: str,
 ) -> dict[str, Any]:
     start = time.perf_counter()
     bytes_read = 0
+    batch_count = 0
     fragment_count = 0
     finite_rates: list[float] = []
     global_ue_count = 0
@@ -529,17 +532,25 @@ def _measure_sharding_readback(
         warmup=is_warmup,
         write_mode=write_mode,
         dataset_path=dataset_path,
+        max_fragments=max_fragments,
     ):
-        for fragment in iter_manifest_dataset(manifest_path, dataset_path):
-            array = np.asarray(fragment.data)
-            fragment_count += 1
+        for batch in iter_manifest_dataset_batches(
+            manifest_path,
+            dataset_path,
+            max_fragments=max_fragments,
+        ):
+            array = np.asarray(batch.data)
+            batch_count += 1
+            fragment_count += len(batch.fragments)
             bytes_read += int(array.nbytes)
-            global_ue_count += len(fragment.global_ue_indices)
+            global_ue_count += len(batch.global_ue_indices)
             if array.size:
                 finite_rates.append(float(np.mean(np.isfinite(array))))
     return {
         "readback_dataset": dataset_path,
+        "readback_batch_fragments": max_fragments,
         "readback_s": time.perf_counter() - start,
+        "readback_batch_count": batch_count,
         "readback_fragment_count": fragment_count,
         "readback_bytes": bytes_read,
         "readback_global_ue_count": global_ue_count,

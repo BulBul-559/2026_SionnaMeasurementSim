@@ -143,8 +143,11 @@ RT labels-only 单文件或 sharded run 目录。训练/分析侧优先使用
 `results` 顺序逐 entry 读取 dataset，并同时支持默认 `results/result_xxx.h5`、fallback
 子 shard 和实验 bundle fragment。返回的 `ManifestDatasetFragment` 包含 `data`、
 `source_path`、`global_ue_indices`、`global_tx_indices`、`global_rx_indices`、
-`shard_id`、`fragment_id`、`append_start`、`append_count` 和 `bundled`，让下游不需要手写
-普通 shard 与 bundle 分支。
+`shard_id`、`fragment_id`、`append_start`、`append_count`、`append_axis` 和 `bundled`，
+让下游不需要手写普通 shard 与 bundle 分支。训练式读取可用
+`iter_manifest_dataset_batches(..., max_fragments=...)`，它返回 `ManifestDatasetBatch`，
+会沿 resolved UE append 轴拼接 fragment，并在连续 bundle fragment 上复用打开句柄和
+schema 校验结果。
 
 `read_bundle_index()` 读取实验 bundle 的 `fragment_count`、`ue_count`、`shard_offsets`
 和 `global_ue_indices`，用于按 append 区间定位样本；`read_truth_cfr()` 可直接读取

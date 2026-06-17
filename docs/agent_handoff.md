@@ -64,9 +64,11 @@ schema 不变，但文件体积通常略增。
 `sionna_measurement_sim_bundle_hdf5`，`/bundle/shard_offsets` 和
 `/bundle/global_ue_indices` 给训练 loader 定位样本；reader 提供 manifest-aware
 `iter_manifest_dataset()`，可用同一入口读取默认 shard HDF5、fallback 子 shard 和 bundle
-fragment，也提供 `read_bundle_fragment_dataset()` 按 fragment index/id 读取 root append
-dataset 或 sidecar 覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及
-schema/reader/manifest 时要同时覆盖 bundle contract。
+fragment，并提供 `iter_manifest_dataset_batches()` 按 resolved UE 轴拼接训练式 batch；
+同一 bundle 文件的连续 fragment 会复用打开句柄和 schema 校验。单 bundle 调试可用
+`read_bundle_fragment_dataset()` 按 fragment index/id 读取 root append dataset 或 sidecar
+覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及 schema/reader/manifest
+时要同时覆盖 bundle contract。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。
 新输出不再写 array 兼容别名
@@ -227,8 +229,9 @@ fragment recorder 优化去掉内存 HDF5 二次序列化后，waveform syntheti
 `hdf5_bundle_write`/`hdf5_bundle_append`、schema validate、文件数和 manifest artifact。
 第一轮真实结果见 `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`：
 bundle 减少文件数、文件大小、dataset write event、schema validate 时间和
-manifest-aware CFR readback 时间；小 payload 下 writer 固定成本仍明显，且同进程 mode
-顺序会污染端到端 wall time。
+manifest-aware CFR readback 时间；当前 readback probe 使用 `iter_manifest_dataset_batches()`
+按训练式 batch 读取。小 payload 下 writer 固定成本仍明显，且同进程 mode 顺序会污染端到端
+wall time。
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 RT labels-only 输出可用以下模板生成：

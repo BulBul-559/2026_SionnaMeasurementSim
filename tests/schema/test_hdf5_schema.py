@@ -31,6 +31,7 @@ from sionna_measurement_sim.domain.results import (
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_reader import (
     iter_manifest_dataset,
+    iter_manifest_dataset_batches,
     read_bundle_fragment_dataset,
     read_bundle_index,
     read_link_labels,
@@ -411,6 +412,25 @@ def test_manifest_dataset_iterator_reads_shard_files_and_bundles(tmp_path: Path)
         shard_fragments[1].data,
         base.truth.cfr * np.complex64(3.0 + 0.0j),
     )
+    shard_batches = list(
+        iter_manifest_dataset_batches(
+            shard_run_dir,
+            "channel/truth/cfr",
+            max_fragments=8,
+        )
+    )
+    assert len(shard_batches) == 1
+    assert shard_batches[0].append_axis == 0
+    assert shard_batches[0].global_ue_indices == (0, 1)
+    assert shard_batches[0].global_tx_indices == (0, 1)
+    assert shard_batches[0].global_rx_indices == (0,)
+    assert shard_batches[0].shard_ids == ("000", "001")
+    assert shard_batches[0].data.shape == (2, 1, 1, 1, 8)
+    np.testing.assert_allclose(shard_batches[0].data[0:1], base.truth.cfr)
+    np.testing.assert_allclose(
+        shard_batches[0].data[1:2],
+        base.truth.cfr * np.complex64(3.0 + 0.0j),
+    )
 
     bundle_run_dir = tmp_path / "bundle_run"
     bundle_path = bundle_run_dir / "bundles" / "bundle_worker000_000.h5"
@@ -458,6 +478,25 @@ def test_manifest_dataset_iterator_reads_shard_files_and_bundles(tmp_path: Path)
     np.testing.assert_allclose(bundle_fragments[0].data, base.truth.cfr)
     np.testing.assert_allclose(
         bundle_fragments[1].data,
+        base.truth.cfr * np.complex64(3.0 + 0.0j),
+    )
+    bundle_batches = list(
+        iter_manifest_dataset_batches(
+            bundle_run_dir / "manifest" / "manifest.json",
+            "/channel/truth/cfr",
+            max_fragments=8,
+        )
+    )
+    assert len(bundle_batches) == 1
+    assert bundle_batches[0].append_axis == 0
+    assert bundle_batches[0].global_ue_indices == (0, 1)
+    assert bundle_batches[0].global_tx_indices == (0, 1)
+    assert bundle_batches[0].global_rx_indices == (0,)
+    assert bundle_batches[0].fragment_ids == ("000", "001")
+    assert bundle_batches[0].data.shape == (2, 1, 1, 1, 8)
+    np.testing.assert_allclose(bundle_batches[0].data[0:1], base.truth.cfr)
+    np.testing.assert_allclose(
+        bundle_batches[0].data[1:2],
         base.truth.cfr * np.complex64(3.0 + 0.0j),
     )
 

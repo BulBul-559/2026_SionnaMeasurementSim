@@ -792,6 +792,9 @@ schema `2.1.0` 起，`phy.iq` 不再接受旧的 `save_frequency_clean/save_time
 读取侧若从 run 目录或 `manifest/manifest.json` 开始，应优先用
 `iter_manifest_dataset(path, dataset_path)`；它会统一处理默认 shard HDF5、fallback 子 shard
 和 bundle fragment，并返回每个 entry 的全局 UE/TX/RX index、fragment id 与 append 区间。
+训练或吞吐测试可用 `iter_manifest_dataset_batches(path, dataset_path, max_fragments=...)`，
+它会把连续 fragment 沿 resolved UE append 轴拼接成 batch，并在同一 bundle 文件内复用打开句柄
+和 schema 校验结果，避免手写 shard/bundle 分支读取逻辑。
 只针对单个 bundle 文件调试时，可先用 `read_bundle_index()` 获取 fragment offset 和全局 UE
 index，再用 `read_bundle_fragment_dataset(path, dataset_path, fragment_index=...)` 或
 `fragment_id=...` 读取单个 fragment 对应的数据。该 helper 会基于 `/bundle/shard_offsets`
