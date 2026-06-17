@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +31,11 @@ from sionna_measurement_sim.domain.results import (
     Metadata,
     RuntimeInfo,
     SceneSpec,
+    ShardMetadata,
+    ShardSpec,
 )
 from sionna_measurement_sim.domain.topology import Topology
+from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_writer import write_measurement_result
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 from sionna_measurement_sim.perf import PerfTracer
@@ -270,56 +273,28 @@ def run_write_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -
     exception: BaseException | None = None
     try:
         for iteration, is_warmup in _iteration_plan(options):
-            result = build_synthetic_measurement_result(
-                seed=options.seed + iteration,
-                tx_count=int(parameters["tx_count"]),
-                rx_count=int(parameters["rx_count"]),
-                rx_ant=int(parameters["rx_ant"]),
-                tx_ant=int(parameters["tx_ant"]),
-                subcarriers=int(parameters["subcarriers"]),
-                snapshots=int(parameters["snapshots"]),
-                include_waveform=bool(parameters["include_waveform"]),
-                include_array=bool(parameters["include_array"]),
-                include_ranging=bool(parameters["include_ranging"]),
-            )
-            h5_path = output_dir / f"write_iter_{iteration:03d}.h5"
-            row = {
-                "iteration": iteration,
-                "warmup": is_warmup,
-                "benchmark_type": "write",
-            }
-            iter_start = time.perf_counter()
-            with tracer.span("write.hdf5_write", iteration=iteration, warmup=is_warmup):
-                write_measurement_result(
-                    h5_path,
-                    result,
-                    compression=str(parameters["compression"]),
-                    gzip_level=int(parameters.get("gzip_level", 4)),
-                    tracer=tracer,
+            if int(parameters.get("bundle_shards", 0)) > 0:
+                rows.extend(
+                    _run_write_bundle_comparison_iteration(
+                        output_dir,
+                        tracer,
+                        options=options,
+                        parameters=parameters,
+                        iteration=iteration,
+                        is_warmup=is_warmup,
+                    )
                 )
-            schema_validate_s = 0.0
-            if parameters["validate_schema"]:
-                validate_start = time.perf_counter()
-                with tracer.span(
-                    "write.schema_validate",
+                continue
+            rows.append(
+                _run_write_single_iteration(
+                    output_dir,
+                    tracer,
+                    options=options,
+                    parameters=parameters,
                     iteration=iteration,
-                    warmup=is_warmup,
-                ):
-                    validate_hdf5_contract(h5_path)
-                schema_validate_s = time.perf_counter() - validate_start
-            row.update(
-                {
-                    "status": "success",
-                    "wall_time_s": time.perf_counter() - iter_start,
-                    "writer_s": _stage_duration(
-                        tracer, "write.hdf5_write", iteration=iteration
-                    ),
-                    "schema_validate_s": schema_validate_s,
-                    "file_size_bytes": h5_path.stat().st_size,
-                    "path": h5_path.as_posix(),
-                }
+                    is_warmup=is_warmup,
+                )
             )
-            rows.append(row)
     except Exception as exc:  # pragma: no cover - exercised through callers
         status = "failed"
         exception = exc
@@ -341,6 +316,316 @@ def run_write_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -
             artifacts={"output_dir": output_dir.as_posix()},
         )
     return output_dir / f"{options.summary_name}.json"
+
+
+def _run_write_single_iteration(
+    output_dir: Path,
+    tracer: PerfTracer,
+    *,
+    options: BenchmarkOptions,
+    parameters: dict[str, Any],
+    iteration: int,
+    is_warmup: bool,
+) -> dict[str, Any]:
+    result = _build_synthetic_write_result(options, parameters, seed=options.seed + iteration)
+    h5_path = output_dir / f"write_iter_{iteration:03d}.h5"
+    row = {
+        "iteration": iteration,
+        "warmup": is_warmup,
+        "benchmark_type": "write",
+        "write_mode": "single_file",
+    }
+    iter_start = time.perf_counter()
+    with tracer.span("write.hdf5_write", iteration=iteration, warmup=is_warmup):
+        write_start = time.perf_counter()
+        write_measurement_result(
+            h5_path,
+            result,
+            compression=str(parameters["compression"]),
+            gzip_level=int(parameters.get("gzip_level", 4)),
+            tracer=tracer,
+        )
+        writer_s = time.perf_counter() - write_start
+    schema_validate_s = 0.0
+    if parameters["validate_schema"]:
+        validate_start = time.perf_counter()
+        with tracer.span(
+            "write.schema_validate",
+            iteration=iteration,
+            warmup=is_warmup,
+        ):
+            validate_hdf5_contract(h5_path)
+        schema_validate_s = time.perf_counter() - validate_start
+    row.update(
+        {
+            "status": "success",
+            "wall_time_s": time.perf_counter() - iter_start,
+            "writer_s": writer_s,
+            "schema_validate_s": schema_validate_s,
+            "file_size_bytes": h5_path.stat().st_size,
+            "file_count": 1,
+            "fragment_count": 1,
+            "ue_count": int(parameters["tx_count"]),
+            "path": h5_path.as_posix(),
+        }
+    )
+    return row
+
+
+def _run_write_bundle_comparison_iteration(
+    output_dir: Path,
+    tracer: PerfTracer,
+    *,
+    options: BenchmarkOptions,
+    parameters: dict[str, Any],
+    iteration: int,
+    is_warmup: bool,
+) -> list[dict[str, Any]]:
+    shard_count = int(parameters["bundle_shards"])
+    if shard_count < 1:
+        msg = "bundle_shards must be >= 1 when bundle comparison is enabled"
+        raise ValueError(msg)
+    tx_count = int(parameters["tx_count"])
+    fragments = [
+        _with_synthetic_shard_metadata(
+            _build_synthetic_write_result(
+                options,
+                parameters,
+                seed=options.seed + iteration * 1000 + shard_index,
+            ),
+            shard_index=shard_index,
+            shard_count=shard_count,
+            tx_count=tx_count,
+            rx_count=int(parameters["rx_count"]),
+        )
+        for shard_index in range(shard_count)
+    ]
+    shard_specs = [
+        ShardSpec(
+            shard_index=shard_index,
+            shard_count=shard_count,
+            axis="ue",
+            ue_start=shard_index * tx_count,
+            ue_count=tx_count,
+        )
+        for shard_index in range(shard_count)
+    ]
+    shard_row = _write_synthetic_shard_files(
+        output_dir,
+        tracer,
+        parameters=parameters,
+        fragments=fragments,
+        iteration=iteration,
+        is_warmup=is_warmup,
+    )
+    bundle_row = _write_synthetic_bundles(
+        output_dir,
+        tracer,
+        parameters=parameters,
+        fragments=fragments,
+        shard_specs=shard_specs,
+        iteration=iteration,
+        is_warmup=is_warmup,
+    )
+    return [shard_row, bundle_row]
+
+
+def _write_synthetic_shard_files(
+    output_dir: Path,
+    tracer: PerfTracer,
+    *,
+    parameters: dict[str, Any],
+    fragments: list[MeasurementSimulationResult],
+    iteration: int,
+    is_warmup: bool,
+) -> dict[str, Any]:
+    iter_dir = output_dir / f"write_iter_{iteration:03d}_shards"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    row = _write_comparison_row(
+        iteration=iteration,
+        is_warmup=is_warmup,
+        write_mode="shard_files",
+        fragment_count=len(fragments),
+        ue_count=len(fragments) * int(parameters["tx_count"]),
+    )
+    iter_start = time.perf_counter()
+    paths: list[str] = []
+    with tracer.span("write.shards_hdf5_write", iteration=iteration, warmup=is_warmup):
+        write_start = time.perf_counter()
+        for shard_index, result in enumerate(fragments):
+            path = iter_dir / f"result_{shard_index:03d}.h5"
+            write_measurement_result(
+                path,
+                result,
+                compression=str(parameters["compression"]),
+                gzip_level=int(parameters.get("gzip_level", 4)),
+                tracer=tracer,
+            )
+            paths.append(path.as_posix())
+        writer_s = time.perf_counter() - write_start
+    schema_validate_s = 0.0
+    if parameters["validate_schema"]:
+        validate_start = time.perf_counter()
+        with tracer.span(
+            "write.shards_schema_validate",
+            iteration=iteration,
+            warmup=is_warmup,
+        ):
+            for path in paths:
+                validate_hdf5_contract(path)
+        schema_validate_s = time.perf_counter() - validate_start
+    row.update(
+        {
+            "status": "success",
+            "wall_time_s": time.perf_counter() - iter_start,
+            "writer_s": writer_s,
+            "schema_validate_s": schema_validate_s,
+            "file_size_bytes": sum(Path(path).stat().st_size for path in paths),
+            "file_count": len(paths),
+            "path": iter_dir.as_posix(),
+            "artifact_paths": paths,
+        }
+    )
+    return row
+
+
+def _write_synthetic_bundles(
+    output_dir: Path,
+    tracer: PerfTracer,
+    *,
+    parameters: dict[str, Any],
+    fragments: list[MeasurementSimulationResult],
+    shard_specs: list[ShardSpec],
+    iteration: int,
+    is_warmup: bool,
+) -> dict[str, Any]:
+    iter_dir = output_dir / f"write_iter_{iteration:03d}_bundles"
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    max_planned = max(int(parameters.get("bundle_max_planned_shards", 10)), 1)
+    row = _write_comparison_row(
+        iteration=iteration,
+        is_warmup=is_warmup,
+        write_mode="bundle_append",
+        fragment_count=len(fragments),
+        ue_count=len(fragments) * int(parameters["tx_count"]),
+    )
+    iter_start = time.perf_counter()
+    paths: list[str] = []
+    with tracer.span("write.bundle_hdf5_write", iteration=iteration, warmup=is_warmup):
+        write_start = time.perf_counter()
+        for bundle_index, start in enumerate(range(0, len(fragments), max_planned)):
+            bundle_path = iter_dir / f"bundle_{bundle_index:03d}.h5"
+            with HDF5ResultBundleWriter(
+                bundle_path,
+                compression=str(parameters["compression"]),
+                gzip_level=int(parameters.get("gzip_level", 4)),
+                tracer=tracer,
+            ) as writer:
+                for result, spec in zip(
+                    fragments[start : start + max_planned],
+                    shard_specs[start : start + max_planned],
+                    strict=True,
+                ):
+                    writer.append_result(result, shard_spec=spec)
+            paths.append(bundle_path.as_posix())
+        writer_s = time.perf_counter() - write_start
+    schema_validate_s = 0.0
+    if parameters["validate_schema"]:
+        validate_start = time.perf_counter()
+        with tracer.span(
+            "write.bundle_schema_validate",
+            iteration=iteration,
+            warmup=is_warmup,
+        ):
+            for path in paths:
+                validate_hdf5_contract(path)
+        schema_validate_s = time.perf_counter() - validate_start
+    row.update(
+        {
+            "status": "success",
+            "wall_time_s": time.perf_counter() - iter_start,
+            "writer_s": writer_s,
+            "schema_validate_s": schema_validate_s,
+            "file_size_bytes": sum(Path(path).stat().st_size for path in paths),
+            "file_count": len(paths),
+            "path": iter_dir.as_posix(),
+            "artifact_paths": paths,
+            "bundle_max_planned_shards": max_planned,
+        }
+    )
+    return row
+
+
+def _write_comparison_row(
+    *,
+    iteration: int,
+    is_warmup: bool,
+    write_mode: str,
+    fragment_count: int,
+    ue_count: int,
+) -> dict[str, Any]:
+    return {
+        "iteration": iteration,
+        "warmup": is_warmup,
+        "benchmark_type": "write",
+        "write_mode": write_mode,
+        "fragment_count": fragment_count,
+        "ue_count": ue_count,
+    }
+
+
+def _build_synthetic_write_result(
+    options: BenchmarkOptions,
+    parameters: dict[str, Any],
+    *,
+    seed: int,
+) -> MeasurementSimulationResult:
+    return build_synthetic_measurement_result(
+        seed=seed,
+        tx_count=int(parameters["tx_count"]),
+        rx_count=int(parameters["rx_count"]),
+        rx_ant=int(parameters["rx_ant"]),
+        tx_ant=int(parameters["tx_ant"]),
+        subcarriers=int(parameters["subcarriers"]),
+        snapshots=int(parameters["snapshots"]),
+        include_waveform=bool(parameters["include_waveform"]),
+        include_array=bool(parameters["include_array"]),
+        include_ranging=bool(parameters["include_ranging"]),
+    )
+
+
+def _with_synthetic_shard_metadata(
+    result: MeasurementSimulationResult,
+    *,
+    shard_index: int,
+    shard_count: int,
+    tx_count: int,
+    rx_count: int,
+) -> MeasurementSimulationResult:
+    global_tx_start = shard_index * tx_count
+    global_tx_indices = np.arange(
+        global_tx_start,
+        global_tx_start + tx_count,
+        dtype=np.int64,
+    )
+    topology = replace(
+        result.topology,
+        tx_positions_m=result.topology.tx_positions_m
+        + np.asarray([float(global_tx_start), 0.0, 0.0], dtype=np.float32),
+        tx_labels=tuple(f"tx{index}" for index in global_tx_indices),
+    )
+    return replace(
+        result,
+        topology=topology,
+        shard=ShardMetadata(
+            shard_index=shard_index,
+            shard_count=shard_count,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.arange(rx_count, dtype=np.int64),
+            global_tx_indices=global_tx_indices,
+        ),
+    )
 
 
 def run_spectrum_benchmark(options: BenchmarkOptions, parameters: dict[str, Any]) -> Path:
@@ -636,6 +921,7 @@ def _write_benchmark_outputs(
         "environment": collect_basic_environment(),
         "iterations": rows,
         "aggregate": _aggregate_rows(measured_rows),
+        "aggregate_by_write_mode": _aggregate_rows_by_key(measured_rows, "write_mode"),
         "perf_summary": perf_summary,
         "artifacts": {
             **artifacts,
@@ -676,6 +962,17 @@ def _aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         aggregate[f"{key}_median"] = float(np.median(values))
         aggregate[f"{key}_max"] = float(np.max(values))
     return aggregate
+
+
+def _aggregate_rows_by_key(
+    rows: list[dict[str, Any]],
+    key: str,
+) -> dict[str, dict[str, Any]]:
+    values = sorted({str(row[key]) for row in rows if key in row})
+    return {
+        value: _aggregate_rows([row for row in rows if str(row.get(key, "")) == value])
+        for value in values
+    }
 
 
 def _write_rows_csv(path: Path, rows: list[dict[str, Any]]) -> None:

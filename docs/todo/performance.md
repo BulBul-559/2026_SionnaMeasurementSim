@@ -33,9 +33,11 @@ append 到 `bundles/bundle_workerxxx_yyy.h5`，并补了 bundle writer/schema/re
 smoke 测试；默认生产路径仍是一个 shard 一个 `results/result_xxx.h5`。
 
 下一步方向：用户建议的 “compute chunk 小批量 + write batch 缓冲/append” 已有第一版
-bundle contract，需要用真实 shard 和 `benchmark write` 对比默认 shard 文件、bundle
-大小、chunk shape、flush 策略和 schema validate 开关；收益主要可能来自减少重复
-metadata/group/attrs/schema 成本，而不是大数组写入本身。
+bundle contract，并新增 `benchmark write --bundle-shards` 对照。2026-06-17 synthetic
+结果见 `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`：bundle v1 降低文件数、
+文件大小和 schema validate 时间，但 writer 本体因内存 HDF5 fragment 二次序列化更慢。
+下一步需要优化 fragment serialization/append path，再用真实 shard 和训练 loader 对比
+默认 shard 文件、bundle 大小、chunk shape、flush 策略和 schema validate 开关。
 
 验收标准：继续比较 buffered writer、bundle HDF5 contract、chunk shape、flush 策略、并行写文件数和
 schema validate 开关；输出推荐配置和风险说明；真实 shard 或 `benchmark write` 有可复现实验结果。

@@ -110,6 +110,21 @@ def _add_write_parser(modes: argparse._SubParsersAction) -> None:
     parser.add_argument("--include-array", action="store_true")
     parser.add_argument("--include-ranging", action="store_true")
     parser.add_argument(
+        "--bundle-shards",
+        type=int,
+        default=0,
+        help=(
+            "If >0, benchmark independent shard HDF5 files versus appendable "
+            "bundle HDF5 files with this many synthetic shard fragments."
+        ),
+    )
+    parser.add_argument(
+        "--bundle-max-planned-shards",
+        type=int,
+        default=10,
+        help="Maximum planned shard fragments per synthetic bundle file.",
+    )
+    parser.add_argument(
         "--compression",
         default="gzip",
         choices=["gzip", "lzf", "none", "mixed"],
@@ -180,6 +195,8 @@ def _write_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "include_waveform": args.include_waveform,
         "include_array": args.include_array,
         "include_ranging": args.include_ranging,
+        "bundle_shards": args.bundle_shards,
+        "bundle_max_planned_shards": args.bundle_max_planned_shards,
         "compression": args.compression,
         "gzip_level": args.gzip_level,
         "validate_schema": args.validate_schema,

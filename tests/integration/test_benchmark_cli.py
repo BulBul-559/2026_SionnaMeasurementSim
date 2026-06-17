@@ -52,6 +52,48 @@ def test_benchmark_write_cli_outputs_summary(tmp_path: Path):
     assert (output_dir / "config_snapshot.json").exists()
 
 
+def test_benchmark_write_cli_compares_shard_files_and_bundles(tmp_path: Path):
+    output_dir = tmp_path / "write_bundle"
+
+    assert main(
+        [
+            "benchmark",
+            "write",
+            "--output-dir",
+            str(output_dir),
+            "--tx-count",
+            "1",
+            "--rx-count",
+            "1",
+            "--rx-ant",
+            "1",
+            "--tx-ant",
+            "1",
+            "--subcarriers",
+            "8",
+            "--bundle-shards",
+            "3",
+            "--bundle-max-planned-shards",
+            "2",
+            "--compression",
+            "mixed",
+            "--gzip-level",
+            "1",
+            "--no-write-hardware-samples",
+        ]
+    ) == 0
+
+    summary = _load_summary(output_dir / "benchmark_summary.json")
+    modes = {row["write_mode"] for row in summary["iterations"]}
+    assert modes == {"shard_files", "bundle_append"}
+    rows_by_mode = {row["write_mode"]: row for row in summary["iterations"]}
+    assert rows_by_mode["shard_files"]["file_count"] == 3
+    assert rows_by_mode["bundle_append"]["file_count"] == 2
+    assert rows_by_mode["bundle_append"]["fragment_count"] == 3
+    assert set(summary["aggregate_by_write_mode"]) == {"shard_files", "bundle_append"}
+    assert (output_dir / "write_iter_000_bundles" / "bundle_000.h5").is_file()
+
+
 def test_benchmark_spectrum_cli_outputs_summary(tmp_path: Path):
     output_dir = tmp_path / "spectrum"
 

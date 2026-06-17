@@ -46,6 +46,7 @@ parameters
 environment
 iterations
 aggregate
+aggregate_by_write_mode
 perf_summary
 artifacts
 ```
@@ -105,6 +106,33 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 | `schema_validate_s` | schema validation 耗时 |
 | `file_size_bytes` | 生成 HDF5 文件大小 |
 | `perf_summary.dataset_write_summary` | dataset raw/storage bytes、压缩比、最慢/最大 dataset |
+
+### Bundle Append 对照
+
+`benchmark write` 可选开启 append bundle 对照：
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli benchmark write \
+  --output-dir outputs/benchmark_bundle_compare \
+  --tx-count 2 --rx-count 2 --rx-ant 2 --tx-ant 1 \
+  --subcarriers 16 --snapshots 1 --include-waveform \
+  --bundle-shards 4 --bundle-max-planned-shards 2 \
+  --compression mixed --gzip-level 1 \
+  --warmup 1 --repeat 3 \
+  --no-write-hardware-samples
+```
+
+开启 `--bundle-shards N` 后，每个正式 iteration 会写两行：
+
+| `write_mode` | 说明 |
+|---|---|
+| `shard_files` | N 个 synthetic shard 分别写为 `result_xxx.h5` 并逐个 validate |
+| `bundle_append` | 同样 N 个 fragment 按 `--bundle-max-planned-shards` append 到 bundle HDF5 |
+
+`benchmark_summary.json` 会额外写 `aggregate_by_write_mode`，便于比较 `writer_s`、
+`schema_validate_s`、`file_count` 和 `file_size_bytes`。第一轮结果见
+`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`：bundle v1 降低文件数、
+文件大小和 validate 时间，但 writer 本体因内存 fragment 二次序列化仍更慢。
 
 ## Spectrum-Only
 

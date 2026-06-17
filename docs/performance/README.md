@@ -13,6 +13,7 @@
 | 当前配置字段和模板说明 | `config/README.md` |
 | 当前 HDF5/schema 契约 | `docs/sys/07_config_and_h5_format.md` |
 | 当前 benchmark harness | `docs/performance/benchmark_harness.md` |
+| HDF5 bundle append write-only 对照 | `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md` |
 | 输出模式/配置归并性能 smoke | `docs/performance/mode_config_perf_optimization_2026-06-16.md` |
 | 单场景 full 仿真写盘/空间谱优化 | `docs/performance/single_scene_full_perf_2026-06-16.md` |
 | Front3D 队列卡住排查记录 | `docs/performance/2026-05-30_front3d_queue_stall.md` |

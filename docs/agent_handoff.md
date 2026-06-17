@@ -213,7 +213,11 @@ benchmark write    # synthetic MeasurementSimulationResult -> HDF5 writer/schema
 benchmark spectrum # synthetic array samples -> Bartlett spectrum core
 ```
 
-benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
+`benchmark write --bundle-shards` 可对比默认多 shard HDF5 与实验 append bundle。第一轮
+2026-06-17 synthetic 结果显示 bundle v1 明显减少文件数、文件大小和 schema validate 时间，
+但 writer 本体因内存 fragment 二次序列化更慢；详见
+`docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md`。benchmark 输出是 ignored
+`outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
 
 RT labels-only 输出可用以下模板生成：
 
@@ -448,7 +452,8 @@ nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu,power.draw
 - `data/` 和 `outputs/` 不进 git，里面的真实数据和仿真输出都应视为本地大文件。
 - 历史性能报告中的 `shard_size=20/25` 是历史记录；当前 64 PRB full 生产任务模板推荐 `5`。
 - direct uplink 下 UE 是 source，UE block 大小比 BS 数更容易触发 RT/Dr.Jit 限制。
-- 多文件 shard 是当前推荐输出方式，不建议为了训练强行合并成单个巨大 HDF5。
+- 多文件 shard 是当前推荐输出方式；bundle append 仍是实验模式，不应在没有真实 benchmark
+  和 loader 读取收益前替代默认生产路径。
 - 空间谱和 visualization 默认关闭；它们适合小样本诊断，不适合默认全量生产。
 - `path_samples` 可视化只画当前采样选择中的第一个 UE-BS 链路，避免多个链路路径几何混叠。
 - HDF5 下游读取应通过 `manifest/manifest.json` 和其中记录的 `results/result_xxx.h5` shard 列表，不要假设只有 `results.h5`，也不要假设文件名连续；fallback 可能产生 `result_089_00.h5` 这类子 shard。

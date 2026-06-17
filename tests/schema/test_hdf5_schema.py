@@ -7,6 +7,11 @@ import h5py
 import numpy as np
 import pytest
 
+from sionna_measurement_sim.domain.constants import (
+    IQ_LINK_LIBRARY_CONTRACT_NAME,
+    RT_LABELS_CONTRACT_NAME,
+)
+from sionna_measurement_sim.domain.iq import IQObservationResult, LinkIQCapture
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
     ImpairmentSpec,
@@ -15,7 +20,13 @@ from sionna_measurement_sim.domain.observation import (
     WaveformSpec,
 )
 from sionna_measurement_sim.domain.path import PathSamples
-from sionna_measurement_sim.domain.results import ShardMetadata, create_phase1_minimal_result
+from sionna_measurement_sim.domain.results import (
+    IQLinkLibraryResult,
+    RTCompactLinkLabels,
+    RTLabelsOnlyResult,
+    ShardMetadata,
+    create_phase1_minimal_result,
+)
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_reader import (
     read_bundle_index,
@@ -292,6 +303,62 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
         assert h5["channel/truth/cfr"].maxshape[0] is None
 
 
+def test_appendable_hdf5_bundle_supports_rt_labels_contract(tmp_path: Path):
+    first = _labels_only_bundle_fragment(global_tx_index=0, shard_index=0)
+    second = _labels_only_bundle_fragment(global_tx_index=1, shard_index=1)
+    output_path = tmp_path / "bundles" / "labels_bundle.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["fragment_count"] == 2
+    np.testing.assert_array_equal(
+        index["global_ue_indices"],
+        np.asarray([0, 1], dtype=np.int64),
+    )
+    with h5py.File(output_path, "r") as h5:
+        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (
+            RT_LABELS_CONTRACT_NAME
+        )
+        assert h5["labels/link/link_index"].shape == (2,)
+        np.testing.assert_array_equal(
+            h5["labels/link/global_tx_index"][()],
+            np.asarray([0, 1], dtype=np.int64),
+        )
+        assert h5["topology/tx_positions_m"].shape == (2, 3)
+
+
+def test_appendable_hdf5_bundle_supports_iq_link_library_contract(tmp_path: Path):
+    first = _iq_link_library_bundle_fragment(global_tx_index=0, shard_index=0)
+    second = _iq_link_library_bundle_fragment(global_tx_index=1, shard_index=1)
+    output_path = tmp_path / "bundles" / "iq_bundle.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["fragment_count"] == 2
+    np.testing.assert_array_equal(
+        index["global_ue_indices"],
+        np.asarray([0, 1], dtype=np.int64),
+    )
+    with h5py.File(output_path, "r") as h5:
+        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (
+            IQ_LINK_LIBRARY_CONTRACT_NAME
+        )
+        assert h5["iq/link/frequency_clean"].shape == (1, 2, 1, 1, 2, 8)
+        assert h5["iq/link/time_clean"].shape == (1, 2, 1, 1, 4)
+        np.testing.assert_array_equal(
+            h5["bundle/shard_offsets"][()],
+            np.asarray([[0, 1], [1, 1]], dtype=np.int64),
+        )
+
+
 def test_product_full_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
     output_path = tmp_path / "cfr_truth_only.h5"
     base = create_phase1_minimal_result()
@@ -464,3 +531,108 @@ def test_path_sample_schema_requires_tx_rx_endpoints(tmp_path: Path):
 
     with pytest.raises(SchemaValidationError, match="TX/RX endpoints"):
         validate_hdf5_contract(output_path)
+
+
+def _labels_only_bundle_fragment(
+    *,
+    global_tx_index: int,
+    shard_index: int,
+) -> RTLabelsOnlyResult:
+    full = create_phase1_minimal_result()
+    topology = replace(
+        full.topology,
+        tx_positions_m=full.topology.tx_positions_m
+        + np.asarray([float(global_tx_index), 0.0, 0.0], dtype=np.float32),
+        tx_labels=(f"ue{global_tx_index}",),
+    )
+    derived = replace(
+        full.derived,
+        first_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+        first_path_propagation_range_m=np.array([[2.9979246]], dtype=np.float32),
+        strongest_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+    )
+    shard = ShardMetadata(
+        shard_index=shard_index,
+        shard_count=2,
+        axis="ue",
+        global_rx_start=0,
+        global_rx_indices=np.array([0], dtype=np.int64),
+        global_tx_indices=np.array([global_tx_index], dtype=np.int64),
+    )
+    return RTLabelsOnlyResult(
+        metadata=replace(
+            full.metadata,
+            contract_name=RT_LABELS_CONTRACT_NAME,
+            output_profile="rt_labels_only",
+        ),
+        input_spec=full.input_spec,
+        topology=topology,
+        devices=full.devices,
+        antenna=full.antenna,
+        scene=full.scene,
+        frequency=full.frequency,
+        runtime=full.runtime,
+        derived=derived,
+        link_labels=RTCompactLinkLabels.from_topology(topology, derived, shard=shard),
+        link=full.link,
+        shard=shard,
+    )
+
+
+def _iq_link_library_bundle_fragment(
+    *,
+    global_tx_index: int,
+    shard_index: int,
+) -> IQLinkLibraryResult:
+    full = create_phase1_minimal_result()
+    topology = replace(
+        full.topology,
+        tx_positions_m=full.topology.tx_positions_m
+        + np.asarray([float(global_tx_index), 0.0, 0.0], dtype=np.float32),
+        tx_labels=(f"ue{global_tx_index}",),
+    )
+    shard = ShardMetadata(
+        shard_index=shard_index,
+        shard_count=2,
+        axis="ue",
+        global_rx_start=0,
+        global_rx_indices=np.array([0], dtype=np.int64),
+        global_tx_indices=np.array([global_tx_index], dtype=np.int64),
+    )
+    frequency_clean = np.full(
+        (1, 1, 1, 1, 2, full.frequency.num_subcarriers),
+        np.complex64(global_tx_index + 1),
+        dtype=np.complex64,
+    )
+    time_clean = np.full(
+        (1, 1, 1, 1, 4),
+        np.complex64(global_tx_index + 1),
+        dtype=np.complex64,
+    )
+    return IQLinkLibraryResult(
+        metadata=replace(
+            full.metadata,
+            contract_name=IQ_LINK_LIBRARY_CONTRACT_NAME,
+            output_profile="iq_link_library",
+        ),
+        input_spec=full.input_spec,
+        topology=topology,
+        devices=full.devices,
+        antenna=full.antenna,
+        scene=full.scene,
+        frequency=full.frequency,
+        runtime=full.runtime,
+        iq=IQObservationResult(
+            sample_rate_hz=20e6,
+            fft_size=full.frequency.num_subcarriers,
+            cp_length=0,
+            num_ofdm_symbols=2,
+            time_domain_convention="ofdm_ifft_per_symbol_cp_appended_contiguous_symbols",
+            link=LinkIQCapture(
+                frequency_clean=frequency_clean,
+                time_clean=time_clean,
+            ),
+        ),
+        link=full.link,
+        shard=shard,
+    )
