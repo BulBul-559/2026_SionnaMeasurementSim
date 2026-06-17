@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +14,29 @@ import numpy as np
 from sionna_measurement_sim.io.schema_validator import validate_hdf5_contract
 
 
+@dataclass(frozen=True)
+class ManifestDatasetFragment:
+    """Dataset readback for one manifest result entry."""
+
+    source_path: Path
+    dataset_path: str
+    data: Any
+    global_ue_indices: tuple[int, ...]
+    global_tx_indices: tuple[int, ...]
+    global_rx_indices: tuple[int, ...]
+    shard_id: str = ""
+    fragment_id: str = ""
+    append_start: int | None = None
+    append_count: int | None = None
+    bundled: bool = False
+
+
 def read_dataset(path: str | Path, dataset_path: str) -> Any:
     """Read a dataset value from an HDF5 file."""
 
+    validate_hdf5_contract(path)
     with h5py.File(path, "r") as h5:
-        value = h5[dataset_path][()]
+        value = h5[_clean_dataset_path(dataset_path)][()]
     return _decode(value)
 
 
@@ -81,6 +102,36 @@ def read_bundle_fragment_dataset(
         return _read_bundle_fragment_dataset_from_open_h5(h5, dataset_path, row)
 
 
+def iter_manifest_dataset(
+    path: str | Path,
+    dataset_path: str,
+) -> Iterator[ManifestDatasetFragment]:
+    """Yield one dataset chunk per result entry from a file, run dir, or manifest.
+
+    Default shard manifests read each `result_h5` directly. Bundle manifests read
+    the referenced `bundle_h5` and `bundle_fragment_id`, slicing appendable root
+    datasets through `/bundle/shard_offsets`.
+    """
+
+    dataset_path = _clean_dataset_path(dataset_path)
+    root = Path(path)
+    manifest_path = _find_manifest_path(root)
+    if manifest_path is not None:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        run_dir = _manifest_run_dir(manifest_path)
+        yield from _iter_manifest_entries(manifest, run_dir, dataset_path)
+        return
+    if root.is_file():
+        yield _single_h5_fragment(root, dataset_path)
+        return
+    search_root = root / "results" if (root / "results").is_dir() else root
+    for h5_path in sorted(search_root.glob("result*.h5")):
+        yield _single_h5_fragment(h5_path, dataset_path)
+    if not (search_root / "results.h5").exists():
+        return
+    yield _single_h5_fragment(search_root / "results.h5", dataset_path)
+
+
 def iter_link_labels(path: str | Path):
     """Yield compact `/labels/link` tables from one HDF5 file or sharded run dir."""
 
@@ -121,6 +172,121 @@ def _decode(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return value
+
+
+def _find_manifest_path(path: Path) -> Path | None:
+    if path.is_file() and path.name == "manifest.json":
+        return path
+    direct_manifest = path / "manifest.json"
+    if direct_manifest.exists():
+        return direct_manifest
+    nested_manifest = path / "manifest" / "manifest.json"
+    if nested_manifest.exists():
+        return nested_manifest
+    return None
+
+
+def _manifest_run_dir(manifest_path: Path) -> Path:
+    if manifest_path.parent.name == "manifest":
+        return manifest_path.parent.parent
+    return manifest_path.parent
+
+
+def _iter_manifest_entries(
+    manifest: dict[str, Any],
+    run_dir: Path,
+    dataset_path: str,
+) -> Iterator[ManifestDatasetFragment]:
+    entries = list(manifest.get("results", []))
+    if entries:
+        for item in entries:
+            yield _manifest_entry_fragment(item, run_dir, dataset_path)
+        return
+    result_h5 = manifest.get("results_h5")
+    if result_h5:
+        yield _single_h5_fragment(
+            _resolve_manifest_artifact(run_dir, Path(str(result_h5))),
+            dataset_path,
+        )
+
+
+def _manifest_entry_fragment(
+    item: dict[str, Any],
+    run_dir: Path,
+    dataset_path: str,
+) -> ManifestDatasetFragment:
+    bundle_h5 = item.get("bundle_h5")
+    if bundle_h5:
+        source_path = _resolve_manifest_artifact(run_dir, Path(str(bundle_h5)))
+        fragment_id = str(item.get("bundle_fragment_id", ""))
+        if not fragment_id:
+            msg = f"Bundled manifest result for {source_path} is missing bundle_fragment_id"
+            raise KeyError(msg)
+        return ManifestDatasetFragment(
+            source_path=source_path,
+            dataset_path=dataset_path,
+            data=read_bundle_fragment_dataset(
+                source_path,
+                dataset_path,
+                fragment_id=fragment_id,
+            ),
+            global_ue_indices=_int_tuple(item.get("global_ue_indices")),
+            global_tx_indices=_int_tuple(item.get("global_tx_indices")),
+            global_rx_indices=_int_tuple(item.get("global_rx_indices")),
+            shard_id=str(item.get("shard_id", "")),
+            fragment_id=fragment_id,
+            append_start=_optional_int(item.get("append_start")),
+            append_count=_optional_int(item.get("append_count")),
+            bundled=True,
+        )
+    result_h5 = item.get("result_h5")
+    if not result_h5:
+        msg = "Manifest result entry must contain result_h5 or bundle_h5"
+        raise KeyError(msg)
+    source_path = _resolve_manifest_artifact(run_dir, Path(str(result_h5)))
+    return ManifestDatasetFragment(
+        source_path=source_path,
+        dataset_path=dataset_path,
+        data=read_dataset(source_path, dataset_path),
+        global_ue_indices=_int_tuple(item.get("global_ue_indices")),
+        global_tx_indices=_int_tuple(item.get("global_tx_indices")),
+        global_rx_indices=_int_tuple(item.get("global_rx_indices")),
+        shard_id=str(item.get("shard_id", "")),
+        append_start=_optional_int(item.get("append_start")),
+        append_count=_optional_int(item.get("append_count")),
+        bundled=False,
+    )
+
+
+def _single_h5_fragment(path: Path, dataset_path: str) -> ManifestDatasetFragment:
+    return ManifestDatasetFragment(
+        source_path=path,
+        dataset_path=dataset_path,
+        data=read_dataset(path, dataset_path),
+        global_ue_indices=(),
+        global_tx_indices=(),
+        global_rx_indices=(),
+    )
+
+
+def _resolve_manifest_artifact(run_dir: Path, path: Path) -> Path:
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path
+    return run_dir / path
+
+
+def _int_tuple(value: Any) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    return tuple(int(item) for item in value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
 
 
 def _read_bundle_fragment_dataset_from_open_h5(

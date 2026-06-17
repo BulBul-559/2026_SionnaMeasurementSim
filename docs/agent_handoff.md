@@ -62,9 +62,10 @@ schema 不变，但文件体积通常略增。
 `manifest/manifest.json` 汇总。实验性 `output.sharding.bundle.enabled=true` 可把多个
 计算 shard fragment append 到 `bundles/bundle_workerxxx_yyy.h5`，root contract 为
 `sionna_measurement_sim_bundle_hdf5`，`/bundle/shard_offsets` 和
-`/bundle/global_ue_indices` 给训练 loader 定位样本；reader 提供
-`read_bundle_fragment_dataset()` 可按 fragment index/id 读取 root append dataset 或 sidecar
-覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及
+`/bundle/global_ue_indices` 给训练 loader 定位样本；reader 提供 manifest-aware
+`iter_manifest_dataset()`，可用同一入口读取默认 shard HDF5、fallback 子 shard 和 bundle
+fragment，也提供 `read_bundle_fragment_dataset()` 按 fragment index/id 读取 root append
+dataset 或 sidecar 覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及
 schema/reader/manifest 时要同时覆盖 bundle contract。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。

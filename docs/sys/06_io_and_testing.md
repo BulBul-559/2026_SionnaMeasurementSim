@@ -138,11 +138,18 @@ root `/shard`。sidecar fragment dataset 当前只做保留，不作为主 contr
 
 提供便捷的 HDF5 读回函数，自动调用 `validate_hdf5_contract`。`read_truth_cfr()`
 用于 full contract；`read_link_labels()` 和 `iter_link_labels()` 用于 compact
-RT labels-only 单文件或 sharded run 目录。`read_bundle_index()` 读取实验 bundle 的
-`fragment_count`、`ue_count`、`shard_offsets` 和 `global_ue_indices`，用于训练 loader
-按 append 区间定位样本；`read_truth_cfr()` 可直接读取 bundle root 上的
-`/channel/truth/cfr`。`read_bundle_fragment_dataset()` 可按 `fragment_index` 或
-`fragment_id` 读取单个 fragment 的 dataset：root append dataset 会按
+RT labels-only 单文件或 sharded run 目录。训练/分析侧优先使用
+`iter_manifest_dataset(run_or_manifest, dataset_path)`：它会按 aggregate manifest 的
+`results` 顺序逐 entry 读取 dataset，并同时支持默认 `results/result_xxx.h5`、fallback
+子 shard 和实验 bundle fragment。返回的 `ManifestDatasetFragment` 包含 `data`、
+`source_path`、`global_ue_indices`、`global_tx_indices`、`global_rx_indices`、
+`shard_id`、`fragment_id`、`append_start`、`append_count` 和 `bundled`，让下游不需要手写
+普通 shard 与 bundle 分支。
+
+`read_bundle_index()` 读取实验 bundle 的 `fragment_count`、`ue_count`、`shard_offsets`
+和 `global_ue_indices`，用于按 append 区间定位样本；`read_truth_cfr()` 可直接读取
+bundle root 上的 `/channel/truth/cfr`。`read_bundle_fragment_dataset()` 可按
+`fragment_index` 或 `fragment_id` 读取单个 fragment 的 dataset：root append dataset 会按
 `/bundle/shard_offsets` 自动切片，shared dataset 返回整块，若存在
 `/bundle/fragments/<fragment_id>/...` sidecar 则优先读取 sidecar 覆盖值。
 

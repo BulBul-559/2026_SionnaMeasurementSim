@@ -20,6 +20,11 @@
 
 涉及模块：新增或扩展 IO/reader 包、manifest schema、训练/分析脚本、文档。
 
+当前状态：`io.hdf5_reader.iter_manifest_dataset()` 已能从 run dir、`manifest.json` 或单个
+HDF5 读取指定 dataset，并统一处理默认 `result_xxx.h5`、fallback 子 shard 和实验 bundle
+fragment；返回项包含全局 UE/TX/RX index、fragment id 和 append 区间。它是训练/分析
+dataset loader 的底层入口，但还不是完整 loader API。
+
 验收标准：reader 能按 manifest 聚合 shard，支持全局 UE/BS 索引定位、按 shard/UE range
 迭代、读取 config snapshot 和 schema 状态；至少有 fixture 单元测试和一个真实 manifest smoke。
 

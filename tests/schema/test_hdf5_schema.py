@@ -30,6 +30,7 @@ from sionna_measurement_sim.domain.results import (
 )
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_reader import (
+    iter_manifest_dataset,
     read_bundle_fragment_dataset,
     read_bundle_index,
     read_link_labels,
@@ -40,6 +41,7 @@ from sionna_measurement_sim.io.hdf5_writer import (
     write_measurement_result,
     write_rt_labels_result,
 )
+from sionna_measurement_sim.io.manifest import write_manifest
 from sionna_measurement_sim.io.schema_validator import SchemaValidationError, validate_hdf5_contract
 from sionna_measurement_sim.phy.nr_pusch_observation import build_array_outputs_from_waveform
 
@@ -341,6 +343,123 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
             f"bundle/fragments/{index['fragment_id'][1]}/channel/truth/path_power_db"
             in h5
         )
+
+
+def test_manifest_dataset_iterator_reads_shard_files_and_bundles(tmp_path: Path):
+    base = create_phase1_minimal_result()
+    first = replace(
+        base,
+        shard=ShardMetadata(
+            shard_index=0,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.array([0], dtype=np.int64),
+            global_tx_indices=np.array([0], dtype=np.int64),
+        ),
+    )
+    second = replace(
+        base,
+        truth=replace(
+            base.truth,
+            cfr=base.truth.cfr * np.complex64(3.0 + 0.0j),
+        ),
+        shard=ShardMetadata(
+            shard_index=1,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.array([0], dtype=np.int64),
+            global_tx_indices=np.array([1], dtype=np.int64),
+        ),
+    )
+
+    shard_run_dir = tmp_path / "shard_run"
+    shard_results_dir = shard_run_dir / "results"
+    first_h5 = shard_results_dir / "result_000.h5"
+    second_h5 = shard_results_dir / "result_001.h5"
+    write_measurement_result(first_h5, first)
+    write_measurement_result(second_h5, second)
+    write_manifest(
+        shard_run_dir / "manifest" / "manifest.json",
+        {
+            "results": [
+                {
+                    "shard_id": "000",
+                    "result_h5": "results/result_000.h5",
+                    "global_ue_indices": [0],
+                    "global_tx_indices": [0],
+                    "global_rx_indices": [0],
+                },
+                {
+                    "shard_id": "001",
+                    "result_h5": "results/result_001.h5",
+                    "global_ue_indices": [1],
+                    "global_tx_indices": [1],
+                    "global_rx_indices": [0],
+                },
+            ]
+        },
+    )
+
+    shard_fragments = list(iter_manifest_dataset(shard_run_dir, "channel/truth/cfr"))
+    assert [fragment.bundled for fragment in shard_fragments] == [False, False]
+    assert [fragment.shard_id for fragment in shard_fragments] == ["000", "001"]
+    assert [fragment.global_ue_indices for fragment in shard_fragments] == [(0,), (1,)]
+    np.testing.assert_allclose(shard_fragments[0].data, base.truth.cfr)
+    np.testing.assert_allclose(
+        shard_fragments[1].data,
+        base.truth.cfr * np.complex64(3.0 + 0.0j),
+    )
+
+    bundle_run_dir = tmp_path / "bundle_run"
+    bundle_path = bundle_run_dir / "bundles" / "bundle_worker000_000.h5"
+    with HDF5ResultBundleWriter(bundle_path, compression="mixed", gzip_level=1) as bundle:
+        first_summary = bundle.append_result(first, fragment_id="000")
+        second_summary = bundle.append_result(second, fragment_id="001")
+    write_manifest(
+        bundle_run_dir / "manifest" / "manifest.json",
+        {
+            "results": [
+                {
+                    "shard_id": "000",
+                    "bundle_h5": "bundles/bundle_worker000_000.h5",
+                    "bundle_fragment_id": first_summary.fragment_id,
+                    "append_start": first_summary.append_start,
+                    "append_count": first_summary.append_count,
+                    "global_ue_indices": [0],
+                    "global_tx_indices": [0],
+                    "global_rx_indices": [0],
+                },
+                {
+                    "shard_id": "001",
+                    "bundle_h5": "bundles/bundle_worker000_000.h5",
+                    "bundle_fragment_id": second_summary.fragment_id,
+                    "append_start": second_summary.append_start,
+                    "append_count": second_summary.append_count,
+                    "global_ue_indices": [1],
+                    "global_tx_indices": [1],
+                    "global_rx_indices": [0],
+                },
+            ]
+        },
+    )
+
+    bundle_fragments = list(
+        iter_manifest_dataset(
+            bundle_run_dir / "manifest" / "manifest.json",
+            "/channel/truth/cfr",
+        )
+    )
+    assert [fragment.bundled for fragment in bundle_fragments] == [True, True]
+    assert [fragment.fragment_id for fragment in bundle_fragments] == ["000", "001"]
+    assert [fragment.append_start for fragment in bundle_fragments] == [0, 1]
+    assert [fragment.global_ue_indices for fragment in bundle_fragments] == [(0,), (1,)]
+    np.testing.assert_allclose(bundle_fragments[0].data, base.truth.cfr)
+    np.testing.assert_allclose(
+        bundle_fragments[1].data,
+        base.truth.cfr * np.complex64(3.0 + 0.0j),
+    )
 
 
 def test_appendable_hdf5_bundle_appends_downlink_ue_rx_axis(tmp_path: Path):
