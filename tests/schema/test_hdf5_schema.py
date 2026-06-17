@@ -12,6 +12,7 @@ from sionna_measurement_sim.domain.constants import (
     RT_LABELS_CONTRACT_NAME,
 )
 from sionna_measurement_sim.domain.iq import IQObservationResult, LinkIQCapture
+from sionna_measurement_sim.domain.link import LinkConfig
 from sionna_measurement_sim.domain.observation import (
     EvaluationResult,
     ImpairmentSpec,
@@ -85,9 +86,7 @@ def test_write_and_validate_minimal_phase1_hdf5(tmp_path: Path):
         assert "paths/full" not in h5
         assert h5["paths/nlos_truth/valid"].shape == (1, 1, 1, 1, 0)
         assert h5["paths/nlos_truth/aoa_zenith_rad"].attrs["unit"] == "rad"
-        assert h5["paths/nlos_truth/path_type"].attrs["index_order"] == (
-            "tx,rx,rx_ant,tx_ant,path"
-        )
+        assert h5["paths/nlos_truth/path_type"].attrs["index_order"] == ("tx,rx,rx_ant,tx_ant,path")
         assert h5["topology/tx_positions_m"].attrs["unit"] == "m"
         assert h5["frequency/frequencies_hz"].attrs["unit"] == "Hz"
         assert h5["scene/scene_id"][()].decode("utf-8") == "phase1_minimal"
@@ -303,6 +302,63 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
         assert h5["channel/truth/cfr"].maxshape[0] is None
 
 
+def test_appendable_hdf5_bundle_appends_downlink_ue_rx_axis(tmp_path: Path):
+    base = replace(create_phase1_minimal_result(), link=LinkConfig(phy_link_direction="downlink"))
+    first = replace(
+        base,
+        shard=ShardMetadata(
+            shard_index=0,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=0,
+            global_rx_indices=np.array([0], dtype=np.int64),
+            global_tx_indices=np.array([0], dtype=np.int64),
+        ),
+    )
+    second = replace(
+        base,
+        topology=replace(
+            base.topology,
+            rx_positions_m=base.topology.rx_positions_m
+            + np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+            rx_labels=("ue1",),
+        ),
+        truth=replace(base.truth, cfr=base.truth.cfr * np.complex64(3.0 + 0.0j)),
+        shard=ShardMetadata(
+            shard_index=1,
+            shard_count=2,
+            axis="ue",
+            global_rx_start=1,
+            global_rx_indices=np.array([1], dtype=np.int64),
+            global_tx_indices=np.array([0], dtype=np.int64),
+        ),
+    )
+    output_path = tmp_path / "bundles" / "downlink_bundle.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["ue_axis_role"] == "rx"
+    assert index["ue_count"] == 2
+    np.testing.assert_array_equal(index["global_ue_indices"], np.array([0, 1]))
+    cfr = read_truth_cfr(output_path)
+    assert cfr.shape == (1, 2, 1, 1, 8)
+    np.testing.assert_allclose(cfr[:, 0], base.truth.cfr[:, 0])
+    np.testing.assert_allclose(cfr[:, 1], base.truth.cfr[:, 0] * np.complex64(3.0 + 0.0j))
+    with h5py.File(output_path, "r") as h5:
+        assert h5["bundle/ue_axis_role"][()].decode("utf-8") == "rx"
+        assert h5["link/phy_link_direction"][()].decode("utf-8") == "downlink"
+        assert h5["link/tx_role"][()].decode("utf-8") == "bs"
+        assert h5["link/rx_role"][()].decode("utf-8") == "ue"
+        assert h5["topology/tx_positions_m"].shape == (1, 3)
+        assert h5["topology/rx_positions_m"].shape == (2, 3)
+        assert h5["topology/rx_labels"].shape == (2,)
+        assert h5["channel/truth/cfr"].maxshape[1] is None
+
+
 def test_appendable_hdf5_bundle_supports_rt_labels_contract(tmp_path: Path):
     first = _labels_only_bundle_fragment(global_tx_index=0, shard_index=0)
     second = _labels_only_bundle_fragment(global_tx_index=1, shard_index=1)
@@ -320,15 +376,40 @@ def test_appendable_hdf5_bundle_supports_rt_labels_contract(tmp_path: Path):
         np.asarray([0, 1], dtype=np.int64),
     )
     with h5py.File(output_path, "r") as h5:
-        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (
-            RT_LABELS_CONTRACT_NAME
-        )
+        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (RT_LABELS_CONTRACT_NAME)
         assert h5["labels/link/link_index"].shape == (2,)
         np.testing.assert_array_equal(
             h5["labels/link/global_tx_index"][()],
             np.asarray([0, 1], dtype=np.int64),
         )
         assert h5["topology/tx_positions_m"].shape == (2, 3)
+
+
+def test_appendable_hdf5_bundle_supports_rt_labels_downlink_rx_axis(tmp_path: Path):
+    first = _labels_only_downlink_bundle_fragment(global_rx_index=0, shard_index=0)
+    second = _labels_only_downlink_bundle_fragment(global_rx_index=1, shard_index=1)
+    output_path = tmp_path / "bundles" / "labels_downlink_bundle.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["ue_axis_role"] == "rx"
+    np.testing.assert_array_equal(
+        index["global_ue_indices"],
+        np.asarray([0, 1], dtype=np.int64),
+    )
+    with h5py.File(output_path, "r") as h5:
+        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (RT_LABELS_CONTRACT_NAME)
+        assert h5["topology/tx_positions_m"].shape == (1, 3)
+        assert h5["topology/rx_positions_m"].shape == (2, 3)
+        assert h5["labels/link/link_index"].shape == (2,)
+        np.testing.assert_array_equal(
+            h5["labels/link/global_rx_index"][()],
+            np.asarray([0, 1], dtype=np.int64),
+        )
 
 
 def test_appendable_hdf5_bundle_supports_iq_link_library_contract(tmp_path: Path):
@@ -359,6 +440,37 @@ def test_appendable_hdf5_bundle_supports_iq_link_library_contract(tmp_path: Path
         )
 
 
+def test_appendable_hdf5_bundle_supports_iq_link_library_downlink_rx_axis(
+    tmp_path: Path,
+):
+    first = _iq_link_library_downlink_bundle_fragment(global_rx_index=0, shard_index=0)
+    second = _iq_link_library_downlink_bundle_fragment(global_rx_index=1, shard_index=1)
+    output_path = tmp_path / "bundles" / "iq_downlink_bundle.h5"
+
+    with HDF5ResultBundleWriter(output_path, compression="mixed", gzip_level=1) as bundle:
+        bundle.append_result(first)
+        bundle.append_result(second)
+
+    validate_hdf5_contract(output_path)
+    index = read_bundle_index(output_path)
+    assert index["ue_axis_role"] == "rx"
+    np.testing.assert_array_equal(
+        index["global_ue_indices"],
+        np.asarray([0, 1], dtype=np.int64),
+    )
+    with h5py.File(output_path, "r") as h5:
+        assert h5["bundle/source_contract_name"][()].decode("utf-8") == (
+            IQ_LINK_LIBRARY_CONTRACT_NAME
+        )
+        assert h5["iq/link/frequency_clean"].shape == (1, 1, 2, 1, 2, 8)
+        assert h5["iq/link/time_clean"].shape == (1, 1, 2, 1, 4)
+        assert h5["iq/link/frequency_clean"].maxshape[2] is None
+        np.testing.assert_array_equal(
+            h5["bundle/shard_offsets"][()],
+            np.asarray([[0, 1], [1, 1]], dtype=np.int64),
+        )
+
+
 def test_product_full_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path):
     output_path = tmp_path / "cfr_truth_only.h5"
     base = create_phase1_minimal_result()
@@ -380,9 +492,7 @@ def test_product_full_cfr_truth_product_writes_minimal_truth_hdf5(tmp_path: Path
 
     with h5py.File(output_path, "r") as h5:
         assert h5["meta/output_profile"][()].decode("utf-8") == "full"
-        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == (
-            "cfr_truth",
-        )
+        assert tuple(v.decode("utf-8") for v in h5["meta/output_products"][()]) == ("cfr_truth",)
         assert "channel/truth/cfr" in h5
         assert "channel/truth/cir_coefficients" not in h5
         assert "derived" not in h5
@@ -579,6 +689,53 @@ def _labels_only_bundle_fragment(
     )
 
 
+def _labels_only_downlink_bundle_fragment(
+    *,
+    global_rx_index: int,
+    shard_index: int,
+) -> RTLabelsOnlyResult:
+    full = create_phase1_minimal_result()
+    link = LinkConfig(phy_link_direction="downlink")
+    topology = replace(
+        full.topology,
+        rx_positions_m=full.topology.rx_positions_m
+        + np.asarray([float(global_rx_index), 0.0, 0.0], dtype=np.float32),
+        rx_labels=(f"ue{global_rx_index}",),
+    )
+    derived = replace(
+        full.derived,
+        first_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+        first_path_propagation_range_m=np.array([[2.9979246]], dtype=np.float32),
+        strongest_path_delay_s=np.array([[1.0e-8]], dtype=np.float32),
+    )
+    shard = ShardMetadata(
+        shard_index=shard_index,
+        shard_count=2,
+        axis="ue",
+        global_rx_start=global_rx_index,
+        global_rx_indices=np.array([global_rx_index], dtype=np.int64),
+        global_tx_indices=np.array([0], dtype=np.int64),
+    )
+    return RTLabelsOnlyResult(
+        metadata=replace(
+            full.metadata,
+            contract_name=RT_LABELS_CONTRACT_NAME,
+            output_profile="rt_labels_only",
+        ),
+        input_spec=full.input_spec,
+        topology=topology,
+        devices=full.devices,
+        antenna=full.antenna,
+        scene=full.scene,
+        frequency=full.frequency,
+        runtime=full.runtime,
+        derived=derived,
+        link_labels=RTCompactLinkLabels.from_topology(topology, derived, shard=shard),
+        link=link,
+        shard=shard,
+    )
+
+
 def _iq_link_library_bundle_fragment(
     *,
     global_tx_index: int,
@@ -634,5 +791,65 @@ def _iq_link_library_bundle_fragment(
             ),
         ),
         link=full.link,
+        shard=shard,
+    )
+
+
+def _iq_link_library_downlink_bundle_fragment(
+    *,
+    global_rx_index: int,
+    shard_index: int,
+) -> IQLinkLibraryResult:
+    full = create_phase1_minimal_result()
+    link = LinkConfig(phy_link_direction="downlink")
+    topology = replace(
+        full.topology,
+        rx_positions_m=full.topology.rx_positions_m
+        + np.asarray([float(global_rx_index), 0.0, 0.0], dtype=np.float32),
+        rx_labels=(f"ue{global_rx_index}",),
+    )
+    shard = ShardMetadata(
+        shard_index=shard_index,
+        shard_count=2,
+        axis="ue",
+        global_rx_start=global_rx_index,
+        global_rx_indices=np.array([global_rx_index], dtype=np.int64),
+        global_tx_indices=np.array([0], dtype=np.int64),
+    )
+    frequency_clean = np.full(
+        (1, 1, 1, 1, 2, full.frequency.num_subcarriers),
+        np.complex64(global_rx_index + 1),
+        dtype=np.complex64,
+    )
+    time_clean = np.full(
+        (1, 1, 1, 1, 4),
+        np.complex64(global_rx_index + 1),
+        dtype=np.complex64,
+    )
+    return IQLinkLibraryResult(
+        metadata=replace(
+            full.metadata,
+            contract_name=IQ_LINK_LIBRARY_CONTRACT_NAME,
+            output_profile="iq_link_library",
+        ),
+        input_spec=full.input_spec,
+        topology=topology,
+        devices=full.devices,
+        antenna=full.antenna,
+        scene=full.scene,
+        frequency=full.frequency,
+        runtime=full.runtime,
+        iq=IQObservationResult(
+            sample_rate_hz=20e6,
+            fft_size=full.frequency.num_subcarriers,
+            cp_length=0,
+            num_ofdm_symbols=2,
+            time_domain_convention="ofdm_ifft_per_symbol_cp_appended_contiguous_symbols",
+            link=LinkIQCapture(
+                frequency_clean=frequency_clean,
+                time_clean=time_clean,
+            ),
+        ),
+        link=link,
         shard=shard,
     )
