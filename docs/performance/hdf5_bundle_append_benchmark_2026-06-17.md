@@ -1,7 +1,8 @@
 # HDF5 Bundle Append Benchmark 2026-06-17
 
 本文记录实验性 `output.sharding.bundle.enabled` 落地后的 write-only 对照，以及同日
-lightweight fragment recorder 优化后的复测。
+lightweight fragment recorder 优化后的复测。真实 sharded pipeline follow-up 见
+`docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`。
 数据是 synthetic `MeasurementSimulationResult`，不代表真实 RT/PHY 全流程耗时；用途是隔离
 HDF5 writer、bundle append、schema validate 和文件大小。
 
@@ -105,6 +106,8 @@ write-only benchmark，不能直接外推到真实 RT/PHY pipeline 或训练 loa
 - 默认生产路径继续保持一个 shard 一个 `results/result_xxx.h5`。
 - `output.sharding.bundle.enabled=true` 继续保留为实验模式，用于训练读取和
   metadata/validate 成本探索；它还不替代默认生产路径。
-- 下一步应在真实 shard 输出上比较 end-to-end `hdf5_bundle_append`、`hdf5_write`、
-  `schema_validate` 和训练 loader 读取吞吐，并继续测试 chunk shape、append batch、flush
-  策略和 schema validate 开关。
+- 真实 `cfr_truth` sharded pipeline 已通过 `benchmark sharding` 做第一轮对照：bundle
+  降低文件数、文件大小、dataset write event 数和 schema validate 时间，但小 payload 下
+  bundle writer 固定成本仍明显，且同进程 RT warm cache 会污染 end-to-end wall time。
+- 下一步应在更大真实 shard 输出和训练 loader 上比较读取吞吐，并继续测试 chunk shape、
+  append batch、flush 策略、mode order 隔离和 schema validate 开关。

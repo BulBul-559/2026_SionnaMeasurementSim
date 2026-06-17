@@ -174,6 +174,11 @@ uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
 | `file_count` / `file_size_bytes` | HDF5 artifact 数量和总大小 |
 | `dataset_write_count` | tracer 记录的 HDF5 dataset 写入次数 |
 
+2026-06-17 的第一轮真实 `cfr_truth` 对照见
+`docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md`。该结果显示 bundle
+降低文件数、文件大小、dataset write event 数和 schema validate 时间；小 payload 下 bundle
+writer 固定成本仍明显，且同进程 mode 顺序会让 RT warm cache 影响端到端 wall time。
+
 ## Spectrum-Only
 
 Spectrum-only 直接调用 Bartlett 空间谱核心，不跑 RT/PHY。输入为 deterministic synthetic
