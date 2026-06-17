@@ -30,6 +30,7 @@ from sionna_measurement_sim.domain.results import (
 )
 from sionna_measurement_sim.io.hdf5_bundle_writer import HDF5ResultBundleWriter
 from sionna_measurement_sim.io.hdf5_reader import (
+    read_bundle_fragment_dataset,
     read_bundle_index,
     read_link_labels,
     read_metadata,
@@ -267,7 +268,11 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
             + np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
             tx_labels=("tx1",),
         ),
-        truth=replace(base.truth, cfr=base.truth.cfr * np.complex64(2.0 + 0.0j)),
+        truth=replace(
+            base.truth,
+            cfr=base.truth.cfr * np.complex64(2.0 + 0.0j),
+            path_power_db=base.truth.path_power_db + np.float32(1.0),
+        ),
         shard=ShardMetadata(
             shard_index=1,
             shard_count=2,
@@ -293,6 +298,38 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
     assert cfr.shape == (2, 1, 1, 1, 8)
     np.testing.assert_allclose(cfr[0], base.truth.cfr[0])
     np.testing.assert_allclose(cfr[1], base.truth.cfr[0] * np.complex64(2.0 + 0.0j))
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "channel/truth/cfr",
+            fragment_index=0,
+        ),
+        base.truth.cfr,
+    )
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "channel/truth/cfr",
+            fragment_id=index["fragment_id"][1],
+        ),
+        base.truth.cfr * np.complex64(2.0 + 0.0j),
+    )
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "channel/truth/path_power_db",
+            fragment_index=0,
+        ),
+        base.truth.path_power_db,
+    )
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "channel/truth/path_power_db",
+            fragment_index=1,
+        ),
+        base.truth.path_power_db + np.float32(1.0),
+    )
     with h5py.File(output_path, "r") as h5:
         assert h5["meta/contract_name"][()].decode("utf-8") == (
             "sionna_measurement_sim_bundle_hdf5"
@@ -300,6 +337,10 @@ def test_appendable_hdf5_bundle_writes_truth_shards(tmp_path: Path):
         assert h5["topology/tx_positions_m"].shape == (2, 3)
         assert h5["topology/rx_positions_m"].shape == (1, 3)
         assert h5["channel/truth/cfr"].maxshape[0] is None
+        assert (
+            f"bundle/fragments/{index['fragment_id'][1]}/channel/truth/path_power_db"
+            in h5
+        )
 
 
 def test_appendable_hdf5_bundle_appends_downlink_ue_rx_axis(tmp_path: Path):
@@ -348,6 +389,14 @@ def test_appendable_hdf5_bundle_appends_downlink_ue_rx_axis(tmp_path: Path):
     assert cfr.shape == (1, 2, 1, 1, 8)
     np.testing.assert_allclose(cfr[:, 0], base.truth.cfr[:, 0])
     np.testing.assert_allclose(cfr[:, 1], base.truth.cfr[:, 0] * np.complex64(3.0 + 0.0j))
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "channel/truth/cfr",
+            fragment_id=index["fragment_id"][1],
+        ),
+        base.truth.cfr * np.complex64(3.0 + 0.0j),
+    )
     with h5py.File(output_path, "r") as h5:
         assert h5["bundle/ue_axis_role"][()].decode("utf-8") == "rx"
         assert h5["link/phy_link_direction"][()].decode("utf-8") == "downlink"
@@ -383,6 +432,14 @@ def test_appendable_hdf5_bundle_supports_rt_labels_contract(tmp_path: Path):
             np.asarray([0, 1], dtype=np.int64),
         )
         assert h5["topology/tx_positions_m"].shape == (2, 3)
+    np.testing.assert_array_equal(
+        read_bundle_fragment_dataset(
+            output_path,
+            "labels/link/global_tx_index",
+            fragment_id=index["fragment_id"][1],
+        ),
+        np.asarray([1], dtype=np.int64),
+    )
 
 
 def test_appendable_hdf5_bundle_supports_rt_labels_downlink_rx_axis(tmp_path: Path):
@@ -438,6 +495,14 @@ def test_appendable_hdf5_bundle_supports_iq_link_library_contract(tmp_path: Path
             h5["bundle/shard_offsets"][()],
             np.asarray([[0, 1], [1, 1]], dtype=np.int64),
         )
+    np.testing.assert_allclose(
+        read_bundle_fragment_dataset(
+            output_path,
+            "iq/link/frequency_clean",
+            fragment_index=1,
+        ),
+        np.full((1, 1, 1, 1, 2, 8), np.complex64(2.0), dtype=np.complex64),
+    )
 
 
 def test_appendable_hdf5_bundle_supports_iq_link_library_downlink_rx_axis(

@@ -784,6 +784,13 @@ schema `2.1.0` 起，`phy.iq` 不再接受旧的 `save_frequency_clean/save_time
 主要覆盖 full/labels/IQ writer 共享的 append 机制和 CFR/topology/observation 核心检查；
 它是实验性读取/写盘优化，不替代默认 shard contract。
 
+读取侧可先用 `read_bundle_index()` 获取 fragment offset 和全局 UE index，再用
+`read_bundle_fragment_dataset(path, dataset_path, fragment_index=...)` 或
+`fragment_id=...` 读取单个 fragment 对应的数据。该 helper 会基于
+`/bundle/shard_offsets` 自动切 root append dataset；对于固定 metadata/frequency 这类 shared
+dataset 会返回整块；对于写到 `/bundle/fragments/<fragment_id>/...` 的 sidecar 值会优先返回
+sidecar，适合训练 loader 或调试脚本避免手写 HDF5 轴映射。
+
 | Dataset | 类型/Shape | 说明 |
 |---------|------------|------|
 | `source_contract_name` | string | fragment 原始 contract，例如 full 或 compact profile |

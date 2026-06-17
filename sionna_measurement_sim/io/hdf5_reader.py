@@ -53,6 +53,34 @@ def read_bundle_index(path: str | Path) -> dict[str, Any]:
         }
 
 
+def read_bundle_fragment_dataset(
+    path: str | Path,
+    dataset_path: str,
+    *,
+    fragment_index: int | None = None,
+    fragment_id: str | None = None,
+) -> Any:
+    """Read one dataset for a single appendable bundle fragment.
+
+    Datasets that are appended along the resolved UE axis are sliced with
+    `/bundle/shard_offsets`. Shared datasets are returned whole, and
+    per-fragment sidecar datasets under `/bundle/fragments/<id>/...` take
+    precedence when a value could not be safely appended at the root.
+    """
+
+    validate_hdf5_contract(path)
+    with h5py.File(path, "r") as h5:
+        if "bundle" not in h5:
+            msg = f"{path} is not an HDF5 result bundle"
+            raise KeyError(msg)
+        row = _resolve_bundle_fragment_row(
+            h5,
+            fragment_index=fragment_index,
+            fragment_id=fragment_id,
+        )
+        return _read_bundle_fragment_dataset_from_open_h5(h5, dataset_path, row)
+
+
 def iter_link_labels(path: str | Path):
     """Yield compact `/labels/link` tables from one HDF5 file or sharded run dir."""
 
@@ -93,3 +121,135 @@ def _decode(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return value
+
+
+def _read_bundle_fragment_dataset_from_open_h5(
+    h5: h5py.File,
+    dataset_path: str,
+    row: int,
+) -> Any:
+    dataset_path = _clean_dataset_path(dataset_path)
+    fragment_id = _decode(h5["bundle/fragment_id"][row])
+    sidecar_path = f"bundle/fragments/{fragment_id}/{dataset_path}"
+    if sidecar_path in h5:
+        return h5[sidecar_path][()]
+    if dataset_path not in h5:
+        msg = f"{h5.filename} does not contain /{dataset_path}"
+        raise KeyError(msg)
+    dataset = h5[dataset_path]
+    offset = np.asarray(h5["bundle/shard_offsets"][row], dtype=np.int64)
+    selection = _bundle_fragment_selection(
+        h5,
+        dataset_path,
+        dataset,
+        append_start=int(offset[0]),
+        append_count=int(offset[1]),
+    )
+    if selection is None:
+        return dataset[()]
+    return dataset[selection]
+
+
+def _resolve_bundle_fragment_row(
+    h5: h5py.File,
+    *,
+    fragment_index: int | None,
+    fragment_id: str | None,
+) -> int:
+    if (fragment_index is None) == (fragment_id is None):
+        msg = "Provide exactly one of fragment_index or fragment_id"
+        raise ValueError(msg)
+    fragment_count = int(h5["bundle/fragment_count"][()])
+    if fragment_index is not None:
+        row = int(fragment_index)
+        if row < 0 or row >= fragment_count:
+            msg = f"fragment_index {row} is outside [0, {fragment_count})"
+            raise IndexError(msg)
+        return row
+    fragment_ids = [_decode(value) for value in h5["bundle/fragment_id"][()]]
+    try:
+        return fragment_ids.index(str(fragment_id))
+    except ValueError as exc:
+        msg = f"Unknown bundle fragment_id {fragment_id!r}"
+        raise KeyError(msg) from exc
+
+
+def _bundle_fragment_selection(
+    h5: h5py.File,
+    dataset_path: str,
+    dataset: h5py.Dataset,
+    *,
+    append_start: int,
+    append_count: int,
+) -> tuple[slice, ...] | None:
+    axis, scale = _bundle_dataset_append_axis(h5, dataset_path, dataset)
+    if axis is None:
+        return None
+    scaled_start = append_start * scale
+    scaled_count = append_count * scale
+    selection = [slice(None)] * dataset.ndim
+    selection[axis] = slice(scaled_start, scaled_start + scaled_count)
+    return tuple(selection)
+
+
+def _bundle_dataset_append_axis(
+    h5: h5py.File,
+    dataset_path: str,
+    dataset: h5py.Dataset,
+) -> tuple[int | None, int]:
+    if dataset.ndim == 0:
+        return None, 1
+    role = _decode(h5["bundle/ue_axis_role"][()])
+    path_axes = {
+        "topology/tx_positions_m": ("tx", 0),
+        "topology/tx_labels": ("tx", 0),
+        "topology/rx_positions_m": ("rx", 0),
+        "topology/rx_labels": ("rx", 0),
+        "devices/tx_velocity_mps": ("tx", 1),
+        "devices/tx_orientation_rad": ("tx", 1),
+        "devices/rx_velocity_mps": ("rx", 1),
+        "devices/rx_orientation_rad": ("rx", 1),
+    }
+    if dataset_path in path_axes:
+        axis_role, axis = path_axes[dataset_path]
+        if axis_role == role:
+            return axis, 1
+        return None, 1
+
+    tx_count = int(h5["topology/tx_positions_m"].shape[0]) if "topology" in h5 else 0
+    rx_count = int(h5["topology/rx_positions_m"].shape[0]) if "topology" in h5 else 0
+    if (
+        dataset_path.startswith("labels/link/")
+        and dataset.ndim >= 1
+        and tx_count > 0
+        and rx_count > 0
+        and dataset.shape[0] == tx_count * rx_count
+    ):
+        scale = rx_count if role == "tx" else tx_count
+        return 0, int(scale)
+
+    order = _attr_to_string(dataset.attrs.get("index_order", ""))
+    if not order:
+        return None, 1
+    wanted = {"tx", "ul_tx"} if role == "tx" else {"rx", "ul_rx"}
+    bundle_ue_count = int(h5["bundle/ue_count"][()])
+    for axis, token in enumerate(part.strip() for part in order.split(",")):
+        if axis >= dataset.ndim:
+            continue
+        if token in wanted and int(dataset.shape[axis]) == bundle_ue_count:
+            return axis, 1
+    return None, 1
+
+
+def _clean_dataset_path(dataset_path: str) -> str:
+    path = str(dataset_path).strip("/")
+    if not path:
+        msg = "dataset_path must not be empty"
+        raise ValueError(msg)
+    return path
+
+
+def _attr_to_string(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)

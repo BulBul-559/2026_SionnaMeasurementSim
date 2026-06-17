@@ -141,7 +141,10 @@ root `/shard`。sidecar fragment dataset 当前只做保留，不作为主 contr
 RT labels-only 单文件或 sharded run 目录。`read_bundle_index()` 读取实验 bundle 的
 `fragment_count`、`ue_count`、`shard_offsets` 和 `global_ue_indices`，用于训练 loader
 按 append 区间定位样本；`read_truth_cfr()` 可直接读取 bundle root 上的
-`/channel/truth/cfr`。
+`/channel/truth/cfr`。`read_bundle_fragment_dataset()` 可按 `fragment_index` 或
+`fragment_id` 读取单个 fragment 的 dataset：root append dataset 会按
+`/bundle/shard_offsets` 自动切片，shared dataset 返回整块，若存在
+`/bundle/fragments/<fragment_id>/...` sidecar 则优先读取 sidecar 覆盖值。
 
 ### `manifest.py`
 
