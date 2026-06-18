@@ -9,6 +9,8 @@ from sionna_measurement_sim.config.schema import (
     OutputBundleConfig,
     OutputGpuSchedulerConfig,
     OutputShardingConfig,
+    ShardingFallbackConfig,
+    ShardPostprocessConfig,
 )
 from sionna_measurement_sim.domain.results import (
     ShardMetadata,
@@ -272,6 +274,95 @@ def test_sharded_pipeline_fallback_writes_results_and_manifest_dirs(
         [0],
         [1],
         [2, 3],
+    ]
+
+
+def test_fallback_on_failure_isolation_skips_successful_first_attempt(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "out"
+    isolated_flags: list[bool] = []
+
+    def fake_worker(
+        config: RTTruthRunConfig,
+        gpu_id: int | None,
+        *,
+        force_isolated: bool = False,
+    ) -> Path:
+        del gpu_id
+        isolated_flags.append(force_isolated)
+        return config.output_dir / config.hdf5_filename
+
+    monkeypatch.setattr(truth_pipeline, "_run_shard_worker_attempt", fake_worker)
+
+    config = RTTruthRunConfig(
+        label_file=label_path,
+        scene_file=tmp_path / "scene.xml",
+        output_dir=output_dir,
+        max_bs=2,
+        max_ue=2,
+        output_sharding_config=OutputShardingConfig(
+            enabled=True,
+            shard_size=2,
+            fallback=ShardingFallbackConfig(isolation_mode="on_failure"),
+        ),
+    )
+    spec = _build_shard_specs(config)[0]
+
+    outcome = truth_pipeline._run_shard_spec_with_fallback(config, spec, gpu_id=0)
+
+    assert isolated_flags == [False]
+    assert outcome["attempts"][0]["isolated"] is False
+    assert outcome["attempts"][0]["isolation_mode"] == "on_failure"
+
+
+def test_fallback_on_failure_isolates_retry_children(tmp_path: Path, monkeypatch):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "out"
+    isolated_flags: list[bool] = []
+    failed_once = False
+
+    def fake_worker(
+        config: RTTruthRunConfig,
+        gpu_id: int | None,
+        *,
+        force_isolated: bool = False,
+    ) -> Path:
+        nonlocal failed_once
+        del gpu_id
+        isolated_flags.append(force_isolated)
+        assert config.shard_spec is not None
+        if not failed_once and int(config.shard_spec.ue_count or 0) == 2:
+            failed_once = True
+            raise RuntimeError("CUDA out of memory")
+        return config.output_dir / config.hdf5_filename
+
+    monkeypatch.setattr(truth_pipeline, "_run_shard_worker_attempt", fake_worker)
+    monkeypatch.setattr(truth_pipeline, "_clear_accelerator_caches", lambda: None)
+
+    config = RTTruthRunConfig(
+        label_file=label_path,
+        scene_file=tmp_path / "scene.xml",
+        output_dir=output_dir,
+        max_bs=2,
+        max_ue=2,
+        output_sharding_config=OutputShardingConfig(
+            enabled=True,
+            shard_size=2,
+            fallback=ShardingFallbackConfig(isolation_mode="on_failure"),
+        ),
+    )
+    spec = _build_shard_specs(config)[0]
+
+    outcome = truth_pipeline._run_shard_spec_with_fallback(config, spec, gpu_id=0)
+
+    assert isolated_flags == [False, True, True]
+    assert [item["status"] for item in outcome["attempts"]] == [
+        "split",
+        "succeeded",
+        "succeeded",
     ]
 
 
@@ -869,6 +960,132 @@ def test_sharded_pipeline_dynamic_gpu_scheduler_waits_for_free_memory(
         .splitlines()
     ]
     assert [item["gpu_id"] for item in attempts] == [2, 1, 0]
+
+
+def test_dynamic_gpu_scheduler_collects_async_writer_results(tmp_path: Path, monkeypatch):
+    label_path = _write_label_with_counts(tmp_path, tx_count=2, rx_count=2)
+    output_dir = tmp_path / "dynamic_async_out"
+    submitted: list[tuple[int, int | None]] = []
+
+    class _ImmediateFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def done(self):
+            return True
+
+        def result(self):
+            return self._value
+
+    class _ImmediateExecutor:
+        def __init__(self, max_workers: int):
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def submit(self, fn, config, spec, gpu_id):
+            submitted.append((int(spec.shard_index), gpu_id))
+            return _ImmediateFuture(fn(config, spec, gpu_id))
+
+    def fake_run(
+        config: RTTruthRunConfig,
+        spec: truth_pipeline.ShardSpec,
+        gpu_id: int | None,
+    ):
+        shard_id = spec.shard_id or f"{spec.shard_index:03d}"
+        return {
+            "results": [],
+            "attempts": [],
+            "pending_writes": [
+                truth_pipeline.PendingShardWrite(
+                    shard_id=shard_id,
+                    config=config,
+                    prepared=None,
+                    attempt={
+                        "shard_id": shard_id,
+                        "shard_index": spec.shard_index,
+                        "status": "write_pending",
+                        "gpu_id": gpu_id,
+                    },
+                )
+            ],
+        }
+
+    def fake_materialize(pending: truth_pipeline.PendingShardWrite):
+        return {
+            "result": {
+                "shard_id": pending.shard_id,
+                "shard_index": int(pending.attempt["shard_index"]),
+                "global_ue_indices": [int(pending.attempt["shard_index"])],
+                "result_h5": f"result_{pending.shard_id}.h5",
+                "manifest": f"manifest_{pending.shard_id}.json",
+            },
+            "attempt": {**pending.attempt, "status": "succeeded"},
+        }
+
+    monkeypatch.setattr(truth_pipeline, "ProcessPoolExecutor", _ImmediateExecutor)
+    monkeypatch.setattr(
+        truth_pipeline,
+        "wait",
+        lambda futures, timeout=None, return_when=None: (set(futures), set()),
+    )
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_query_gpu_free_memory_ratios",
+        lambda gpu_ids: {gpu_id: 0.9 for gpu_id in gpu_ids},
+    )
+    monkeypatch.setattr(truth_pipeline, "_run_shard_spec_with_fallback", fake_run)
+    monkeypatch.setattr(
+        truth_pipeline,
+        "_materialize_pending_shard_write",
+        fake_materialize,
+    )
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            device="cuda",
+            max_bs=2,
+            max_ue=2,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=1,
+                parallel_workers=2,
+                gpu_ids=[0, 1],
+                visualization_mode="none",
+                postprocess=ShardPostprocessConfig(
+                    async_write=True,
+                    max_pending_writes=2,
+                ),
+                gpu_scheduler=OutputGpuSchedulerConfig(
+                    enabled=True,
+                    free_memory_threshold=0.6,
+                    scan_interval_s=0.01,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    assert submitted == [(0, 0), (1, 1)]
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["sharding"]["result_file_count"] == 2
+    assert manifest["sharding"]["postprocess"]["async_write"] is True
+    attempts = [
+        json.loads(line)
+        for line in (output_dir / "manifest" / "shard_attempts.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [item["status"] for item in attempts] == ["succeeded", "succeeded"]
 
 
 def _write_label(tmp_path: Path) -> Path:

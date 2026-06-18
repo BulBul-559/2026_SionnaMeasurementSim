@@ -10,7 +10,13 @@ import subprocess
 import time
 import traceback
 from collections import deque
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+    wait,
+)
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -199,6 +205,16 @@ class PreparedShardOutput:
     diagnostics: DiagnosticsReport | None = None
     ranging: Any | None = None
     batching_stats: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PendingShardWrite:
+    """A shard whose GPU compute is done and whose HDF5 materialization is pending."""
+
+    shard_id: str
+    config: RTTruthRunConfig
+    prepared: PreparedShardOutput
+    attempt: dict[str, object]
 
 
 def run_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -461,7 +477,10 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     gpu_ids = [int(gpu_id) for gpu_id in getattr(sharding, "gpu_ids", [])]
     shard_results: list[dict[str, object]] = []
     shard_attempts: list[dict[str, object]] = []
+    pending_writes: list[PendingShardWrite] = []
+    active_writes: dict[object, PendingShardWrite] = {}
     scheduler_runtime: dict[str, object] = {}
+    max_pending_writes = _max_pending_shard_writes(config)
 
     if _dynamic_gpu_scheduler_enabled(config, sharding):
         outcome = _run_shard_specs_with_dynamic_gpu_scheduler(
@@ -474,13 +493,41 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         shard_attempts.extend(outcome["attempts"])
         scheduler_runtime = dict(outcome.get("scheduler", {}))
     elif parallel_workers <= 1:
-        for index, spec in enumerate(shard_specs):
-            gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
-            outcome = _run_shard_spec_with_fallback(config, spec, gpu_id)
-            shard_results.extend(outcome["results"])
-            shard_attempts.extend(outcome["attempts"])
+        with ThreadPoolExecutor(max_workers=max_pending_writes) as writer_executor:
+            for index, spec in enumerate(shard_specs):
+                gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
+                outcome = _run_shard_spec_with_fallback(config, spec, gpu_id)
+                _merge_shard_outcome(
+                    outcome,
+                    shard_results,
+                    shard_attempts,
+                    pending_writes,
+                )
+                _submit_pending_shard_writes(
+                    pending_writes,
+                    active_writes,
+                    writer_executor,
+                    max_active_writes=max_pending_writes,
+                )
+                _collect_completed_shard_write_futures(
+                    active_writes,
+                    shard_results,
+                    shard_attempts,
+                )
+            _drain_shard_writes(
+                pending_writes,
+                active_writes,
+                writer_executor,
+                shard_results,
+                shard_attempts,
+                max_active_writes=max_pending_writes,
+                poll_interval_s=1.0,
+            )
     else:
-        with ProcessPoolExecutor(max_workers=parallel_workers) as executor:
+        with (
+            _new_shard_process_pool(parallel_workers, config) as executor,
+            ThreadPoolExecutor(max_workers=max_pending_writes) as writer_executor,
+        ):
             future_to_spec = {}
             for index, spec in enumerate(shard_specs):
                 gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
@@ -488,8 +535,32 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 future_to_spec[future] = spec
             for future in as_completed(future_to_spec):
                 outcome = future.result()
-                shard_results.extend(outcome["results"])
-                shard_attempts.extend(outcome["attempts"])
+                _merge_shard_outcome(
+                    outcome,
+                    shard_results,
+                    shard_attempts,
+                    pending_writes,
+                )
+                _submit_pending_shard_writes(
+                    pending_writes,
+                    active_writes,
+                    writer_executor,
+                    max_active_writes=max_pending_writes,
+                )
+                _collect_completed_shard_write_futures(
+                    active_writes,
+                    shard_results,
+                    shard_attempts,
+                )
+            _drain_shard_writes(
+                pending_writes,
+                active_writes,
+                writer_executor,
+                shard_results,
+                shard_attempts,
+                max_active_writes=max_pending_writes,
+                poll_interval_s=1.0,
+            )
 
     return finalize_sharded_rt_truth_run(
         config,
@@ -595,6 +666,7 @@ def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "planned_shard_count": shard_count,
             "result_file_count": len(bundles),
             "parallel_workers": parallel_workers,
+            "recycle_workers": bool(getattr(sharding, "recycle_workers", False)),
             "gpu_ids": gpu_ids,
             "filename_pattern": getattr(
                 sharding, "filename_pattern", "result_{shard_index:03d}.h5"
@@ -603,6 +675,7 @@ def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
             "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
             "fallback": _sharding_fallback_summary(sharding, shard_attempts),
+            "postprocess": _sharding_postprocess_summary(sharding),
             "gpu_scheduler": _gpu_scheduler_manifest_summary(sharding, gpu_ids),
             "bundle": {
                 "enabled": True,
@@ -683,6 +756,7 @@ def finalize_sharded_rt_truth_run(
             "planned_shard_count": len(shard_specs),
             "result_file_count": len(shard_results),
             "parallel_workers": int(getattr(sharding, "parallel_workers", 1)),
+            "recycle_workers": bool(getattr(sharding, "recycle_workers", False)),
             "gpu_ids": gpu_ids,
             "filename_pattern": getattr(
                 sharding, "filename_pattern", "result_{shard_index:03d}.h5"
@@ -691,6 +765,7 @@ def finalize_sharded_rt_truth_run(
             "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
             "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
             "fallback": _sharding_fallback_summary(sharding, shard_attempts),
+            "postprocess": _sharding_postprocess_summary(sharding),
             "gpu_scheduler": _gpu_scheduler_manifest_summary(
                 sharding,
                 gpu_ids,
@@ -1311,6 +1386,171 @@ def _run_rt_truth_pipeline_single_impl(
     return results_path
 
 
+def _materialize_prepared_output(
+    config: RTTruthRunConfig,
+    prepared: PreparedShardOutput,
+    *,
+    tracer: PerfTracer,
+    output_dir: Path | None = None,
+    logs_dir: Path | None = None,
+) -> Path:
+    """Write a prepared shard output to HDF5 plus its per-shard sidecars."""
+
+    output_dir = output_dir or config.output_dir
+    logs_dir = logs_dir or output_dir / "logs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    target_path = output_dir / config.hdf5_filename
+    result = prepared.result
+    with tracer.span("hdf5_write"):
+        if isinstance(result, IQLinkLibraryResult):
+            results_path = write_iq_link_library_result(
+                target_path,
+                result,
+                compression=config.hdf5_compression,
+                gzip_level=config.hdf5_gzip_level,
+                tracer=tracer,
+            )
+        elif isinstance(result, RTLabelsOnlyResult):
+            results_path = write_rt_labels_result(
+                target_path,
+                result,
+                compression=config.hdf5_compression,
+                gzip_level=config.hdf5_gzip_level,
+                tracer=tracer,
+            )
+        elif isinstance(result, MeasurementSimulationResult):
+            results_path = write_measurement_result(
+                target_path,
+                result,
+                compression=config.hdf5_compression,
+                gzip_level=config.hdf5_gzip_level,
+                tracer=tracer,
+            )
+        else:
+            msg = f"Unsupported prepared result type: {type(result)!r}"
+            raise TypeError(msg)
+    with tracer.span("schema_validate"):
+        validate_hdf5_contract(results_path)
+    visualization_summary = None
+    if config.visualization_config.enabled:
+        with tracer.span("visualization"):
+            visualization_summary = generate_visualization_report(
+                results_path,
+                output_dir / config.visualization_config.output_dir,
+                config.visualization_config,
+                mode="sample",
+            )
+    manifest_path = _write_prepared_manifest(
+        config=config,
+        output_dir=output_dir,
+        prepared=prepared,
+        results_path=results_path,
+        tracer=tracer,
+        visualization_summary=visualization_summary,
+    )
+    _write_prepared_run_log(
+        logs_dir,
+        config=config,
+        prepared=prepared,
+        results_path=results_path,
+        manifest_path=manifest_path,
+    )
+    return results_path
+
+
+def _write_prepared_manifest(
+    *,
+    config: RTTruthRunConfig,
+    output_dir: Path,
+    prepared: PreparedShardOutput,
+    results_path: Path,
+    tracer: PerfTracer,
+    visualization_summary: Any | None = None,
+) -> Path:
+    manifest_data = {
+        "phase": prepared.phase,
+        "output_profile": config.output_profile,
+        "output_products": list(prepared.output_plan.products),
+        "results_h5": results_path.as_posix(),
+        "label_file": config.label_file.as_posix(),
+        "scene_file": config.scene_file.as_posix(),
+        "scene_id": prepared.scene_id,
+        "map_id": config.map_id,
+        "config_snapshot": _config_snapshot(config),
+        "software_versions": prepared.software_versions,
+        "raw_cfr_shape": prepared.raw_cfr_shape,
+        "internal_cfr_shape": prepared.internal_cfr_shape,
+        "path_count": prepared.path_count,
+        "observation_snr_db": prepared.observation_snr_db,
+        "elapsed_seconds": prepared.elapsed_seconds,
+    }
+    if prepared.batching_stats:
+        manifest_data["nr_pusch_batching"] = dict(prepared.batching_stats)
+    if visualization_summary is not None:
+        manifest_data["visualization"] = _manifest_visualization_summary(
+            visualization_summary
+        )
+    if prepared.diagnostics is not None:
+        manifest_data["diagnostics"] = prepared.diagnostics.to_summary_dict()
+    if prepared.ranging is not None:
+        manifest_data["ranging"] = _manifest_ranging_summary(prepared.ranging)
+    if prepared.shard_metadata is not None:
+        manifest_data["shard"] = _manifest_shard_summary(prepared.shard_metadata)
+    manifest_path = (
+        _shard_manifest_path(config)
+        if prepared.shard_metadata is not None
+        else output_dir / "manifest.json"
+    )
+    with tracer.span("manifest_write"):
+        manifest_path = write_manifest(manifest_path, manifest_data)
+    perf_summary = tracer.finish({"results_h5": results_path.as_posix()})
+    if perf_summary:
+        manifest_data["performance"] = {
+            "enabled": True,
+            "summary_path": perf_summary["logs"]["events"].replace(
+                "perf_events", "perf_summary"
+            ).replace(".jsonl", ".json"),
+            "stage_totals_s": perf_summary.get("stage_totals_s", {}),
+            "hardware_summary": perf_summary.get("hardware_summary", {}),
+            "dataset_write_summary": perf_summary.get("dataset_write_summary", {}),
+        }
+        manifest_path = write_manifest(manifest_path, manifest_data)
+    return manifest_path
+
+
+def _write_prepared_run_log(
+    logs_dir: Path,
+    *,
+    config: RTTruthRunConfig,
+    prepared: PreparedShardOutput,
+    results_path: Path,
+    manifest_path: Path,
+) -> None:
+    run_log_name = (
+        f"run_{_shard_spec_id(config.shard_spec)}.log"
+        if prepared.shard_metadata is not None and config.shard_spec is not None
+        else "run.log"
+    )
+    (logs_dir / run_log_name).write_text(
+        "\n".join(
+            [
+                f"phase={prepared.phase}",
+                f"output_profile={config.output_profile}",
+                f"output_products={','.join(prepared.output_plan.products)}",
+                f"results_h5={results_path.as_posix()}",
+                f"manifest={manifest_path.as_posix()}",
+                f"raw_cfr_shape={prepared.raw_cfr_shape}",
+                f"internal_cfr_shape={prepared.internal_cfr_shape}",
+                f"path_count={prepared.path_count}",
+                f"observation_snr_db={prepared.observation_snr_db}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _adapter_path_count(adapter_result: Any) -> int:
     path_samples = getattr(adapter_result, "path_samples", None)
     if path_samples is not None:
@@ -1593,16 +1833,114 @@ def _generate_sharded_radio_maps_if_requested(
 def _run_shard_worker(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
     if gpu_id is not None and str(config.device).startswith("cuda"):
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    return _run_rt_truth_pipeline_single(config)
+    try:
+        return _run_rt_truth_pipeline_single(config)
+    finally:
+        _clear_accelerator_caches()
 
 
-def _run_shard_worker_attempt(config: RTTruthRunConfig, gpu_id: int | None) -> Path:
-    """Run one shard attempt, isolating fallback-enabled work in a fresh process."""
+def _run_shard_worker_prepare(
+    config: RTTruthRunConfig,
+    gpu_id: int | None,
+) -> PreparedShardOutput:
+    """Compute one shard and return the in-memory result before HDF5 materialization."""
 
+    if gpu_id is not None and str(config.device).startswith("cuda"):
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    start = time.perf_counter()
+    output_dir = config.output_dir
+    logs_dir = output_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    worker_id = (
+        f"shard_{_shard_spec_id(config.shard_spec)}_compute"
+        if config.shard_spec is not None
+        else "main_compute"
+    )
+    tracer = PerfTracer(output_dir, config.debug_config, worker_id=worker_id)
+    tracer.start()
+    try:
+        prepared = _run_rt_truth_pipeline_single_impl(
+            config,
+            tracer,
+            start=start,
+            output_dir=output_dir,
+            logs_dir=logs_dir,
+            prepare_only=True,
+        )
+    except Exception as exc:
+        tracer.finish(
+            {"output_dir": output_dir.as_posix(), "prepare_only": True},
+            status="failed",
+            exception=exc,
+        )
+        raise
+    if not isinstance(prepared, PreparedShardOutput):
+        msg = "prepare_only pipeline must return PreparedShardOutput"
+        raise TypeError(msg)
+    finish_extra = {
+        "output_dir": output_dir.as_posix(),
+        "prepare_only": True,
+    }
+    if config.shard_spec is not None:
+        finish_extra["shard_id"] = _shard_spec_id(config.shard_spec)
+    tracer.finish(finish_extra)
+    _clear_accelerator_caches()
+    return prepared
+
+
+def _fallback_isolation_mode(config: RTTruthRunConfig) -> str:
     fallback = getattr(getattr(config, "output_sharding_config", None), "fallback", None)
-    if bool(getattr(fallback, "enabled", False)):
+    if fallback is None or not bool(getattr(fallback, "enabled", False)):
+        return "never"
+    mode = str(getattr(fallback, "isolation_mode", "always"))
+    if mode not in {"always", "on_failure", "never"}:
+        return "always"
+    return mode
+
+
+def _should_isolate_shard_attempt(
+    config: RTTruthRunConfig,
+    spec: ShardSpec | None,
+    *,
+    reason: str = "",
+) -> bool:
+    mode = _fallback_isolation_mode(config)
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    if spec is None:
+        return False
+    return int(spec.fallback_level) > 0 or bool(reason or spec.fallback_reason)
+
+
+def _run_shard_worker_attempt(
+    config: RTTruthRunConfig,
+    gpu_id: int | None,
+    *,
+    force_isolated: bool = False,
+) -> Path:
+    """Run one shard attempt, optionally isolating work in a fresh process."""
+
+    if force_isolated:
         return _run_shard_worker_in_isolated_process(config, gpu_id)
     return _run_shard_worker(config, gpu_id)
+
+
+def _run_shard_worker_prepare_attempt(
+    config: RTTruthRunConfig,
+    gpu_id: int | None,
+    *,
+    force_isolated: bool = False,
+) -> PreparedShardOutput:
+    """Compute one shard attempt, optionally in an isolated child process."""
+
+    if force_isolated:
+        context = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=1, mp_context=context) as executor:
+            future = executor.submit(_run_shard_worker_prepare, config, gpu_id)
+            return future.result()
+    return _run_shard_worker_prepare(config, gpu_id)
 
 
 def _run_shard_worker_in_isolated_process(
@@ -1615,6 +1953,203 @@ def _run_shard_worker_in_isolated_process(
     with ProcessPoolExecutor(max_workers=1, mp_context=context) as executor:
         future = executor.submit(_run_shard_worker, config, gpu_id)
         return future.result()
+
+
+def _shard_async_write_enabled(config: RTTruthRunConfig) -> bool:
+    sharding = getattr(config, "output_sharding_config", None)
+    postprocess = getattr(sharding, "postprocess", None)
+    return bool(getattr(postprocess, "async_write", False))
+
+
+def _max_pending_shard_writes(config: RTTruthRunConfig) -> int:
+    sharding = getattr(config, "output_sharding_config", None)
+    postprocess = getattr(sharding, "postprocess", None)
+    return max(int(getattr(postprocess, "max_pending_writes", 16)), 1)
+
+
+def _recycle_shard_workers(config: RTTruthRunConfig) -> bool:
+    sharding = getattr(config, "output_sharding_config", None)
+    return bool(getattr(sharding, "recycle_workers", False))
+
+
+def _new_shard_process_pool(
+    max_workers: int,
+    config: RTTruthRunConfig,
+) -> ProcessPoolExecutor:
+    kwargs: dict[str, object] = {"max_workers": max_workers}
+    if _recycle_shard_workers(config):
+        kwargs["max_tasks_per_child"] = 1
+    try:
+        return ProcessPoolExecutor(**kwargs)
+    except TypeError:
+        kwargs.pop("max_tasks_per_child", None)
+        return ProcessPoolExecutor(**kwargs)
+
+
+def _start_async_prepared_shard_write(
+    config: RTTruthRunConfig,
+    prepared: PreparedShardOutput,
+    attempt: dict[str, object],
+) -> PendingShardWrite:
+    """Return a parent-process writer task for an already computed shard."""
+
+    if config.shard_spec is None:
+        msg = "async shard write requires shard_spec"
+        raise ValueError(msg)
+    pending_attempt = dict(attempt)
+    pending_attempt["status"] = "write_pending"
+    pending_attempt["async_write"] = True
+    return PendingShardWrite(
+        shard_id=_shard_spec_id(config.shard_spec),
+        config=config,
+        prepared=prepared,
+        attempt=pending_attempt,
+    )
+
+
+def _merge_shard_outcome(
+    outcome: dict[str, object],
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    pending_writes: list[PendingShardWrite],
+) -> None:
+    shard_results.extend(list(outcome.get("results", [])))
+    shard_attempts.extend(list(outcome.get("attempts", [])))
+    pending_writes.extend(list(outcome.get("pending_writes", [])))
+
+
+def _submit_pending_shard_writes(
+    pending_writes: list[PendingShardWrite],
+    active_writes: dict[object, PendingShardWrite],
+    writer_executor: ThreadPoolExecutor,
+    *,
+    max_active_writes: int,
+) -> None:
+    while pending_writes and len(active_writes) < max_active_writes:
+        pending = pending_writes.pop(0)
+        future = writer_executor.submit(_materialize_pending_shard_write, pending)
+        active_writes[future] = pending
+
+
+def _materialize_pending_shard_write(
+    pending: PendingShardWrite,
+) -> dict[str, object]:
+    config = pending.config
+    if config.shard_spec is None:
+        msg = "pending shard write requires shard_spec"
+        raise ValueError(msg)
+    worker_id = f"shard_{_shard_spec_id(config.shard_spec)}_write"
+    tracer = PerfTracer(config.output_dir, config.debug_config, worker_id=worker_id)
+    tracer.start()
+    started = time.perf_counter()
+    result_path = _materialize_prepared_output(
+        config,
+        pending.prepared,
+        tracer=tracer,
+        output_dir=config.output_dir,
+        logs_dir=config.output_dir / "logs",
+    )
+    attempt = dict(pending.attempt)
+    attempt["status"] = "succeeded"
+    attempt["write_duration_s"] = time.perf_counter() - started
+    return {
+        "result": _shard_result_summary(config, result_path),
+        "attempt": attempt,
+    }
+
+
+def _collect_completed_shard_write_futures(
+    active_writes: dict[object, PendingShardWrite],
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    completed: set[object] | None = None,
+) -> int:
+    futures = completed if completed is not None else {
+        future for future in active_writes if future.done()
+    }
+    completed = 0
+    for future in list(futures):
+        if future not in active_writes:
+            continue
+        pending = active_writes.pop(future)
+        completed += 1
+        try:
+            status = future.result()
+        except Exception as exc:
+            attempt = dict(pending.attempt)
+            attempt.update(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            shard_attempts.append(attempt)
+            raise RuntimeError(
+                f"Async shard writer failed for {pending.shard_id}: {exc}"
+            ) from exc
+        result = status.get("result") if isinstance(status, dict) else None
+        if not isinstance(result, dict):
+            attempt = dict(pending.attempt)
+            attempt.update({"status": "failed", "error": "missing writer result"})
+            shard_attempts.append(attempt)
+            raise RuntimeError(f"Async shard writer status missing result: {pending.shard_id}")
+        shard_results.append(result)
+        attempt = status.get("attempt")
+        shard_attempts.append(attempt if isinstance(attempt, dict) else dict(pending.attempt))
+    return completed
+
+
+def _wait_for_shard_write_futures(
+    active_writes: dict[object, PendingShardWrite],
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    *,
+    poll_interval_s: float,
+) -> None:
+    while active_writes:
+        done, _ = wait(
+            list(active_writes),
+            timeout=max(float(poll_interval_s), 0.01),
+            return_when=FIRST_COMPLETED,
+        )
+        if done:
+            _collect_completed_shard_write_futures(
+                active_writes,
+                shard_results,
+                shard_attempts,
+                done,
+            )
+
+
+def _drain_shard_writes(
+    pending_writes: list[PendingShardWrite],
+    active_writes: dict[object, PendingShardWrite],
+    writer_executor: ThreadPoolExecutor,
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    *,
+    max_active_writes: int,
+    poll_interval_s: float,
+) -> None:
+    while pending_writes or active_writes:
+        _submit_pending_shard_writes(
+            pending_writes,
+            active_writes,
+            writer_executor,
+            max_active_writes=max_active_writes,
+        )
+        _collect_completed_shard_write_futures(
+            active_writes,
+            shard_results,
+            shard_attempts,
+        )
+        if active_writes:
+            _wait_for_shard_write_futures(
+                active_writes,
+                shard_results,
+                shard_attempts,
+                poll_interval_s=poll_interval_s,
+            )
 
 
 def _dynamic_gpu_scheduler_enabled(
@@ -1657,16 +2192,42 @@ def _run_shard_specs_with_dynamic_gpu_scheduler(
     pending: deque[ShardSpec] = deque(shard_specs)
     shard_results: list[dict[str, object]] = []
     shard_attempts: list[dict[str, object]] = []
+    pending_writes: list[PendingShardWrite] = []
+    active_writes: dict[object, PendingShardWrite] = {}
     active: dict[object, tuple[ShardSpec, int]] = {}
     scheduled_count = 0
     wait_count = 0
     scan_count = 0
+    max_pending_writes = _max_pending_shard_writes(config)
 
-    with ProcessPoolExecutor(max_workers=max_active_workers) as executor:
-        while pending or active:
-            _collect_completed_dynamic_shards(active, shard_results, shard_attempts)
+    with (
+        _new_shard_process_pool(max_active_workers, config) as executor,
+        ThreadPoolExecutor(max_workers=max_pending_writes) as writer_executor,
+    ):
+        while pending or active or pending_writes or active_writes:
+            _collect_completed_dynamic_shards(
+                active,
+                shard_results,
+                shard_attempts,
+                pending_writes,
+            )
+            _submit_pending_shard_writes(
+                pending_writes,
+                active_writes,
+                writer_executor,
+                max_active_writes=max_pending_writes,
+            )
+            _collect_completed_shard_write_futures(
+                active_writes,
+                shard_results,
+                shard_attempts,
+            )
             scheduled_this_scan = False
-            while pending and len(active) < max_active_workers:
+            while (
+                pending
+                and len(active) < max_active_workers
+                and len(pending_writes) + len(active_writes) < max_pending_writes
+            ):
                 scan_count += 1
                 free_ratios = _query_gpu_free_memory_ratios(candidate_gpu_ids)
                 busy_gpu_ids = {gpu_id for _, gpu_id in active.values()}
@@ -1704,6 +2265,7 @@ def _run_shard_specs_with_dynamic_gpu_scheduler(
                         active,
                         shard_results,
                         shard_attempts,
+                        pending_writes,
                         done,
                     )
                 elif pending:
@@ -1713,6 +2275,29 @@ def _run_shard_specs_with_dynamic_gpu_scheduler(
             if pending and not scheduled_this_scan:
                 wait_count += 1
                 time.sleep(scan_interval_s)
+                continue
+
+            if pending_writes:
+                _submit_pending_shard_writes(
+                    pending_writes,
+                    active_writes,
+                    writer_executor,
+                    max_active_writes=max_pending_writes,
+                )
+
+            if active_writes:
+                done, _ = wait(
+                    list(active_writes),
+                    timeout=scan_interval_s,
+                    return_when=FIRST_COMPLETED,
+                )
+                if done:
+                    _collect_completed_shard_write_futures(
+                        active_writes,
+                        shard_results,
+                        shard_attempts,
+                        done,
+                    )
 
     return {
         "results": shard_results,
@@ -1726,6 +2311,7 @@ def _run_shard_specs_with_dynamic_gpu_scheduler(
             "scheduled_count": scheduled_count,
             "wait_count": wait_count,
             "scan_count": scan_count,
+            "max_pending_writes": max_pending_writes,
         },
     }
 
@@ -1734,6 +2320,7 @@ def _collect_completed_dynamic_shards(
     active: dict[object, tuple[ShardSpec, int]],
     shard_results: list[dict[str, object]],
     shard_attempts: list[dict[str, object]],
+    pending_writes: list[PendingShardWrite],
     completed: set[object] | None = None,
 ) -> None:
     futures = completed if completed is not None else {
@@ -1744,8 +2331,7 @@ def _collect_completed_dynamic_shards(
             continue
         active.pop(future)
         outcome = future.result()
-        shard_results.extend(outcome["results"])
-        shard_attempts.extend(outcome["attempts"])
+        _merge_shard_outcome(outcome, shard_results, shard_attempts, pending_writes)
 
 
 def _discover_cuda_gpu_ids() -> list[int]:
@@ -1804,7 +2390,7 @@ def _run_shard_spec_with_fallback(
     config: RTTruthRunConfig,
     spec: ShardSpec,
     gpu_id: int | None,
-) -> dict[str, list[dict[str, object]]]:
+) -> dict[str, object]:
     return _run_shard_spec_attempt(config, spec, gpu_id, reason="")
 
 
@@ -1814,8 +2400,10 @@ def _run_shard_spec_attempt(
     gpu_id: int | None,
     *,
     reason: str,
-) -> dict[str, list[dict[str, object]]]:
+) -> dict[str, object]:
     shard_config = _build_shard_run_config(config, spec)
+    isolate_attempt = _should_isolate_shard_attempt(config, spec, reason=reason)
+    async_write = _shard_async_write_enabled(config)
     attempt: dict[str, object] = {
         "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
         "shard_index": spec.shard_index,
@@ -1830,9 +2418,28 @@ def _run_shard_spec_attempt(
         "reason": reason or spec.fallback_reason,
         "status": "started",
         "gpu_id": gpu_id,
+        "isolation_mode": _fallback_isolation_mode(config),
+        "isolated": isolate_attempt,
+        "async_write": async_write,
     }
     try:
-        result_path = _run_shard_worker_attempt(shard_config, gpu_id)
+        if async_write:
+            prepared = _run_shard_worker_prepare_attempt(
+                shard_config,
+                gpu_id,
+                force_isolated=isolate_attempt,
+            )
+            pending = _start_async_prepared_shard_write(
+                shard_config,
+                prepared,
+                attempt,
+            )
+            return {"results": [], "attempts": [], "pending_writes": [pending]}
+        result_path = _run_shard_worker_attempt(
+            shard_config,
+            gpu_id,
+            force_isolated=isolate_attempt,
+        )
     except Exception as exc:
         retry_error = _classify_retryable_shard_error(exc)
         attempt.update(
@@ -1865,6 +2472,7 @@ def _run_shard_spec_attempt(
         )
         results: list[dict[str, object]] = []
         attempts: list[dict[str, object]] = [attempt]
+        pending_writes: list[PendingShardWrite] = []
         for child in children:
             _clear_accelerator_caches()
             outcome = _run_shard_spec_attempt(
@@ -1873,13 +2481,17 @@ def _run_shard_spec_attempt(
                 gpu_id,
                 reason=retry_error or "retryable",
             )
-            results.extend(outcome["results"])
-            attempts.extend(outcome["attempts"])
-        return {"results": results, "attempts": attempts}
+            _merge_shard_outcome(outcome, results, attempts, pending_writes)
+        return {
+            "results": results,
+            "attempts": attempts,
+            "pending_writes": pending_writes,
+        }
     attempt["status"] = "succeeded"
     return {
         "results": [_shard_result_summary(shard_config, result_path)],
         "attempts": [attempt],
+        "pending_writes": [],
     }
 
 
@@ -2446,8 +3058,18 @@ def _sharding_fallback_summary(
         "min_shard_size": int(getattr(fallback, "min_shard_size", 1)),
         "split_factor": int(getattr(fallback, "split_factor", 2)),
         "retry_errors": list(getattr(fallback, "retry_errors", [])),
+        "failure_policy": str(getattr(fallback, "failure_policy", "fail_run")),
+        "isolation_mode": str(getattr(fallback, "isolation_mode", "always")),
         "split_count": len(split_attempts),
         "split_shard_ids": [str(item.get("shard_id", "")) for item in split_attempts],
+    }
+
+
+def _sharding_postprocess_summary(sharding: object) -> dict[str, object]:
+    postprocess = getattr(sharding, "postprocess", None)
+    return {
+        "async_write": bool(getattr(postprocess, "async_write", False)),
+        "max_pending_writes": int(getattr(postprocess, "max_pending_writes", 16)),
     }
 
 
@@ -3073,6 +3695,9 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
             "parallel_workers": int(
                 getattr(config.output_sharding_config, "parallel_workers", 1)
             ),
+            "recycle_workers": bool(
+                getattr(config.output_sharding_config, "recycle_workers", False)
+            ),
             "gpu_ids": [
                 int(gpu_id)
                 for gpu_id in getattr(config.output_sharding_config, "gpu_ids", [])
@@ -3107,6 +3732,36 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
                         getattr(config.output_sharding_config, "fallback", None),
                         "retry_errors",
                         [],
+                    )
+                ),
+                "failure_policy": str(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "failure_policy",
+                        "fail_run",
+                    )
+                ),
+                "isolation_mode": str(
+                    getattr(
+                        getattr(config.output_sharding_config, "fallback", None),
+                        "isolation_mode",
+                        "always",
+                    )
+                ),
+            },
+            "postprocess": {
+                "async_write": bool(
+                    getattr(
+                        getattr(config.output_sharding_config, "postprocess", None),
+                        "async_write",
+                        False,
+                    )
+                ),
+                "max_pending_writes": int(
+                    getattr(
+                        getattr(config.output_sharding_config, "postprocess", None),
+                        "max_pending_writes",
+                        16,
                     )
                 ),
             },

@@ -38,8 +38,12 @@
 - 标准 label 顶层 `bs_points`/`ue_points` 是全场景默认点集，`groups` 只是房间/区域等
   子集元数据；当前 pipeline 不按 group 过滤。
 - 标准 floorplan 命名使用截断高度，例如 `floorplan_1p60.png` 表示 `z=1.60 m`。
-- 当前 64 PRB SRS 正式任务模板推荐 `output.sharding.shard_size=5`、
-  `output.compression="mixed"`、`output.gzip_level=1`。
+- 当前 64 PRB SRS full 正式任务模板推荐 `output.sharding.shard_size=5`、
+  `output.compression="mixed"`、`output.gzip_level=1`。Front3D 0p5 CFR truth-only
+  队列使用 `config/tasks/nr_srs_64prb_cfr_truth_only.yaml`：`shard_size=20`、
+  `output.products=["cfr_truth"]`、动态 GPU 调度 `scan_interval_s=0.2`、跨场景
+  shard pipeline、`fallback.isolation_mode="on_failure"`、`recycle_workers=true`，
+  且实验性 `postprocess.async_write` 默认关闭。
 - 大规模输出默认采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，
   不建议在生产路径合成单个巨大 HDF5。实验性 `output.sharding.bundle.enabled=true`
   可把多个计算 shard append 到较大的 `bundles/bundle_workerxxx_yyy.h5`，用于写盘/训练读取

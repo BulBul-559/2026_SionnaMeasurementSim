@@ -63,12 +63,18 @@ class ShardingFallbackConfig(BaseModel):
         default_factory=lambda: ["cuda_oom", "drjit_array_limit"]
     )
     failure_policy: str = Field(default="fail_run")
+    isolation_mode: str = Field(default="always")
 
     @model_validator(mode="after")
     def check_fallback_values(self) -> ShardingFallbackConfig:
         allowed = {"fail_run"}
         if self.failure_policy not in allowed:
             raise ValueError("output.sharding.fallback.failure_policy must be fail_run")
+        if self.isolation_mode not in ("always", "on_failure", "never"):
+            raise ValueError(
+                "output.sharding.fallback.isolation_mode must be "
+                "always/on_failure/never"
+            )
         allowed_errors = {"cuda_oom", "drjit_array_limit"}
         unknown = sorted(set(self.retry_errors) - allowed_errors)
         if unknown:
@@ -77,6 +83,11 @@ class ShardingFallbackConfig(BaseModel):
                 + ", ".join(unknown)
             )
         return self
+
+
+class ShardPostprocessConfig(BaseModel):
+    async_write: bool = False
+    max_pending_writes: int = Field(default=16, ge=1)
 
 
 class OutputBundleConfig(BaseModel):
@@ -118,9 +129,11 @@ class OutputShardingConfig(BaseModel):
     results_dir: str = Field(default="results")
     manifest_dir: str = Field(default="manifest")
     parallel_workers: int = Field(default=1, ge=1)
+    recycle_workers: bool = False
     gpu_ids: list[int] = Field(default_factory=list)
     visualization_mode: str = Field(default="first_shard")
     fallback: ShardingFallbackConfig = Field(default_factory=ShardingFallbackConfig)
+    postprocess: ShardPostprocessConfig = Field(default_factory=ShardPostprocessConfig)
     bundle: OutputBundleConfig = Field(default_factory=OutputBundleConfig)
     gpu_scheduler: OutputGpuSchedulerConfig = Field(
         default_factory=OutputGpuSchedulerConfig

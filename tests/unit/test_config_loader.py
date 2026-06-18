@@ -115,6 +115,49 @@ output:
     assert scheduler.cross_scene_pipeline is True
 
 
+def test_output_sharding_fallback_and_postprocess_config_loads(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  sharding:
+    enabled: true
+    fallback:
+      enabled: true
+      isolation_mode: on_failure
+    recycle_workers: true
+    postprocess:
+      async_write: true
+      max_pending_writes: 3
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.output.sharding.fallback.isolation_mode == "on_failure"
+    assert cfg.output.sharding.recycle_workers is True
+    assert cfg.output.sharding.postprocess.async_write is True
+    assert cfg.output.sharding.postprocess.max_pending_writes == 3
+
+
+def test_output_sharding_fallback_rejects_unknown_isolation_mode(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  sharding:
+    enabled: true
+    fallback:
+      isolation_mode: sometimes
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises((ValueError, SystemExit), match="isolation_mode"):
+        load_config(config_path)
+
+
 def test_output_sharding_bundle_rejects_absolute_bundle_dir(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

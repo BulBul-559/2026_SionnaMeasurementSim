@@ -109,7 +109,10 @@ data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl
 仍逐场景调用 `run-full` 子进程；当模板设置
 `output.sharding.gpu_scheduler.cross_scene_pipeline=true`，或命令行显式加入
 `--pipeline-shards` 时，队列层会展开多个场景的默认 HDF5 shard，并用一个中心动态 GPU
-调度器统一提交。
+调度器统一提交。当前 CFR-only 生产模板还设置 `scan_interval_s=0.2`、
+`fallback.isolation_mode="on_failure"`、`recycle_workers=true` 和
+`postprocess.async_write=false`，用于减少成功 shard 的隔离开销、释放 worker GPU 显存，
+并保持直接 per-shard HDF5 写盘。
 
 ```bash
 uv run python -m sionna_measurement_sim.app.cli build-scene-index \
@@ -227,7 +230,7 @@ CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Py
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 通用定位模板 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；显式开启 `output.sharding.bundle.enabled` |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 64 PRB NR SRS 生产任务模板；当前推荐 `shard_size=5`、`compression="mixed"`、`gzip_level=1` |
-| `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | 正式 64 PRB CFR truth-only 任务模板；沿用 formal 64 PRB carrier/RT 口径，保留 SRS 配置作参考但关闭 PHY/motion/impairments/calibration，只写 `/channel/truth/cfr` 与必要元数据，并启用动态 GPU 调度 |
+| `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | 正式 64 PRB CFR truth-only 任务模板；沿用 formal 64 PRB carrier/RT 口径，保留 SRS 配置作参考但关闭 PHY/motion/impairments/calibration，只写 `/channel/truth/cfr` 与必要元数据，并启用动态 GPU 调度、跨场景 shard pipeline、on-failure fallback 隔离和 worker 回收 |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
 生产场景通常先按目标输出目录准备一份 `run_config.yaml`，例如

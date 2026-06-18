@@ -77,10 +77,16 @@ uv run python -m sionna_measurement_sim.app.cli \
 > `output.products: ["cfr_truth"]` 并关闭 PHY、motion、impairments、calibration、
 > path samples、ranging、array spectrum 与 visualization，适合 Front3D 0p5 CFR-only 队列。
 > 该模板还开启 `output.sharding.gpu_scheduler.enabled=true`，会在 `gpu_ids: [0..7]`
-> 中每秒扫描一次显存空闲比例；单卡空闲显存比例不低于 `0.6` 时才提交新的 shard。
+> 中按 `scan_interval_s=0.2` 秒扫描显存空闲比例；单卡空闲显存比例不低于 `0.6`
+> 时才提交新的 shard。
 > 该模板还设置 `gpu_scheduler.cross_scene_pipeline=true`，因此 `run-scene-index` 实际
 > 运行时会用一个中心调度器统一调度多个场景的默认 HDF5 shard，避免当前场景尾部
 > shard 太少时 GPU 空闲。`--pipeline-shards` 可临时给其他模板强制开启同一行为。
+> 当前 CFR-only 模板还设置 `fallback.isolation_mode="on_failure"` 与
+> `recycle_workers=true`：成功路径少一层隔离子进程，但每个 worker 完成 shard 后会回收，
+> 释放 Sionna RT / Dr.Jit 显存，避免动态调度误判 GPU 仍忙。实验性
+> `postprocess.async_write` 已实现，但该模板默认关闭；2026-06-18 smoke 中它比直接写
+> per-shard HDF5 略慢。
 
 仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
@@ -259,6 +265,7 @@ full-contract products，或在只需要 link-level 标签时改用 `rt_labels_o
 | `results_dir` | str | `results` | shard HDF5 文件子目录 |
 | `manifest_dir` | str | `manifest` | aggregate/per-shard manifest 与 config snapshot 子目录 |
 | `parallel_workers` | int | 1 | 并行 worker 数 |
+| `recycle_workers` | bool | false | 是否让进程池 worker 每个 shard 后回收；适合 `fallback.isolation_mode="on_failure"` 下释放 Sionna RT / Dr.Jit GPU 显存 |
 | `gpu_ids` | list[int] | [] | shard worker 轮询绑定的 GPU ID |
 | `visualization_mode` | str | "first_shard" | `none`、`first_shard`、`all_shards` |
 | `gpu_scheduler.enabled` | bool | false | 是否启用动态 GPU 调度；默认关闭，关闭时沿用固定轮询绑定 |
@@ -270,6 +277,9 @@ full-contract products，或在只需要 link-level 标签时改用 `rt_labels_o
 | `fallback.split_factor` | int | 2 | 每次失败拆成几个子 shard |
 | `fallback.retry_errors` | list[str] | `["cuda_oom", "drjit_array_limit"]` | 允许自动回退的错误类型 |
 | `fallback.failure_policy` | str | `fail_run` | 到最小 shard 仍失败时终止运行 |
+| `fallback.isolation_mode` | str | `"always"` | fallback attempt 的隔离策略：`always` 保持历史每次尝试都用子进程隔离；`on_failure` 首次直接运行、失败拆分重试时隔离；`never` 从不额外隔离 |
+| `postprocess.async_write` | bool | false | 实验性默认 shard HDF5 写盘解耦；worker 返回 prepared payload，由父进程 writer pool 落盘 |
+| `postprocess.max_pending_writes` | int | 16 | async write 打开时，父进程允许排队/运行的最大写盘任务数；跨场景调度器也用它限制 pending writes |
 | `bundle.enabled` | bool | false | 实验性 append bundle 写盘；默认关闭 |
 | `bundle.max_planned_shards_per_bundle` | int | 10 | 每个 bundle 文件最多包含多少个计划 shard |
 | `bundle.bundles_dir` | str | `bundles` | bundle HDF5 文件子目录，必须是相对路径 |

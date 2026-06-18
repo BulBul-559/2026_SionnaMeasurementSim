@@ -226,7 +226,11 @@ def test_run_scene_index_pipeline_shards_fills_free_gpus_across_scenes(
             ],
         }
 
-    monkeypatch.setattr(scene_index_module, "ProcessPoolExecutor", _ImmediateExecutor)
+    monkeypatch.setattr(
+        scene_index_module.truth_pipeline,
+        "ProcessPoolExecutor",
+        _ImmediateExecutor,
+    )
     monkeypatch.setattr(
         scene_index_module,
         "wait",

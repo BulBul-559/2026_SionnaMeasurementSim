@@ -254,11 +254,16 @@ noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，
 `config/tasks/nr_srs_64prb_cfr_truth_only.yaml`；它沿用 formal 64 PRB carrier/RT
 口径，保留 SRS 配置作参考但关闭 PHY 执行，并设置 `output.products: ["cfr_truth"]`、
 `motion.enabled: false`、默认 `shard_size: 20`。该模板启用动态 GPU 调度：在
-`gpu_ids: [0..7]` 中每秒扫描一次，空闲显存比例不低于 `0.6` 的 GPU 才会接收新 shard。
+`gpu_ids: [0..7]` 中按 `scan_interval_s=0.2` 秒扫描，空闲显存比例不低于 `0.6`
+的 GPU 才会接收新 shard。
 该模板同时设置 `gpu_scheduler.cross_scene_pipeline: true`，因此 `run-scene-index`
 实际运行时会把多个场景的默认 HDF5 shard 统一排进一个动态 GPU 调度器；当当前场景
 只剩少量 shard 时，空闲 GPU 会继续接后续场景的 shard。`--pipeline-shards` 仍可用于
 临时给其他模板强制开启同一队列层行为。
+该模板还使用 `fallback.isolation_mode="on_failure"` 与 `recycle_workers=true`，减少成功
+shard 的隔离开销，同时在 shard 完成后释放 Sionna RT / Dr.Jit 显存；实验性
+`postprocess.async_write` 已实现但在该模板默认关闭，当前 0p5 CFR-only smoke 中直接
+per-shard HDF5 写盘更快。
 
 同一场景的 PUSCH 与 SRS 输出可用轻量脚本对比：
 

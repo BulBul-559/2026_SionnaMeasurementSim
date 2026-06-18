@@ -11,7 +11,7 @@ import sys
 import time
 import traceback
 from collections import deque
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -71,6 +71,7 @@ class _SceneRunPlan:
     scheduled_shard_count: int = 0
     completed_shard_count: int = 0
     active_shard_count: int = 0
+    pending_write_count: int = 0
     failed: bool = False
     finalized: bool = False
     error: str = ""
@@ -83,6 +84,12 @@ class _SceneRunPlan:
 class _PipelineShardTask:
     scene: _SceneRunPlan
     spec: Any
+
+
+@dataclass(frozen=True)
+class _PipelinePendingWrite:
+    scene: _SceneRunPlan
+    pending: Any
 
 
 def build_scene_index(
@@ -540,15 +547,27 @@ def _run_pipeline_shard_scheduler(
     parallel_workers = int(getattr(sharding, "parallel_workers", 1))
     max_active_workers = min(max(parallel_workers, 1), len(candidate_gpu_ids), len(pending))
     active: dict[Any, tuple[_PipelineShardTask, int]] = {}
+    pending_writes: list[_PipelinePendingWrite] = []
+    active_writes: dict[Any, _PipelinePendingWrite] = {}
     scheduled_count = 0
     wait_count = 0
     scan_count = 0
     failed_scene_count = 0
+    max_pending_writes = truth_pipeline._max_pending_shard_writes(first_config)
 
-    with ProcessPoolExecutor(max_workers=max_active_workers) as executor:
-        while pending or active:
-            failed_scene_count += _collect_completed_pipeline_shards(
-                active,
+    with (
+        truth_pipeline._new_shard_process_pool(max_active_workers, first_config) as executor,
+        ThreadPoolExecutor(max_workers=max_pending_writes) as writer_executor,
+    ):
+        while pending or active or pending_writes or active_writes:
+            _submit_pipeline_writes(
+                pending_writes,
+                active_writes,
+                writer_executor,
+                max_active_writes=max_pending_writes,
+            )
+            failed_scene_count += _collect_completed_pipeline_writes(
+                active_writes,
                 pending,
                 manifest,
                 counts,
@@ -560,13 +579,38 @@ def _run_pipeline_shard_scheduler(
                     "free_memory_threshold": threshold,
                     "scan_interval_s": scan_interval_s,
                     "max_active_workers": max_active_workers,
+                    "max_pending_writes": max_pending_writes,
+                    "scheduled_count": scheduled_count,
+                    "wait_count": wait_count,
+                    "scan_count": scan_count,
+                },
+            )
+            failed_scene_count += _collect_completed_pipeline_shards(
+                active,
+                pending,
+                pending_writes,
+                manifest,
+                counts,
+                stop_on_failure=stop_on_failure,
+                scheduler_summary={
+                    "enabled": True,
+                    "cross_scene_pipeline": True,
+                    "candidate_gpu_ids": candidate_gpu_ids,
+                    "free_memory_threshold": threshold,
+                    "scan_interval_s": scan_interval_s,
+                    "max_active_workers": max_active_workers,
+                    "max_pending_writes": max_pending_writes,
                     "scheduled_count": scheduled_count,
                     "wait_count": wait_count,
                     "scan_count": scan_count,
                 },
             )
             scheduled_this_scan = False
-            while pending and len(active) < max_active_workers:
+            while (
+                pending
+                and len(active) < max_active_workers
+                and len(pending_writes) + len(active_writes) < max_pending_writes
+            ):
                 scan_count += 1
                 free_ratios = truth_pipeline._query_gpu_free_memory_ratios(
                     candidate_gpu_ids
@@ -615,6 +659,7 @@ def _run_pipeline_shard_scheduler(
                     failed_scene_count += _collect_completed_pipeline_shards(
                         active,
                         pending,
+                        pending_writes,
                         manifest,
                         counts,
                         completed=done,
@@ -626,6 +671,7 @@ def _run_pipeline_shard_scheduler(
                             "free_memory_threshold": threshold,
                             "scan_interval_s": scan_interval_s,
                             "max_active_workers": max_active_workers,
+                            "max_pending_writes": max_pending_writes,
                             "scheduled_count": scheduled_count,
                             "wait_count": wait_count,
                             "scan_count": scan_count,
@@ -638,6 +684,43 @@ def _run_pipeline_shard_scheduler(
             if pending and not scheduled_this_scan:
                 wait_count += 1
                 time.sleep(scan_interval_s)
+                continue
+
+            if pending_writes:
+                _submit_pipeline_writes(
+                    pending_writes,
+                    active_writes,
+                    writer_executor,
+                    max_active_writes=max_pending_writes,
+                )
+
+            if active_writes:
+                done, _ = wait(
+                    list(active_writes),
+                    timeout=scan_interval_s,
+                    return_when=FIRST_COMPLETED,
+                )
+                if done:
+                    failed_scene_count += _collect_completed_pipeline_writes(
+                        active_writes,
+                        pending,
+                        manifest,
+                        counts,
+                        completed=done,
+                        stop_on_failure=stop_on_failure,
+                        scheduler_summary={
+                            "enabled": True,
+                            "cross_scene_pipeline": True,
+                            "candidate_gpu_ids": candidate_gpu_ids,
+                            "free_memory_threshold": threshold,
+                            "scan_interval_s": scan_interval_s,
+                            "max_active_workers": max_active_workers,
+                            "max_pending_writes": max_pending_writes,
+                            "scheduled_count": scheduled_count,
+                            "wait_count": wait_count,
+                            "scan_count": scan_count,
+                        },
+                    )
 
     return {
         "enabled": True,
@@ -646,6 +729,7 @@ def _run_pipeline_shard_scheduler(
         "free_memory_threshold": threshold,
         "scan_interval_s": scan_interval_s,
         "max_active_workers": max_active_workers,
+        "max_pending_writes": max_pending_writes,
         "scheduled_count": scheduled_count,
         "wait_count": wait_count,
         "scan_count": scan_count,
@@ -656,6 +740,7 @@ def _run_pipeline_shard_scheduler(
 def _collect_completed_pipeline_shards(
     active: dict[Any, tuple[_PipelineShardTask, int]],
     pending: deque[_PipelineShardTask],
+    pending_writes: list[_PipelinePendingWrite],
     manifest: Any,
     counts: dict[str, int],
     *,
@@ -687,9 +772,85 @@ def _collect_completed_pipeline_shards(
         else:
             if scene.shard_results is None or scene.shard_attempts is None:
                 raise ValueError("pipeline scene is missing shard result buffers")
-            scene.shard_results.extend(outcome["results"])
-            scene.shard_attempts.extend(outcome["attempts"])
+            scene.shard_results.extend(list(outcome.get("results", [])))
+            scene.shard_attempts.extend(list(outcome.get("attempts", [])))
+            for item in list(outcome.get("pending_writes", [])):
+                pending_writes.append(_PipelinePendingWrite(scene=scene, pending=item))
+                scene.pending_write_count += 1
             scene.completed_shard_count += 1
+        if _pipeline_scene_ready_to_finalize(scene):
+            _finalize_pipeline_scene(scene, manifest, counts, scheduler_summary)
+    return failed_scene_count
+
+
+def _submit_pipeline_writes(
+    pending_writes: list[_PipelinePendingWrite],
+    active_writes: dict[Any, _PipelinePendingWrite],
+    writer_executor: ThreadPoolExecutor,
+    *,
+    max_active_writes: int,
+) -> None:
+    while pending_writes and len(active_writes) < max_active_writes:
+        item = pending_writes.pop(0)
+        future = writer_executor.submit(
+            truth_pipeline._materialize_pending_shard_write,
+            item.pending,
+        )
+        active_writes[future] = item
+
+
+def _collect_completed_pipeline_writes(
+    active_writes: dict[Any, _PipelinePendingWrite],
+    pending: deque[_PipelineShardTask],
+    manifest: Any,
+    counts: dict[str, int],
+    *,
+    completed: set[Any] | None = None,
+    stop_on_failure: bool,
+    scheduler_summary: dict[str, object],
+) -> int:
+    futures = completed if completed is not None else {
+        future for future in active_writes if future.done()
+    }
+    failed_scene_count = 0
+    for future in list(futures):
+        if future not in active_writes:
+            continue
+        item = active_writes.pop(future)
+        scene = item.scene
+        if scene.shard_results is None or scene.shard_attempts is None:
+            raise ValueError("pipeline scene is missing shard result buffers")
+        try:
+            status = future.result()
+        except Exception as exc:  # noqa: BLE001 - record and continue other scenes
+            scene.pending_write_count = max(scene.pending_write_count - 1, 0)
+            if not scene.failed:
+                failed_scene_count += 1
+            scene.failed = True
+            scene.error = str(exc)
+            scene.traceback_text = traceback.format_exc()
+            _remove_pending_scene_tasks(pending, scene)
+            if stop_on_failure:
+                pending.clear()
+        else:
+            result = status.get("result") if isinstance(status, dict) else None
+            attempt = status.get("attempt") if isinstance(status, dict) else None
+            if not isinstance(result, dict):
+                scene.pending_write_count = max(scene.pending_write_count - 1, 0)
+                if not scene.failed:
+                    failed_scene_count += 1
+                scene.failed = True
+                scene.error = "async shard writer did not return a result"
+                scene.traceback_text = scene.error
+                _remove_pending_scene_tasks(pending, scene)
+                if stop_on_failure:
+                    pending.clear()
+            else:
+                scene.shard_results.append(result)
+                scene.shard_attempts.append(
+                    attempt if isinstance(attempt, dict) else dict(item.pending.attempt)
+                )
+                scene.pending_write_count = max(scene.pending_write_count - 1, 0)
         if _pipeline_scene_ready_to_finalize(scene):
             _finalize_pipeline_scene(scene, manifest, counts, scheduler_summary)
     return failed_scene_count
@@ -697,6 +858,8 @@ def _collect_completed_pipeline_shards(
 
 def _pipeline_scene_ready_to_finalize(scene: _SceneRunPlan) -> bool:
     if scene.finalized:
+        return False
+    if scene.pending_write_count > 0:
         return False
     if scene.failed:
         return scene.active_shard_count == 0

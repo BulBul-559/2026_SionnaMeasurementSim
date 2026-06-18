@@ -22,11 +22,11 @@ runtime:
   torch_deterministic: false
 
 debug:
-  enabled: true
+  enabled: false
   hardware_interval_s: 2.0
   link_log_interval: 250
-  torch_synchronize: true
-  write_hardware_samples: true
+  torch_synchronize: false
+  write_hardware_samples: false
 
 input:
   # Replace these three fields for each production scene.
@@ -62,12 +62,16 @@ output:
     results_dir: "results"
     manifest_dir: "manifest"
     parallel_workers: 8
+    # recycle_workers releases Sionna RT / Dr.Jit GPU allocations between
+    # direct on-failure attempts, keeping the dynamic scheduler's free-memory
+    # signal usable without reverting to the old always-isolated path.
+    recycle_workers: true
     gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
     visualization_mode: "none"
     gpu_scheduler:
       enabled: true
       free_memory_threshold: 0.6
-      scan_interval_s: 1.0
+      scan_interval_s: 0.2
       cross_scene_pipeline: true
     fallback:
       enabled: true
@@ -75,6 +79,14 @@ output:
       split_factor: 2
       retry_errors: ["cuda_oom", "drjit_array_limit"]
       failure_policy: "fail_run"
+      isolation_mode: "on_failure"
+    postprocess:
+      # Parent-side async write is implemented but stays off for this
+      # CFR-truth-only production template: 2026-06 smoke tests showed it was
+      # slightly slower than direct per-shard HDF5 writes because prepared CFR
+      # payload transfer dominates the small write overlap.
+      async_write: false
+      max_pending_writes: 16
 
 carrier:
   center_frequency_hz: 3500000000.0

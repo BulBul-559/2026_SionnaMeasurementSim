@@ -67,7 +67,14 @@ schema 不变，但文件体积通常略增。
 range。单个 `run-full` 不会跨场景抢占空闲 GPU；多场景队列可用
 `output.sharding.gpu_scheduler.cross_scene_pipeline=true` 或 `run-scene-index --pipeline-shards`
 开启中心调度器，把多个场景的默认 HDF5 shard 统一排队。当当前场景只剩少量 shard 时，
-空闲 GPU 会继续接后续场景 shard。实验性
+空闲 GPU 会继续接后续场景 shard。fallback 现在支持
+`output.sharding.fallback.isolation_mode`：默认 `"always"` 保持历史每次 attempt 都隔离；
+`"on_failure"` 首次直接执行、失败拆分重试时隔离；`"never"` 从不额外隔离。配合
+`output.sharding.recycle_workers=true` 可以在 on-failure 成功路径后回收 worker，
+释放 Sionna RT / Dr.Jit GPU allocations，保持动态调度的显存空闲判断有效。实验性
+`output.sharding.postprocess.async_write=true` 会让 worker 返回 prepared payload，由父进程
+writer pool 写默认 shard HDF5；当前 Front3D 0p5 CFR-only smoke 中它比同步 per-shard 写盘
+略慢，因此生产模板默认关闭。实验性
 `output.sharding.bundle.enabled=true` 可把多个
 计算 shard fragment append 到 `bundles/bundle_workerxxx_yyy.h5`，root contract 为
 `sionna_measurement_sim_bundle_hdf5`，`/bundle/shard_offsets` 和
@@ -254,7 +261,9 @@ Front3D 多场景队列入口已加入主 CLI。当前已生成
 `7,968,192`。推荐先用
 `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` 配合 `run-scene-index --dry-run --limit N`
 检查逐场景配置；CFR-only 模板已设置 `gpu_scheduler.cross_scene_pipeline=true`，
-去掉 `--dry-run` 即按跨场景 shard pipeline 做实际大队列仿真。
+`scan_interval_s=0.2`、`fallback.isolation_mode="on_failure"`、`recycle_workers=true`
+和 `postprocess.async_write=false`，去掉 `--dry-run` 即按跨场景 shard pipeline 做实际
+大队列仿真。
 `--config` 是全局参数，必须放在 `run-scene-index` 前。
 
 RT labels-only 输出可用以下模板生成：
