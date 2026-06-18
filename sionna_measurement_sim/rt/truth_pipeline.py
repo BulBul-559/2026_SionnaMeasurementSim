@@ -6,9 +6,11 @@ import gc
 import json
 import multiprocessing as mp
 import os
+import subprocess
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -459,8 +461,19 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
     gpu_ids = [int(gpu_id) for gpu_id in getattr(sharding, "gpu_ids", [])]
     shard_results: list[dict[str, object]] = []
     shard_attempts: list[dict[str, object]] = []
+    scheduler_runtime: dict[str, object] = {}
 
-    if parallel_workers <= 1:
+    if _dynamic_gpu_scheduler_enabled(config, sharding):
+        outcome = _run_shard_specs_with_dynamic_gpu_scheduler(
+            config,
+            shard_specs,
+            parallel_workers=parallel_workers,
+            configured_gpu_ids=gpu_ids,
+        )
+        shard_results.extend(outcome["results"])
+        shard_attempts.extend(outcome["attempts"])
+        scheduler_runtime = dict(outcome.get("scheduler", {}))
+    elif parallel_workers <= 1:
         for index, spec in enumerate(shard_specs):
             gpu_id = gpu_ids[index % len(gpu_ids)] if gpu_ids else None
             outcome = _run_shard_spec_with_fallback(config, spec, gpu_id)
@@ -478,55 +491,14 @@ def run_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
                 shard_results.extend(outcome["results"])
                 shard_attempts.extend(outcome["attempts"])
 
-    shard_results.sort(
-        key=lambda item: (
-            min([int(i) for i in item.get("global_ue_indices", [])] or [0]),
-            str(item.get("shard_id", "")),
-        )
+    return finalize_sharded_rt_truth_run(
+        config,
+        shard_specs,
+        shard_results,
+        shard_attempts,
+        start_time=start,
+        scheduler_runtime=scheduler_runtime,
     )
-    shard_attempts.sort(key=lambda item: str(item.get("shard_id", "")))
-    elapsed_seconds = time.perf_counter() - start
-    config_snapshot_path = write_manifest(
-        manifest_dir / "config_snapshot.json",
-        _config_snapshot(config),
-    )
-    attempts_path = _write_shard_attempts(manifest_dir, shard_attempts)
-    aggregate_manifest = {
-        "phase": "sharded_run_full",
-        "results_h5": "",
-        "results": shard_results,
-        "results_dir": results_dir.as_posix(),
-        "manifest_dir": manifest_dir.as_posix(),
-        "config_snapshot_path": config_snapshot_path.as_posix(),
-        "shard_attempts_path": attempts_path.as_posix() if attempts_path else "",
-        "label_file": config.label_file.as_posix(),
-        "scene_file": config.scene_file.as_posix(),
-        "scene_id": config.scene_id or config.scene_file.stem,
-        "map_id": config.map_id,
-        "elapsed_seconds": elapsed_seconds,
-        "sharding": {
-            "enabled": True,
-            "axis": _normalize_shard_axis(getattr(sharding, "axis", "ue")),
-            "requested_axis": str(getattr(sharding, "axis", "ue")),
-            "shard_size": int(getattr(sharding, "shard_size", config.max_ue)),
-            "planned_shard_count": shard_count,
-            "result_file_count": len(shard_results),
-            "parallel_workers": parallel_workers,
-            "gpu_ids": gpu_ids,
-            "filename_pattern": getattr(
-                sharding, "filename_pattern", "result_{shard_index:03d}.h5"
-            ),
-            "results_dir": getattr(sharding, "results_dir", "results"),
-            "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
-            "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
-            "fallback": _sharding_fallback_summary(sharding, shard_attempts),
-        },
-        "config_snapshot": _config_snapshot(config),
-        "performance": _aggregate_shard_performance(output_dir, shard_results),
-    }
-    write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
-    _generate_sharded_radio_maps_if_requested(config, output_dir)
-    return output_dir
 
 
 def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
@@ -631,6 +603,7 @@ def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
             "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
             "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
             "fallback": _sharding_fallback_summary(sharding, shard_attempts),
+            "gpu_scheduler": _gpu_scheduler_manifest_summary(sharding, gpu_ids),
             "bundle": {
                 "enabled": True,
                 "max_planned_shards_per_bundle": int(
@@ -651,6 +624,84 @@ def run_bundled_sharded_rt_truth_pipeline(config: RTTruthRunConfig) -> Path:
         "performance": _aggregate_bundle_worker_performance(perf_summaries),
     }
     write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
+    return output_dir
+
+
+def finalize_sharded_rt_truth_run(
+    config: RTTruthRunConfig,
+    shard_specs: list[ShardSpec],
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    *,
+    start_time: float,
+    scheduler_runtime: dict[str, object] | None = None,
+    phase: str = "sharded_run_full",
+) -> Path:
+    """Write the aggregate manifest for a default multi-HDF5 sharded run."""
+
+    sharding = config.output_sharding_config
+    if sharding is None:
+        raise ValueError("finalize_sharded_rt_truth_run requires output sharding config")
+    output_dir = config.output_dir
+    manifest_dir = _shard_manifest_dir(config)
+    results_dir = _shard_results_dir(config)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    shard_results.sort(
+        key=lambda item: (
+            min([int(i) for i in item.get("global_ue_indices", [])] or [0]),
+            str(item.get("shard_id", "")),
+        )
+    )
+    shard_attempts.sort(key=lambda item: str(item.get("shard_id", "")))
+    gpu_ids = [int(gpu_id) for gpu_id in getattr(sharding, "gpu_ids", [])]
+    config_snapshot = _config_snapshot(config)
+    config_snapshot_path = write_manifest(
+        manifest_dir / "config_snapshot.json",
+        config_snapshot,
+    )
+    attempts_path = _write_shard_attempts(manifest_dir, shard_attempts)
+    aggregate_manifest = {
+        "phase": phase,
+        "results_h5": "",
+        "results": shard_results,
+        "results_dir": results_dir.as_posix(),
+        "manifest_dir": manifest_dir.as_posix(),
+        "config_snapshot_path": config_snapshot_path.as_posix(),
+        "shard_attempts_path": attempts_path.as_posix() if attempts_path else "",
+        "label_file": config.label_file.as_posix(),
+        "scene_file": config.scene_file.as_posix(),
+        "scene_id": config.scene_id or config.scene_file.stem,
+        "map_id": config.map_id,
+        "elapsed_seconds": time.perf_counter() - start_time,
+        "sharding": {
+            "enabled": True,
+            "axis": _normalize_shard_axis(getattr(sharding, "axis", "ue")),
+            "requested_axis": str(getattr(sharding, "axis", "ue")),
+            "shard_size": int(getattr(sharding, "shard_size", config.max_ue)),
+            "planned_shard_count": len(shard_specs),
+            "result_file_count": len(shard_results),
+            "parallel_workers": int(getattr(sharding, "parallel_workers", 1)),
+            "gpu_ids": gpu_ids,
+            "filename_pattern": getattr(
+                sharding, "filename_pattern", "result_{shard_index:03d}.h5"
+            ),
+            "results_dir": getattr(sharding, "results_dir", "results"),
+            "manifest_dir": getattr(sharding, "manifest_dir", "manifest"),
+            "visualization_mode": getattr(sharding, "visualization_mode", "first_shard"),
+            "fallback": _sharding_fallback_summary(sharding, shard_attempts),
+            "gpu_scheduler": _gpu_scheduler_manifest_summary(
+                sharding,
+                gpu_ids,
+                scheduler_runtime,
+            ),
+        },
+        "config_snapshot": config_snapshot,
+        "performance": _aggregate_shard_performance(output_dir, shard_results),
+    }
+    write_manifest(manifest_dir / "manifest.json", aggregate_manifest)
+    _generate_sharded_radio_maps_if_requested(config, output_dir)
     return output_dir
 
 
@@ -1566,6 +1617,189 @@ def _run_shard_worker_in_isolated_process(
         return future.result()
 
 
+def _dynamic_gpu_scheduler_enabled(
+    config: RTTruthRunConfig,
+    sharding: object,
+) -> bool:
+    scheduler = getattr(sharding, "gpu_scheduler", None)
+    return bool(getattr(scheduler, "enabled", False)) and str(config.device).startswith(
+        "cuda"
+    )
+
+
+def _run_shard_specs_with_dynamic_gpu_scheduler(
+    config: RTTruthRunConfig,
+    shard_specs: list[ShardSpec],
+    *,
+    parallel_workers: int,
+    configured_gpu_ids: list[int],
+) -> dict[str, object]:
+    """Run shard specs only when a candidate GPU has enough free memory."""
+
+    sharding = config.output_sharding_config
+    scheduler = getattr(sharding, "gpu_scheduler", None)
+    threshold = float(getattr(scheduler, "free_memory_threshold", 0.6))
+    scan_interval_s = float(getattr(scheduler, "scan_interval_s", 1.0))
+    candidate_gpu_ids = (
+        list(configured_gpu_ids) if configured_gpu_ids else _discover_cuda_gpu_ids()
+    )
+    if not candidate_gpu_ids:
+        raise RuntimeError(
+            "output.sharding.gpu_scheduler.enabled=true but no candidate GPUs "
+            "were configured or discovered"
+        )
+
+    max_active_workers = min(
+        max(int(parallel_workers), 1),
+        len(candidate_gpu_ids),
+        len(shard_specs),
+    )
+    pending: deque[ShardSpec] = deque(shard_specs)
+    shard_results: list[dict[str, object]] = []
+    shard_attempts: list[dict[str, object]] = []
+    active: dict[object, tuple[ShardSpec, int]] = {}
+    scheduled_count = 0
+    wait_count = 0
+    scan_count = 0
+
+    with ProcessPoolExecutor(max_workers=max_active_workers) as executor:
+        while pending or active:
+            _collect_completed_dynamic_shards(active, shard_results, shard_attempts)
+            scheduled_this_scan = False
+            while pending and len(active) < max_active_workers:
+                scan_count += 1
+                free_ratios = _query_gpu_free_memory_ratios(candidate_gpu_ids)
+                busy_gpu_ids = {gpu_id for _, gpu_id in active.values()}
+                available_gpu_ids = [
+                    gpu_id
+                    for gpu_id in candidate_gpu_ids
+                    if gpu_id not in busy_gpu_ids
+                    and free_ratios.get(gpu_id, 0.0) >= threshold
+                ]
+                if not available_gpu_ids:
+                    break
+                gpu_id = min(
+                    available_gpu_ids,
+                    key=lambda item: (-free_ratios.get(item, 0.0), item),
+                )
+                spec = pending.popleft()
+                future = executor.submit(
+                    _run_shard_spec_with_fallback,
+                    config,
+                    spec,
+                    gpu_id,
+                )
+                active[future] = (spec, gpu_id)
+                scheduled_count += 1
+                scheduled_this_scan = True
+
+            if active:
+                done, _ = wait(
+                    list(active),
+                    timeout=scan_interval_s,
+                    return_when=FIRST_COMPLETED,
+                )
+                if done:
+                    _collect_completed_dynamic_shards(
+                        active,
+                        shard_results,
+                        shard_attempts,
+                        done,
+                    )
+                elif pending:
+                    wait_count += 1
+                continue
+
+            if pending and not scheduled_this_scan:
+                wait_count += 1
+                time.sleep(scan_interval_s)
+
+    return {
+        "results": shard_results,
+        "attempts": shard_attempts,
+        "scheduler": {
+            "enabled": True,
+            "candidate_gpu_ids": candidate_gpu_ids,
+            "free_memory_threshold": threshold,
+            "scan_interval_s": scan_interval_s,
+            "max_active_workers": max_active_workers,
+            "scheduled_count": scheduled_count,
+            "wait_count": wait_count,
+            "scan_count": scan_count,
+        },
+    }
+
+
+def _collect_completed_dynamic_shards(
+    active: dict[object, tuple[ShardSpec, int]],
+    shard_results: list[dict[str, object]],
+    shard_attempts: list[dict[str, object]],
+    completed: set[object] | None = None,
+) -> None:
+    futures = completed if completed is not None else {
+        future for future in active if future.done()
+    }
+    for future in list(futures):
+        if future not in active:
+            continue
+        active.pop(future)
+        outcome = future.result()
+        shard_results.extend(outcome["results"])
+        shard_attempts.extend(outcome["attempts"])
+
+
+def _discover_cuda_gpu_ids() -> list[int]:
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("Unable to discover GPUs with nvidia-smi") from exc
+    gpu_ids: list[int] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        gpu_ids.append(int(line.split(",")[0].strip()))
+    return gpu_ids
+
+
+def _query_gpu_free_memory_ratios(gpu_ids: list[int]) -> dict[int, float]:
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,memory.free,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("Unable to query GPU memory with nvidia-smi") from exc
+    allowed = set(gpu_ids)
+    ratios: dict[int, float] = {}
+    for line in result.stdout.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) < 3:
+            continue
+        gpu_id = int(fields[0])
+        if gpu_id not in allowed:
+            continue
+        free_mib = float(fields[1])
+        total_mib = float(fields[2])
+        ratios[gpu_id] = free_mib / total_mib if total_mib > 0 else 0.0
+    return ratios
+
+
 def _run_shard_spec_with_fallback(
     config: RTTruthRunConfig,
     spec: ShardSpec,
@@ -1595,6 +1829,7 @@ def _run_shard_spec_attempt(
         "ue_count": spec.ue_count,
         "reason": reason or spec.fallback_reason,
         "status": "started",
+        "gpu_id": gpu_id,
     }
     try:
         result_path = _run_shard_worker_attempt(shard_config, gpu_id)
@@ -2214,6 +2449,28 @@ def _sharding_fallback_summary(
         "split_count": len(split_attempts),
         "split_shard_ids": [str(item.get("shard_id", "")) for item in split_attempts],
     }
+
+
+def _gpu_scheduler_manifest_summary(
+    sharding: object,
+    configured_gpu_ids: list[int],
+    runtime: dict[str, object] | None = None,
+) -> dict[str, object]:
+    scheduler = getattr(sharding, "gpu_scheduler", None)
+    summary: dict[str, object] = {
+        "enabled": bool(getattr(scheduler, "enabled", False)),
+        "free_memory_threshold": float(
+            getattr(scheduler, "free_memory_threshold", 0.6)
+        ),
+        "scan_interval_s": float(getattr(scheduler, "scan_interval_s", 1.0)),
+        "cross_scene_pipeline": bool(
+            getattr(scheduler, "cross_scene_pipeline", False)
+        ),
+        "configured_gpu_ids": list(configured_gpu_ids),
+    }
+    if runtime:
+        summary.update(runtime)
+    return summary
 
 
 def _aggregate_shard_performance(
@@ -2890,6 +3147,13 @@ def _config_snapshot(config: RTTruthRunConfig) -> dict[str, object]:
                     )
                 ),
             },
+            "gpu_scheduler": _gpu_scheduler_manifest_summary(
+                config.output_sharding_config,
+                [
+                    int(gpu_id)
+                    for gpu_id in getattr(config.output_sharding_config, "gpu_ids", [])
+                ],
+            ),
         },
     }
 

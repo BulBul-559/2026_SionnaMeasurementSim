@@ -42,6 +42,12 @@ uv run python -m sionna_measurement_sim.app.cli \
     --config config/defaults/cfr_truth_only.yaml \
     run-full \
     --output-dir outputs/my_cfr_truth_only
+
+# 使用正式 64 PRB SRS 口径，只保存 CFR truth
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
+    run-full \
+    --output-dir outputs/front3d_0002_panel0p5_cfr_truth_only_srs64prb
 ```
 
 ## 配置模板
@@ -56,6 +62,7 @@ uv run python -m sionna_measurement_sim.app.cli \
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR uplink 定位主实验模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 NR SRS 64 PRB direct-array 仿真任务模板；默认 panel 0p2、`shard_size=5`、23 dBm + absolute thermal noise、基础硬件损伤开启；100 MHz FR1 背景下只仿真 64 PRB occupied bandwidth（768 subcarrier） |
+| `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | 正式 64 PRB CFR truth-only 任务模板；沿用 formal carrier/RT 口径，保留 SRS 配置作参考但关闭 PHY/motion/impairments/calibration，只写 `/channel/truth/cfr` 与必要元数据，默认 panel 0p5、`shard_size=20`，启用动态 GPU 调度 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；测试多个计算 shard 写入较大 bundle HDF5 |
@@ -66,6 +73,14 @@ uv run python -m sionna_measurement_sim.app.cli \
 > `config/tasks/nr_srs_64prb_formal.yaml` 为准：direct uplink、`rt.synthetic_array=false`、
 > `shard_size: 5`、`compression: "mixed"`、`gzip_level: 1`。旧 `config/defaults/`
 > 与 `config/perf/` 中出现的 `shard_size: 20/25` 是历史或通用模板口径，不能替代当前正式任务模板。
+> 若只需要 CFR truth，使用 `config/tasks/nr_srs_64prb_cfr_truth_only.yaml`；该模板开启
+> `output.products: ["cfr_truth"]` 并关闭 PHY、motion、impairments、calibration、
+> path samples、ranging、array spectrum 与 visualization，适合 Front3D 0p5 CFR-only 队列。
+> 该模板还开启 `output.sharding.gpu_scheduler.enabled=true`，会在 `gpu_ids: [0..7]`
+> 中每秒扫描一次显存空闲比例；单卡空闲显存比例不低于 `0.6` 时才提交新的 shard。
+> 该模板还设置 `gpu_scheduler.cross_scene_pipeline=true`，因此 `run-scene-index` 实际
+> 运行时会用一个中心调度器统一调度多个场景的默认 HDF5 shard，避免当前场景尾部
+> shard 太少时 GPU 空闲。`--pipeline-shards` 可临时给其他模板强制开启同一行为。
 
 仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
@@ -246,6 +261,10 @@ full-contract products，或在只需要 link-level 标签时改用 `rt_labels_o
 | `parallel_workers` | int | 1 | 并行 worker 数 |
 | `gpu_ids` | list[int] | [] | shard worker 轮询绑定的 GPU ID |
 | `visualization_mode` | str | "first_shard" | `none`、`first_shard`、`all_shards` |
+| `gpu_scheduler.enabled` | bool | false | 是否启用动态 GPU 调度；默认关闭，关闭时沿用固定轮询绑定 |
+| `gpu_scheduler.free_memory_threshold` | float | 0.6 | 动态调度下，GPU 空闲显存比例达到该阈值才会提交新 shard |
+| `gpu_scheduler.scan_interval_s` | float | 1.0 | 动态调度下，无可用 GPU 或等待任务完成时的扫描/等待间隔 |
+| `gpu_scheduler.cross_scene_pipeline` | bool | false | 仅 `run-scene-index` 使用；开启后把多个场景的默认 HDF5 shard 统一交给中心动态调度器 |
 | `fallback.enabled` | bool | true | 单个 shard 失败时是否自动拆小重试 |
 | `fallback.min_shard_size` | int | 1 | fallback 最小 UE shard 大小 |
 | `fallback.split_factor` | int | 2 | 每次失败拆成几个子 shard |

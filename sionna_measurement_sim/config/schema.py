@@ -103,6 +103,13 @@ class OutputBundleConfig(BaseModel):
         return self
 
 
+class OutputGpuSchedulerConfig(BaseModel):
+    enabled: bool = False
+    free_memory_threshold: float = Field(default=0.6, gt=0.0, le=1.0)
+    scan_interval_s: float = Field(default=1.0, gt=0.0)
+    cross_scene_pipeline: bool = False
+
+
 class OutputShardingConfig(BaseModel):
     enabled: bool = False
     axis: str = Field(default="ue")
@@ -115,6 +122,9 @@ class OutputShardingConfig(BaseModel):
     visualization_mode: str = Field(default="first_shard")
     fallback: ShardingFallbackConfig = Field(default_factory=ShardingFallbackConfig)
     bundle: OutputBundleConfig = Field(default_factory=OutputBundleConfig)
+    gpu_scheduler: OutputGpuSchedulerConfig = Field(
+        default_factory=OutputGpuSchedulerConfig
+    )
 
     @model_validator(mode="after")
     def check_sharding_values(self) -> OutputShardingConfig:

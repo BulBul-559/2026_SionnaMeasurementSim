@@ -5,7 +5,11 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from sionna_measurement_sim.config.schema import OutputBundleConfig, OutputShardingConfig
+from sionna_measurement_sim.config.schema import (
+    OutputBundleConfig,
+    OutputGpuSchedulerConfig,
+    OutputShardingConfig,
+)
 from sionna_measurement_sim.domain.results import (
     ShardMetadata,
     create_phase1_minimal_result,
@@ -744,6 +748,127 @@ def test_bundled_sharded_pipeline_partitions_bundles_by_worker(
             index["global_ue_indices"],
             np.asarray(bundle["global_ue_indices"], dtype=np.int64),
         )
+
+
+def test_sharded_pipeline_dynamic_gpu_scheduler_waits_for_free_memory(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label_with_counts(tmp_path, tx_count=2, rx_count=3)
+    output_dir = tmp_path / "dynamic_gpu_out"
+    submitted: list[tuple[int, int | None]] = []
+    executor_max_workers: list[int] = []
+    query_calls = 0
+
+    class _ImmediateFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def done(self):
+            return True
+
+        def result(self):
+            return self._value
+
+    class _ImmediateExecutor:
+        def __init__(self, max_workers: int):
+            executor_max_workers.append(max_workers)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def submit(self, fn, config, spec, gpu_id):
+            submitted.append((int(spec.shard_index), gpu_id))
+            return _ImmediateFuture(fn(config, spec, gpu_id))
+
+    def fake_query(gpu_ids: list[int]) -> dict[int, float]:
+        nonlocal query_calls
+        query_calls += 1
+        assert gpu_ids == [0, 1, 2]
+        if query_calls <= 2:
+            return {0: 0.20, 1: 0.70, 2: 0.80}
+        return {0: 0.90, 1: 0.70, 2: 0.80}
+
+    def fake_run(
+        config: RTTruthRunConfig,
+        spec: truth_pipeline.ShardSpec,
+        gpu_id: int | None,
+    ):
+        del config
+        return {
+            "results": [
+                {
+                    "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
+                    "shard_index": spec.shard_index,
+                    "global_ue_indices": [int(spec.ue_start)],
+                    "result_h5": "",
+                    "manifest": "",
+                }
+            ],
+            "attempts": [
+                {
+                    "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
+                    "shard_index": spec.shard_index,
+                    "status": "succeeded",
+                    "gpu_id": gpu_id,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(truth_pipeline, "ProcessPoolExecutor", _ImmediateExecutor)
+    monkeypatch.setattr(
+        truth_pipeline,
+        "wait",
+        lambda futures, timeout=None, return_when=None: (set(futures), set()),
+    )
+    monkeypatch.setattr(truth_pipeline, "_query_gpu_free_memory_ratios", fake_query)
+    monkeypatch.setattr(truth_pipeline, "_run_shard_spec_with_fallback", fake_run)
+
+    result_dir = truth_pipeline.run_sharded_rt_truth_pipeline(
+        RTTruthRunConfig(
+            label_file=label_path,
+            scene_file=tmp_path / "scene.xml",
+            output_dir=output_dir,
+            device="cuda",
+            max_bs=2,
+            max_ue=3,
+            output_sharding_config=OutputShardingConfig(
+                enabled=True,
+                shard_size=1,
+                parallel_workers=3,
+                gpu_ids=[0, 1, 2],
+                visualization_mode="none",
+                gpu_scheduler=OutputGpuSchedulerConfig(
+                    enabled=True,
+                    free_memory_threshold=0.6,
+                    scan_interval_s=0.01,
+                ),
+            ),
+        )
+    )
+
+    assert result_dir == output_dir
+    assert executor_max_workers == [3]
+    assert submitted[:2] == [(0, 2), (1, 1)]
+    assert submitted[2] == (2, 0)
+    manifest = json.loads(
+        (output_dir / "manifest" / "manifest.json").read_text(encoding="utf-8")
+    )
+    scheduler = manifest["sharding"]["gpu_scheduler"]
+    assert scheduler["enabled"] is True
+    assert scheduler["candidate_gpu_ids"] == [0, 1, 2]
+    assert scheduler["free_memory_threshold"] == 0.6
+    assert scheduler["scheduled_count"] == 3
+    attempts = [
+        json.loads(line)
+        for line in (output_dir / "manifest" / "shard_attempts.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [item["gpu_id"] for item in attempts] == [2, 1, 0]
 
 
 def _write_label(tmp_path: Path) -> Path:

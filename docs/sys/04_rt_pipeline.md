@@ -169,6 +169,21 @@ NR SRS；它可内部运行普通 SRS observation，但 HDF5 可以只保留 `/m
 
 `run_rt_truth_pipeline()` 会先检查 `output_sharding_config`。当 shard 开启且当前不是子 shard 时，会按 UE 范围创建多个 `ShardSpec`。默认路径下，每个 shard 调用同一个单次 pipeline，并写入独立 `results/result_{shard_index:03d}.h5`。多进程模式下每个 worker 只写自己的 HDF5，`manifest/manifest.json` 记录所有 shard 的全局 UE/BS 覆盖范围、resolved TX/RX 索引和每个 shard 的性能日志。若某个 shard 因 CUDA OOM 或 Dr.Jit 2^32 单数组上限失败，fallback 会把该 UE range 递归拆成更小 result 文件，例如 `result_089_00.h5`、`result_089_01.h5`，最终仍由 manifest 对外呈现连续 UE 覆盖。
 
+默认 sharding 使用固定 GPU 分配：按 `output.sharding.gpu_ids` 轮询把计划 shard 绑定到
+worker。可选 `output.sharding.gpu_scheduler.enabled=true` 会改为动态提交 shard：父进程
+每 `gpu_scheduler.scan_interval_s` 秒用 `nvidia-smi` 扫描候选 GPU 的空闲显存比例，只在
+`free_memory_threshold` 达标且该 GPU 当前没有本任务 shard 运行时提交新 shard。若所有
+候选 GPU 都处于高峰，父进程等待下一轮扫描；现阶段动态调度只作用于默认 shard HDF5
+路径，bundle append 路径仍保持 worker-owned 连续 shard range。
+
+单个 `run-full` 的动态调度只覆盖当前场景的 shard；如果当前场景尾部只剩 2 个 shard，
+它不会自动启动下一个场景。多场景大队列可在模板中设置
+`output.sharding.gpu_scheduler.cross_scene_pipeline=true`，或给 `run-scene-index` 加
+`--pipeline-shards`：队列层会按 index 顺序展开多个场景的默认 HDF5 shard，并用一个
+中心 GPU 占用表统一调度。这样 8 张卡都空闲而当前场景只有 2 个 shard 时，其余卡会
+继续接后续场景的 shard；每个场景完成后仍写自己的
+`runs/<scene>/manifest/manifest.json`。
+
 显式开启 `output.sharding.bundle.enabled=true` 时，pipeline 改走实验 bundle 外壳：每个
 shard 仍完整计算 domain result，但先返回 `PreparedShardOutput`，再由
 `HDF5ResultBundleWriter` 把多个 fragment append 到 bundle HDF5。parallel workers 会拿到

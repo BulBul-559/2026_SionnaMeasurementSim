@@ -21,6 +21,7 @@
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
+- Front3D 场景索引队列：按 small/normal 等类别比例生成 JSONL index，并按 index 顺序逐场景运行 CFR truth-only 生产模板
 - `benchmark rt/write/sharding/readback/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest 读取吞吐和 Bartlett 空间谱成本
 - `output.profile` 只保留三种真实输出契约：`full`、`rt_labels_only`、`iq_link_library`；`full` 可通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
 - HDF5 schema `2.3.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
@@ -73,6 +74,30 @@ uv run python -m sionna_measurement_sim.app.cli \
     run-full \
     --output-dir outputs/my_cfr_truth_only
 
+# 生成 Front3D small+normal 的 3000 场景 0p5 索引（按原始类别比例抽样）
+uv run python -m sionna_measurement_sim.app.cli build-scene-index \
+    --source-root data/front3d_full \
+    --classes small_room,normal_room \
+    --total-count 3000 \
+    --label-name label_panel_0p5.json \
+    --output data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl
+
+# 按索引顺序生成逐场景运行配置；去掉 --dry-run 后开始实际仿真
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
+    run-scene-index \
+    --index-file data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl \
+    --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only \
+    --limit 3 \
+    --dry-run
+
+# 实际跑大队列；CFR-only 模板已通过 config 开启跨场景 shard pipeline
+uv run python -m sionna_measurement_sim.app.cli \
+    --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
+    run-scene-index \
+    --index-file data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl \
+    --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only
+
 # 查看所有参数
 uv run python -m sionna_measurement_sim.app.cli run-full --help
 
@@ -120,6 +145,9 @@ uv run python -m sionna_measurement_sim.app.cli benchmark readback \
 | `run-observation` | RT 真值 + PHY 观测（AWGN + LS 估计 + 损伤） |
 | `run-full` | 全功能端到端：RT + 路径 + 损伤 + 观测 + 运动 + 校准 + 诊断 |
 | `run-batch` | 批量实验（多 seed/SNR 分批） |
+| `build-scene-index` | 从 Front3D split/目录生成确定性的 JSONL 场景队列 |
+| `run-scene-index` | 按 JSONL index 顺序生成逐场景配置；可选跨场景 shard pipeline |
+| `visualize` | 从已有 HDF5 生成采样诊断图、RSS radio map 或 dataset 预览 |
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
 | `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 与 `--gzip-level`）和 schema validate |
 | `benchmark sharding` | 跑真实轻量 sharded pipeline，对比默认 `results/result_xxx.h5` 与实验 append bundle |
@@ -222,6 +250,15 @@ noise power 同步上移，SNR 基本不变。切到 `"absolute_thermal"` 后，
 `gzip_level=1`。已完成 `median_0000 label0p2` 的 `7 BS × 2583 UE` direct uplink
 历史 baseline；历史 micro-sweep 和旧 shard 参数只作为实验记录，见
 [Indoor FR1 validation](docs/sys/indoor_fr1_100mhz_validation.md)。
+只保存 CFR truth 的 64 PRB 任务使用
+`config/tasks/nr_srs_64prb_cfr_truth_only.yaml`；它沿用 formal 64 PRB carrier/RT
+口径，保留 SRS 配置作参考但关闭 PHY 执行，并设置 `output.products: ["cfr_truth"]`、
+`motion.enabled: false`、默认 `shard_size: 20`。该模板启用动态 GPU 调度：在
+`gpu_ids: [0..7]` 中每秒扫描一次，空闲显存比例不低于 `0.6` 的 GPU 才会接收新 shard。
+该模板同时设置 `gpu_scheduler.cross_scene_pipeline: true`，因此 `run-scene-index`
+实际运行时会把多个场景的默认 HDF5 shard 统一排进一个动态 GPU 调度器；当当前场景
+只剩少量 shard 时，空闲 GPU 会继续接后续场景的 shard。`--pipeline-shards` 仍可用于
+临时给其他模板强制开启同一队列层行为。
 
 同一场景的 PUSCH 与 SRS 输出可用轻量脚本对比：
 
@@ -243,6 +280,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | `config/defaults/nr_pusch_mvp.yaml` | NR PUSCH 4x4 SU-MIMO TDD uplink |
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz NR SRS subset 定位模板 |
+| `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | Front3D 64 PRB NR SRS CFR truth-only 任务模板；保留 `/channel/truth/cfr` 和必要元数据 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3 BS × 3000 UE shard 性能回归模板 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6 BS × 8884 UE 4 GPU shard 验收模板 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；多个计算 shard 打包进较大的 HDF5 bundle |

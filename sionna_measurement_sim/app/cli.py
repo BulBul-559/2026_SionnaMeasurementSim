@@ -103,6 +103,52 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--snr-db", type=float, default=40.0)
     batch.add_argument("--batch-count", type=int, default=2)
 
+    scene_index = subparsers.add_parser(
+        "build-scene-index",
+        help="Build a deterministic scene JSONL index for ordered production runs.",
+    )
+    scene_index.add_argument("--source-root", default="data/front3d_full")
+    scene_index.add_argument(
+        "--classes",
+        default="small_room,normal_room",
+        help="Comma-separated scene classes to include.",
+    )
+    scene_index.add_argument("--total-count", type=int, default=3000)
+    scene_index.add_argument("--label-name", default="label_panel_0p5.json")
+    scene_index.add_argument("--seed", type=int, default=2026)
+    scene_index.add_argument(
+        "--order",
+        default="interleaved",
+        choices=["interleaved", "source"],
+        help="Run-order policy for selected scenes.",
+    )
+    scene_index.add_argument(
+        "--output",
+        default="data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl",
+        help="Output JSONL scene index path.",
+    )
+
+    run_scene_index = subparsers.add_parser(
+        "run-scene-index",
+        help="Run full simulations following a scene JSONL index order.",
+    )
+    run_scene_index.add_argument("--index-file", required=True)
+    run_scene_index.add_argument("--output-root", required=True)
+    run_scene_index.add_argument("--start-index", type=int, default=0)
+    run_scene_index.add_argument("--limit", type=int, default=None)
+    run_scene_index.add_argument("--dry-run", action="store_true")
+    run_scene_index.add_argument("--no-skip-existing", action="store_true")
+    run_scene_index.add_argument("--stop-on-failure", action="store_true")
+    run_scene_index.add_argument(
+        "--pipeline-shards",
+        action="store_true",
+        help=(
+            "Force one cross-scene dynamic GPU scheduler for all default-HDF5 "
+            "shards. The same mode can be enabled in config via "
+            "output.sharding.gpu_scheduler.cross_scene_pipeline=true."
+        ),
+    )
+
     full = subparsers.add_parser(
         "run-full",
         help="Full e2e: RT truth + paths + impairments + observation + motion + calibration.",
@@ -199,6 +245,54 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary_path = run_benchmark_from_args(args)
         print(summary_path)
         return 0
+
+    if args.command == "build-scene-index":
+        from pathlib import Path
+
+        from sionna_measurement_sim.app.scene_index import build_scene_index
+
+        result = build_scene_index(
+            source_root=Path(args.source_root),
+            output_path=Path(args.output),
+            classes=tuple(_parse_csv_strings(args.classes) or []),
+            total_count=args.total_count,
+            label_name=args.label_name,
+            seed=args.seed,
+            order=args.order,
+        )
+        print(
+            f"Scene index written: {result.index_path} "
+            f"({result.total_count} scenes, {result.selected_counts})"
+        )
+        print(f"Summary: {result.summary_path}")
+        return 0
+
+    if args.command == "run-scene-index":
+        from pathlib import Path
+
+        if not args.config:
+            parser.error("run-scene-index requires global --config PATH before the command")
+        from sionna_measurement_sim.app.scene_index import run_scene_index
+
+        result = run_scene_index(
+            index_path=Path(args.index_file),
+            config_path=Path(args.config),
+            output_root=Path(args.output_root),
+            start_index=args.start_index,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            skip_existing=not args.no_skip_existing,
+            stop_on_failure=args.stop_on_failure,
+            pipeline_shards=args.pipeline_shards,
+        )
+        print(
+            "Scene-index run complete: "
+            f"{result.completed} completed, {result.skipped} skipped, "
+            f"{result.planned} planned, {result.failed} failed"
+        )
+        print(f"Manifest: {result.manifest_path}")
+        print(f"Summary: {result.summary_path}")
+        return 0 if result.failed == 0 else 1
 
     if args.command == "run-rt-truth":
         from pathlib import Path

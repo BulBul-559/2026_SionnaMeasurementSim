@@ -59,7 +59,16 @@ gzip dataset 的压缩等级。正式 64PRB full 仿真推荐从 `mixed` + `gzip
 `/observation/cfr_est` 等高熵复数观测数组压缩，以降低写盘 CPU 开销；数据数值和 HDF5
 schema 不变，但文件体积通常略增。
 默认大规模 sharding 仍是一个计算 shard 写一个 `results/result_xxx.h5`，由
-`manifest/manifest.json` 汇总。实验性 `output.sharding.bundle.enabled=true` 可把多个
+`manifest/manifest.json` 汇总。默认 GPU 分配是固定轮询；可选
+`output.sharding.gpu_scheduler.enabled=true` 会动态扫描候选 GPU 的空闲显存比例，
+只有空闲显存比例达到 `free_memory_threshold` 且该 GPU 当前未运行本任务 shard 时才提交
+新 shard。若所有候选 GPU 都忙，父进程按 `scan_interval_s` 等待下一轮扫描。该动态调度
+当前只作用于默认 shard HDF5 路径，bundle append 路径仍保持 worker-owned 连续 shard
+range。单个 `run-full` 不会跨场景抢占空闲 GPU；多场景队列可用
+`output.sharding.gpu_scheduler.cross_scene_pipeline=true` 或 `run-scene-index --pipeline-shards`
+开启中心调度器，把多个场景的默认 HDF5 shard 统一排队。当当前场景只剩少量 shard 时，
+空闲 GPU 会继续接后续场景 shard。实验性
+`output.sharding.bundle.enabled=true` 可把多个
 计算 shard fragment append 到 `bundles/bundle_workerxxx_yyy.h5`，root contract 为
 `sionna_measurement_sim_bundle_hdf5`，`/bundle/shard_offsets` 和
 `/bundle/global_ue_indices` 给训练 loader 定位样本；reader 提供 manifest-aware
@@ -218,6 +227,8 @@ benchmark write    # synthetic MeasurementSimulationResult -> HDF5 writer/schema
 benchmark sharding # real cfr_truth sharded pipeline -> shard files vs append bundle
 benchmark readback # existing run/manifest/HDF5 -> manifest-aware dataset batch throughput
 benchmark spectrum # synthetic array samples -> Bartlett spectrum core
+build-scene-index # Front3D class-proportional JSONL simulation index
+run-scene-index   # ordered scene queue; config/--pipeline-shards enables cross-scene shard scheduling
 ```
 
 `benchmark write --bundle-shards` 可对比默认多 shard HDF5 与实验 append bundle。2026-06-17
@@ -235,6 +246,16 @@ manifest-aware CFR readback 时间；当前 readback probe 使用 `iter_manifest
 wall time。`benchmark readback --input-path <run-or-manifest>` 可对已有 shard 或 bundle 输出
 单独复测 `iter_manifest_dataset_batches()` 吞吐，适合后续真实大 payload/loader 对照。
 benchmark 输出是 ignored `outputs/` 下的 JSON/CSV/log artifact，不是正式 HDF5 schema 数据。
+
+Front3D 多场景队列入口已加入主 CLI。当前已生成
+`data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl`，用于 small/normal
+按原始比例抽样的 3000 个 panel 0p5 场景；summary 为可用 `small_room=519`、
+`normal_room=5353`，抽样 `small_room=265`、`normal_room=2735`，估算总 link
+`7,968,192`。推荐先用
+`config/tasks/nr_srs_64prb_cfr_truth_only.yaml` 配合 `run-scene-index --dry-run --limit N`
+检查逐场景配置；CFR-only 模板已设置 `gpu_scheduler.cross_scene_pipeline=true`，
+去掉 `--dry-run` 即按跨场景 shard pipeline 做实际大队列仿真。
+`--config` 是全局参数，必须放在 `run-scene-index` 前。
 
 RT labels-only 输出可用以下模板生成：
 
@@ -291,6 +312,7 @@ config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml
 
 ```text
 config/tasks/nr_srs_64prb_formal.yaml
+config/tasks/nr_srs_64prb_cfr_truth_only.yaml
 ```
 
 当前正式 64 PRB 推荐口径：
@@ -312,6 +334,13 @@ config/tasks/nr_srs_64prb_formal.yaml
 - `output.sharding.shard_size: 5`
 - `output.compression: "mixed"`
 - `output.gzip_level: 1`
+
+`config/tasks/nr_srs_64prb_cfr_truth_only.yaml` 沿用 formal 64 PRB carrier/RT
+口径，保留 SRS 配置作参考但关闭 PHY 执行；它设置 `output.products: ["cfr_truth"]`、
+`motion.enabled: false`，默认 `shard_size=20`，并关闭 impairments、calibration、
+path samples、ranging、array spectrum 和 visualization，当前用于 Front3D 0p5
+CFR-only 队列。该模板开启动态 GPU 调度：候选 `gpu_ids=[0..7]`，显存空闲比例阈值
+`0.6`，扫描间隔 `1.0s`。
 
 模板里的 `input.label_file`、`input.scene_file`、`scene_id` 和 `output.root_dir`
 需要按目标场景复制后修改。推荐把运行配置放在目标输出目录的 `run_config.yaml`；

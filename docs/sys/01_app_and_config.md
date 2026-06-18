@@ -4,7 +4,7 @@
 
 文件：`sionna_measurement_sim/app/cli.py`
 
-基于 `argparse` 的命令行入口，提供 7 类子命令：
+基于 `argparse` 的命令行入口，提供这些主要子命令：
 
 | 命令 | 功能 | 入口函数 |
 |------|------|----------|
@@ -14,6 +14,9 @@
 | `run-observation` | RT + PHY 观测 | `run_rt_truth_pipeline()` |
 | `run-full` | 全功能端到端 | `run_rt_truth_pipeline()` |
 | `run-batch` | 批量实验 | `run_batch_experiment()` |
+| `build-scene-index` | 按类别比例构建 Front3D JSONL 场景队列 | `build_scene_index()` |
+| `run-scene-index` | 按 JSONL index 顺序生成逐场景配置；默认逐场景调用 `run-full`，可选跨场景 shard pipeline | `run_scene_index()` |
+| `visualize` | 从已有 HDF5 输出诊断图或 dataset 预览 | `generate_visualization_report()` |
 | `benchmark rt/write/sharding/readback/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest batch 读取、Bartlett 空间谱成本 | `benchmark.runner` |
 
 核心流程：CLI 解析参数 → 构建 `RTTruthRunConfig` → 调用 `run_rt_truth_pipeline()` → 输出 HDF5 路径。
@@ -85,6 +88,50 @@ uv run python -m sionna_measurement_sim.app.cli benchmark write \
 uv run python -m sionna_measurement_sim.app.cli benchmark sharding \
   --output-dir outputs/benchmark_sharding_smoke \
   --max-bs 1 --max-ue 3 --shard-size 1 --bundle-max-planned-shards 2
+```
+
+`build-scene-index` 和 `run-scene-index` 用于大规模多场景队列。前者会从
+`data/front3d_full/split_manifest.jsonl` 读取类别与 scene 目录；若 manifest 不存在，
+则扫描 `data/front3d_full/<class>/front3d_*`。抽样按可用类别比例分配，默认
+`small_room,normal_room`、总数 3000、`label_panel_0p5.json`、seed 2026。
+每条 JSONL 记录包含 scene class、label/scene 路径、BS/UE/link 数和原始 scene index。
+当前生成的队列为：
+
+```text
+data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl
+```
+
+当前 summary：可用 `small_room=519`、`normal_room=5353`，抽样
+`small_room=265`、`normal_room=2735`，总 link 估算 `7,968,192`。
+`run-scene-index` 要求全局 `--config` 放在命令前；它会把模板复制成逐场景 YAML，
+按 index 顺序写到 `<output-root>/configs/`，实际运行输出写到 `<output-root>/runs/`，
+日志写到 `<output-root>/logs/`，并用 `scene_index_run_manifest.jsonl` 记录状态。默认模式
+仍逐场景调用 `run-full` 子进程；当模板设置
+`output.sharding.gpu_scheduler.cross_scene_pipeline=true`，或命令行显式加入
+`--pipeline-shards` 时，队列层会展开多个场景的默认 HDF5 shard，并用一个中心动态 GPU
+调度器统一提交。
+
+```bash
+uv run python -m sionna_measurement_sim.app.cli build-scene-index \
+  --source-root data/front3d_full \
+  --classes small_room,normal_room \
+  --total-count 3000 \
+  --label-name label_panel_0p5.json \
+  --output data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl
+
+uv run python -m sionna_measurement_sim.app.cli \
+  --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
+  run-scene-index \
+  --index-file data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl \
+  --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only \
+  --limit 3 \
+  --dry-run
+
+uv run python -m sionna_measurement_sim.app.cli \
+  --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
+  run-scene-index \
+  --index-file data/front3d_full/indices/small_normal_3000_panel0p5_seed2026.jsonl \
+  --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only
 ```
 
 ## 批处理 (`app/batch_runner.py`)
@@ -180,6 +227,7 @@ CLI 或 pipeline 中手写字段拷贝，也保持 ranging 算法包不依赖 Py
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 通用定位模板 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；显式开启 `output.sharding.bundle.enabled` |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 64 PRB NR SRS 生产任务模板；当前推荐 `shard_size=5`、`compression="mixed"`、`gzip_level=1` |
+| `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | 正式 64 PRB CFR truth-only 任务模板；沿用 formal 64 PRB carrier/RT 口径，保留 SRS 配置作参考但关闭 PHY/motion/impairments/calibration，只写 `/channel/truth/cfr` 与必要元数据，并启用动态 GPU 调度 |
 
 模板中字段注释标注了推荐值、可选值和约束条件。完整字段说明见 `config/README.md`。
 生产场景通常先按目标输出目录准备一份 `run_config.yaml`，例如

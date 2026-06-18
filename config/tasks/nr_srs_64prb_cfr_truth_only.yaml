@@ -1,17 +1,18 @@
-# SionnaMeasurementSim - formal NR SRS 64 PRB production task template
+# SionnaMeasurementSim - formal NR SRS 64 PRB CFR-truth-only task template
+#
+# This template is derived from nr_srs_64prb_formal.yaml, but trims the full
+# output contract to /channel/truth/cfr plus mandatory metadata via
+# output.products=["cfr_truth"]. Use this for large Front3D 0p5 CFR truth
+# generation where PHY observation, path samples, spatial spectrum, ranging and
+# figures are not needed.
 #
 # Intended use:
-#   - Copy this file or override the input/output fields for each scene.
-#   - Keep this as the baseline recipe for 64 PRB NR SRS formal simulations.
-#   - Default density is panel 0p2. Use lighter/heavier panel labels only when
-#     the task explicitly asks for them.
-#   - The scenario is a 100 MHz FR1 indoor setting at 3.5 GHz, but this task
-#     simulates only the occupied 64 PRB SRS bandwidth:
-#       64 PRB * 12 subcarriers/PRB = 768 subcarriers
-#       768 * 30 kHz = 23.04 MHz active simulated bandwidth
-#
-# This is an NR SRS standards-shaped subset, not a complete 3GPP-compliant
-# implementation.
+#   - Override input.label_file, input.scene_file, input.scene_id and
+#     output.root_dir per scene or through the scene-index runner.
+#   - Keep the 64 PRB FR1 carrier/antenna/RT settings aligned with the formal
+#     full template. PHY/SRS settings remain as metadata/reference knobs but are
+#     not executed because this template only writes RT CFR truth.
+#   - Default label density for the current Front3D CFR-only queue is panel 0p5.
 
 runtime:
   seed: 42
@@ -29,9 +30,9 @@ debug:
 
 input:
   # Replace these three fields for each production scene.
-  label_file: "data/front3d_tail20_succ17/front3d_6793/label/label_panel_0p2.json"
-  scene_file: "data/front3d_tail20_succ17/front3d_6793/scene.xml"
-  scene_id: "front3d_6793"
+  label_file: "data/front3d_full/normal_room/front3d_0002/label/label_panel_0p5.json"
+  scene_file: "data/front3d_full/normal_room/front3d_0002/scene.xml"
+  scene_id: "front3d_0002"
   map_id: ""
   label_schema: "simplesionna_v1"
   coordinate_system: "scene_local_xyz_m"
@@ -41,29 +42,33 @@ input:
 
 output:
   profile: "full"
-  root_dir: "outputs/front3d_6793_panel0p2_srs_64prb_formal"
+  products: ["cfr_truth"]
+  root_dir: "outputs/front3d_0002_panel0p5_cfr_truth_only_srs64prb"
   run_id_format: "{label_stem}_{timestamp}"
   hdf5_filename: "results.h5"
-  # Formal full runs write noisy complex observation grids that compress poorly.
-  # "mixed" keeps gzip for sparse/path datasets but stores high-entropy
-  # waveform/observation grids uncompressed for faster end-to-end throughput.
   compression: "mixed"
   gzip_level: 1
-  save_full_paths: true
-  save_sampled_paths: true
+  save_full_paths: false
+  save_sampled_paths: false
   save_raw_waveform: false
   sharding:
     enabled: true
     axis: "ue"
-    # High-BS Front3D scenes are memory-heavy; shard 5 is the current safer
-    # baseline for formal 64 PRB runs. Fallback may split further on OOM.
-    shard_size: 5
+    # CFR-truth-only runs are lighter than the full formal template. The
+    # current validated Front3D 0p5 CFR-only baseline uses shard_size=20; OOM
+    # fallback may split further if a scene is unusually dense.
+    shard_size: 20
     filename_pattern: "result_{shard_index:03d}.h5"
     results_dir: "results"
     manifest_dir: "manifest"
     parallel_workers: 8
     gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
-    visualization_mode: "first_shard"
+    visualization_mode: "none"
+    gpu_scheduler:
+      enabled: true
+      free_memory_threshold: 0.6
+      scan_interval_s: 1.0
+      cross_scene_pipeline: true
     fallback:
       enabled: true
       min_shard_size: 1
@@ -101,8 +106,8 @@ antenna:
 
 array:
   spectrum:
-    enabled: true
-    sources: ["truth_cfr", "cfr_est", "rx_grid"]
+    enabled: false
+    sources: ["truth_cfr"]
     method: "bartlett"
     zenith_bins: 91
     azimuth_bins: 181
@@ -116,7 +121,7 @@ array:
     link_chunk_size: 128
 
 visualization:
-  enabled: true
+  enabled: false
   output_dir: "figures"
   sample_policy: "spatially_spread_valid_links"
   random_seed: 42
@@ -128,20 +133,7 @@ visualization:
   radio_map_mode: "both"
   radio_map_grid_resolution_m: null
   radio_map_show_samples: false
-  plots:
-    - "topology"
-    - "link_overview"
-    - "cfr_lines"
-    - "cfr_heatmap"
-    - "cfr_error"
-    - "waveform_grid"
-    - "aoa"
-    - "nlos_paths"
-    - "spatial_spectrum"
-    - "nmse_snr"
-    - "radio_map"
-    - "multiuser_srs"
-    - "iq"
+  plots: []
 
 rt:
   engine: "sionna_rt"
@@ -161,7 +153,7 @@ link:
   phy_link_direction: "uplink"
 
 phy:
-  enabled: true
+  enabled: false
   standard: "nr_srs"
   mimo_mode: "su_mimo"
   channel_backend: "apply_ofdm"
@@ -183,9 +175,6 @@ phy:
   channel_estimator: "srs_ls"
   receiver_failure_policy: "mark_invalid"
   su_mimo_link_batch_size: 1
-  # Formal observation default: 23 dBm is a common UE maximum uplink power
-  # class. With absolute thermal noise, TX power changes SNR/RSSI physically
-  # instead of keeping every link at a fixed relative SNR.
   tx_power_dbm: 23.0
   power:
     reference_tx_power_dbm: 0.0
@@ -252,6 +241,9 @@ phy:
       resource_strategy: "comb_offset"
       frame_policy: "sequential"
 
+ranging:
+  enabled: false
+
 noncooperative:
   enabled: false
   signal_standard: "nr_srs"
@@ -264,44 +256,24 @@ noncooperative:
 
 impairments:
   awgn:
-    enabled: true
+    enabled: false
   cfo:
-    enabled: true
-    cfo_hz: 100.0
+    enabled: false
+    cfo_hz: null
   sfo:
-    enabled: true
-    sfo_ppm: 5.0
+    enabled: false
+    sfo_ppm: null
   phase_noise:
-    enabled: true
-    phase_offset_rad: 0.5
+    enabled: false
+    phase_offset_rad: null
   timing_offset:
-    enabled: true
-    timing_offset_samples: 1.0
+    enabled: false
+    timing_offset_samples: null
   agc_adc:
-    enabled: true
+    enabled: false
     agc_gain_db: 0.0
-    # Keep clipping disabled until ADC full-scale calibration is modeled.
     clipping_threshold: null
   impairment_seed: 142
-
-ranging:
-  enabled: true
-  source: "cfr_est"
-  estimators: ["pdp_peak", "phase_slope"]
-  default_estimator: "pdp_peak"
-  write_rtt_equivalent: true
-  pdp_peak:
-    oversampling_factor: 8
-    window: "hann"
-    peak_policy: "earliest_above_relative_threshold"
-    relative_threshold_db: -12.0
-    min_peak_snr_db: 6.0
-    interpolation: "parabolic_log_power"
-    max_delay_s: null
-  phase_slope:
-    unwrap: true
-    aggregate: "power_weighted_median"
-    min_mean_power: 1.0e-12
 
 receiver:
   estimator_type: "srs_ls"
@@ -313,16 +285,13 @@ receiver:
   calibration_profile_id: "synthetic_default"
 
 motion:
-  enabled: true
+  enabled: false
   mobility_mode: "static"
-  # Formal static positioning runs use one snapshot. Increase only for explicit
-  # motion/Doppler experiments; otherwise storage and spectrum cost scale with
-  # this value.
   num_time_steps: 1
-  sampling_frequency_hz: 100.0
+  sampling_frequency_hz: 0.0
   bs_velocity_mps: [0.0, 0.0, 0.0]
   ue_velocity_mps: [0.0, 0.0, 0.0]
 
 calibration:
-  enabled: true
+  enabled: false
   profile_id: "synthetic_default"

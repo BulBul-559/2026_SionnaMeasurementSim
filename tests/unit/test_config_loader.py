@@ -88,6 +88,33 @@ output:
     assert cfg.output.sharding.bundle.validate_schema is False
 
 
+def test_output_sharding_gpu_scheduler_config_loads(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+output:
+  sharding:
+    enabled: true
+    parallel_workers: 8
+    gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+    gpu_scheduler:
+      enabled: true
+      free_memory_threshold: 0.6
+      scan_interval_s: 1.0
+      cross_scene_pipeline: true
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    scheduler = cfg.output.sharding.gpu_scheduler
+    assert scheduler.enabled is True
+    assert scheduler.free_memory_threshold == 0.6
+    assert scheduler.scan_interval_s == 1.0
+    assert scheduler.cross_scene_pipeline is True
+
+
 def test_output_sharding_bundle_rejects_absolute_bundle_dir(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
