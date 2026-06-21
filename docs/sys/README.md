@@ -43,7 +43,9 @@
   队列使用 `config/tasks/nr_srs_64prb_cfr_truth_only.yaml`：`shard_size=20`、
   `output.products=["cfr_truth"]`、动态 GPU 调度 `scan_interval_s=0.2`、跨场景
   shard pipeline、`fallback.isolation_mode="on_failure"`、`recycle_workers=true`，
-  且实验性 `postprocess.async_write` 默认关闭。
+  且实验性 `postprocess.async_write` 默认关闭。retryable fallback 会在拆分子 shard
+  前清理失败 exception traceback 引用，降低 OOM 后外层 worker 继续持有大 GPU allocation
+  的风险。
 - 大规模输出默认采用 `results/result_xxx.h5` 多文件 shard + `manifest/manifest.json`，
   不建议在生产路径合成单个巨大 HDF5。实验性 `output.sharding.bundle.enabled=true`
   可把多个计算 shard append 到较大的 `bundles/bundle_workerxxx_yyy.h5`，用于写盘/训练读取

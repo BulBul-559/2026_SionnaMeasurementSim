@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -364,6 +365,53 @@ def test_fallback_on_failure_isolates_retry_children(tmp_path: Path, monkeypatch
         "succeeded",
         "succeeded",
     ]
+
+
+def test_fallback_children_run_outside_retry_exception_context(
+    tmp_path: Path,
+    monkeypatch,
+):
+    label_path = _write_label(tmp_path)
+    output_dir = tmp_path / "out"
+    active_exception_types: list[type[BaseException] | None] = []
+    failed_once = False
+
+    def fake_worker(
+        config: RTTruthRunConfig,
+        gpu_id: int | None,
+        *,
+        force_isolated: bool = False,
+    ) -> Path:
+        nonlocal failed_once
+        del force_isolated, gpu_id
+        assert config.shard_spec is not None
+        if not failed_once and int(config.shard_spec.ue_count or 0) == 2:
+            failed_once = True
+            raise RuntimeError("jit_malloc(): out of memory")
+        active_exception_types.append(sys.exc_info()[0])
+        return config.output_dir / config.hdf5_filename
+
+    monkeypatch.setattr(truth_pipeline, "_run_shard_worker_attempt", fake_worker)
+    monkeypatch.setattr(truth_pipeline, "_clear_accelerator_caches", lambda: None)
+
+    config = RTTruthRunConfig(
+        label_file=label_path,
+        scene_file=tmp_path / "scene.xml",
+        output_dir=output_dir,
+        max_bs=2,
+        max_ue=2,
+        output_sharding_config=OutputShardingConfig(
+            enabled=True,
+            shard_size=2,
+            fallback=ShardingFallbackConfig(isolation_mode="on_failure"),
+        ),
+    )
+    spec = _build_shard_specs(config)[0]
+
+    outcome = truth_pipeline._run_shard_spec_with_fallback(config, spec, gpu_id=0)
+
+    assert active_exception_types == [None, None]
+    assert outcome["attempts"][0]["exception_traceback_cleared"] is True
 
 
 def test_bundled_sharded_pipeline_writes_appendable_h5_and_manifest(

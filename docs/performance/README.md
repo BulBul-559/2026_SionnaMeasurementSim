@@ -15,6 +15,7 @@
 | 当前 benchmark harness | `docs/performance/benchmark_harness.md` |
 | Front3D 0p5 CFR truth-only 调度/fallback/写盘优化 | `docs/performance/front3d_cfr_truth_pipeline_perfopt_2026-06-18.md` |
 | Front3D 0p5 CFR truth-only fallback inner worker 卡住复盘记录 | `docs/performance/front3d_cfr_truth_fallback_stalls_2026-06-20.md` |
+| Front3D fallback stall 复现诊断与 R1 压力回归 | `docs/performance/front3d_stall_diagnostics_2026-06-21.md` |
 | HDF5 bundle append write-only 对照 | `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md` |
 | HDF5 bundle append 真实 sharding 对照 | `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md` |
 | HDF5 bundle append Front3D full CFR truth 对照 | `docs/performance/hdf5_bundle_front3d_full_cfr_truth_2026-06-17.md` |

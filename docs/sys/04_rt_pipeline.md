@@ -182,7 +182,9 @@ worker 中运行，只有失败后拆分重试才进入隔离子进程；`"never
 当使用 `"on_failure"` 时，建议同时设置 `output.sharding.recycle_workers=true`，让
 `ProcessPoolExecutor` worker 每个 shard 后回收，释放 Sionna RT / Dr.Jit 显存 allocation。
 否则长生命周期 worker 可能在 Python 返回后仍占用 GPU memory，动态调度器会持续认为对应
-GPU 不空闲。
+GPU 不空闲。retryable OOM/Dr.Jit fallback 在拆分子 shard 前会清理失败 exception
+traceback/cause/context 引用，再运行子 shard，避免外层 worker 因 traceback frame locals
+继续持有失败 attempt 的大 GPU allocation。
 
 默认 shard HDF5 还支持实验性写盘解耦：
 `output.sharding.postprocess.async_write=true` 时，计算 worker 返回

@@ -84,7 +84,9 @@ uv run python -m sionna_measurement_sim.app.cli \
 > shard 太少时 GPU 空闲。`--pipeline-shards` 可临时给其他模板强制开启同一行为。
 > 当前 CFR-only 模板还设置 `fallback.isolation_mode="on_failure"` 与
 > `recycle_workers=true`：成功路径少一层隔离子进程，但每个 worker 完成 shard 后会回收，
-> 释放 Sionna RT / Dr.Jit 显存，避免动态调度误判 GPU 仍忙。实验性
+> 释放 Sionna RT / Dr.Jit 显存，避免动态调度误判 GPU 仍忙。retryable fallback 会先清理
+> 失败 exception traceback 引用，再运行拆分后的子 shard，减少 OOM 后外层 worker 保留
+> 大 GPU allocation 的风险。实验性
 > `postprocess.async_write` 已实现，但该模板默认关闭；2026-06-18 smoke 中它比直接写
 > per-shard HDF5 略慢。
 
@@ -277,7 +279,7 @@ full-contract products，或在只需要 link-level 标签时改用 `rt_labels_o
 | `fallback.split_factor` | int | 2 | 每次失败拆成几个子 shard |
 | `fallback.retry_errors` | list[str] | `["cuda_oom", "drjit_array_limit"]` | 允许自动回退的错误类型 |
 | `fallback.failure_policy` | str | `fail_run` | 到最小 shard 仍失败时终止运行 |
-| `fallback.isolation_mode` | str | `"always"` | fallback attempt 的隔离策略：`always` 保持历史每次尝试都用子进程隔离；`on_failure` 首次直接运行、失败拆分重试时隔离；`never` 从不额外隔离 |
+| `fallback.isolation_mode` | str | `"always"` | fallback attempt 的隔离策略：`always` 保持历史每次尝试都用子进程隔离；`on_failure` 首次直接运行、失败拆分重试时隔离；`never` 从不额外隔离。retryable fallback 会先清理失败 exception traceback 引用再运行子 shard |
 | `postprocess.async_write` | bool | false | 实验性默认 shard HDF5 写盘解耦；worker 返回 prepared payload，由父进程 writer pool 落盘 |
 | `postprocess.max_pending_writes` | int | 16 | async write 打开时，父进程允许排队/运行的最大写盘任务数；跨场景调度器也用它限制 pending writes |
 | `bundle.enabled` | bool | false | 实验性 append bundle 写盘；默认关闭 |

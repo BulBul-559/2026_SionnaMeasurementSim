@@ -2404,6 +2404,8 @@ def _run_shard_spec_attempt(
     shard_config = _build_shard_run_config(config, spec)
     isolate_attempt = _should_isolate_shard_attempt(config, spec, reason=reason)
     async_write = _shard_async_write_enabled(config)
+    fallback_children: list[ShardSpec] | None = None
+    fallback_reason = ""
     attempt: dict[str, object] = {
         "shard_id": spec.shard_id or f"{spec.shard_index:03d}",
         "shard_index": spec.shard_index,
@@ -2442,6 +2444,7 @@ def _run_shard_spec_attempt(
         )
     except Exception as exc:
         retry_error = _classify_retryable_shard_error(exc)
+        fallback_reason = retry_error or "retryable"
         attempt.update(
             {
                 "status": "failed",
@@ -2451,7 +2454,6 @@ def _run_shard_spec_attempt(
         )
         if not _can_fallback_shard(config, spec, retry_error):
             raise
-        _clear_accelerator_caches()
         split_factor = int(
             getattr(
                 getattr(config.output_sharding_config, "fallback", None),
@@ -2459,27 +2461,32 @@ def _run_shard_spec_attempt(
                 2,
             )
         )
-        children = _split_shard_spec_for_fallback(
+        fallback_children = _split_shard_spec_for_fallback(
             spec,
-            retry_error or "retryable",
+            fallback_reason,
             split_factor=split_factor,
         )
         attempt.update(
             {
                 "status": "split",
-                "children": [child.shard_id for child in children],
+                "children": [child.shard_id for child in fallback_children],
+                "exception_traceback_cleared": True,
             }
         )
+        _clear_retry_exception_references(exc)
+
+    if fallback_children is not None:
+        _clear_accelerator_caches()
         results: list[dict[str, object]] = []
         attempts: list[dict[str, object]] = [attempt]
         pending_writes: list[PendingShardWrite] = []
-        for child in children:
+        for child in fallback_children:
             _clear_accelerator_caches()
             outcome = _run_shard_spec_attempt(
                 config,
                 child,
                 gpu_id,
-                reason=retry_error or "retryable",
+                reason=fallback_reason,
             )
             _merge_shard_outcome(outcome, results, attempts, pending_writes)
         return {
@@ -2876,6 +2883,39 @@ def _clear_accelerator_caches() -> None:
             torch.cuda.ipc_collect()
     except Exception:
         pass
+
+
+def _clear_retry_exception_references(exc: BaseException) -> None:
+    """Drop traceback references before launching fallback children.
+
+    Retryable shard failures can carry Sionna/Dr.Jit/CUDA arrays in traceback
+    frame locals. If fallback children are launched while that exception graph
+    is still alive, the outer worker may retain large GPU allocations even after
+    cache flushing.
+    """
+
+    pending: list[BaseException] = [exc]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        ident = id(current)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+        tb = current.__traceback__
+        while tb is not None:
+            try:
+                tb.tb_frame.clear()
+            except RuntimeError:
+                pass
+            tb = tb.tb_next
+        current.__traceback__ = None
+        current.__cause__ = None
+        current.__context__ = None
 
 
 def _classify_retryable_shard_error(exc: BaseException) -> str | None:
