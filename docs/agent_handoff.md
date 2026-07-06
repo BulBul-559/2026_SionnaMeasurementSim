@@ -89,6 +89,22 @@ fragment，并提供 `iter_manifest_dataset_batches()` 按 resolved UE 轴拼接
 `read_bundle_fragment_dataset()` 按 fragment index/id 读取 root append dataset 或 sidecar
 覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及 schema/reader/manifest
 时要同时覆盖 bundle contract。
+离线训练底座另走 `postprocess-cfr-scenes`，不属于 `output.sharding.bundle`，
+也不接入仿真阶段 writer。它只读已完成的 CFR truth-only shard run，输出新的
+scene-level 数据集目录：`scenes/<scene_id>.h5`、`assets/<scene_id>/`、`manifest.json`、
+`link_index.pt`/parquet 和 `room_index.pt`/parquet，原始 `results/result_xxx.h5`
+与原 run manifest 不修改。单 scene H5 使用独立 contract
+`sionna_cfr_scene_dataset` / schema `0.2.0`，root `/cfr` 的第一维是
+flatten 后的 link，当前 shape 为 `[link, rx_ant, tx_ant, subcarrier]`；同时物化
+`/link_id`、`/bs_id`、`/ue_id`、`/tx_id`、`/rx_id`、`/tx_pos`、`/rx_pos`、`/target_xy`、
+`/valid_mask`、`/source_shard_id`、`/source_local_index`、`/csi_power_db`、
+`/cfr_power_linear`、`/is_finite`、`/nan_count`、`/rooms/*`、
+`/link/ue_room_index`、`/link/bs_room_index`、`/link/target_room_index`、
+`/link/target_room_area_m2`、`/link/target_room_type_id`、`/floorplan/*` 和
+label/floorplan 资产。
+默认 `/cfr` 不压缩，以避免训练读取被 CPU 解压限制；轻量 metadata 可 gzip。该 contract
+由 `sionna_measurement_sim.postprocess.validate_cfr_scene_h5()` 校验，不走 full HDF5
+`validate_hdf5_contract()`。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。
 新输出不再写 array 兼容别名

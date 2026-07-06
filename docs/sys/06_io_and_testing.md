@@ -156,6 +156,65 @@ bundle root 上的 `/channel/truth/cfr`。`read_bundle_fragment_dataset()` 可�
 `/bundle/shard_offsets` 自动切片，shared dataset 返回整块，若存在
 `/bundle/fragments/<fragment_id>/...` sidecar 则优先读取 sidecar 覆盖值。
 
+### `postprocess/cfr_scene_dataset.py` — 离线 scene-level CFR 数据集
+
+`postprocess-cfr-scenes` 是专门面向训练数据整理的离线后处理入口。它从已完成的
+CFR truth-only shard run 只读读取 `manifest/manifest.json` 和 `results/result_xxx.h5`，
+输出一个新的数据集目录，不修改原始 run：
+
+```text
+<output_root>/
+  scenes/<scene_id>.h5
+  assets/<scene_id>/
+  manifest.json
+  link_index.pt
+  link_index.parquet
+  room_index.pt
+  room_index.parquet
+```
+
+单 scene H5 使用独立 contract `sionna_cfr_scene_dataset` / schema `0.2.0`，不走
+`write_measurement_result()`，也不属于 `validate_hdf5_contract()` 的 full/bundle/compact
+profile。`validate_cfr_scene_h5()` 只校验这个离线 contract。核心 dataset 是：
+
+```text
+/cfr                  [link, rx_ant, tx_ant, subcarrier]
+/link_id              [link]
+/bs_id / ue_id        [link]
+/tx_id / rx_id        [link]
+/tx_pos / rx_pos      [link, 3]
+/target_xy            [link, 2]
+/valid_mask           [link]
+/source_shard_id      [link]
+/source_local_index   [link]
+/csi_power_db         [link]
+/cfr_power_linear     [link]
+/is_finite / nan_count [link]
+/rooms/room_id        [room]
+/rooms/room_type      [room]
+/rooms/floor_area_m2  [room]
+/rooms/bounds_xy      [room, 4]
+/rooms/ue_count       [room]
+/rooms/bs_count       [room]
+/link/ue_room_index   [link]
+/link/bs_room_index   [link]
+/link/target_room_index [link]
+/link/target_room_area_m2 [link]
+/link/target_room_type_id [link]
+/floorplan/*
+/assets/*
+```
+
+`/cfr` 默认不压缩，避免后续训练读取被 CPU 解压限制；轻量 metadata 可 gzip。全局
+`manifest.json` 汇总 scene 路径、link 数、shape、dtype、source shard、valid 数、
+power min/max/quantile、生成命令和 schema version。`link_index.pt` 保存 flattened
+global link 表、scene row/local link index、BS/UE id、位置、power、valid mask 和 target
+room tensor，供训练侧快速加载；`link_index.parquet` 展开 scene/path、坐标、target room
+id/type/area，供筛选、统计和 split 生成。`room_index.pt`/`room_index.parquet` 汇总
+scene-level room 表，可直接统计 room 面积分布并按 room/scene 粒度均衡切分。并行粒度是
+scene，一个 worker 写一个 scene H5；不要把它和仿真阶段
+`output.sharding.bundle.enabled` 混用。
+
 ### `manifest.py`
 
 ```python
@@ -223,6 +282,7 @@ BS/UE 位置；`groups` 仅作为子集元数据，不参与默认 topology 选�
 ```
 tests/
 ├── unit/
+│   ├── test_cfr_scene_postprocess.py     # 离线 scene-level CFR dataset contract
 │   ├── test_nr_mimo_channel_bridge.py    # CIR→CFR shape + backend comparison (21 tests)
 │   ├── test_nr_pusch_mimo_config.py      # multi-user configs + detector builder (13 tests)
 │   ├── test_nr_pusch_config.py           # PUSCHConfig + run_nr_pusch_observation (14 tests)

@@ -50,6 +50,13 @@
   不建议在生产路径合成单个巨大 HDF5。实验性 `output.sharding.bundle.enabled=true`
   可把多个计算 shard append 到较大的 `bundles/bundle_workerxxx_yyy.h5`，用于写盘/训练读取
   性能探索；manifest 仍是入口。
+- `postprocess-cfr-scenes` 是独立离线后处理入口：只读已完成 CFR truth-only shard run，
+  生成新的 scene-level 训练数据集 `scenes/<scene_id>.h5`、`assets/<scene_id>/`、
+  `manifest.json`、`link_index.pt`/parquet 和 `room_index.pt`/parquet。它不修改原始 run，
+  不属于 YAML 仿真配置，也不替代在线 bundle writer。单 scene H5 使用
+  `sionna_cfr_scene_dataset` contract，`/cfr`
+  第一维是 flattened link，并保留 BS/UE/TX/RX id、位置、valid/power/finite/source
+  metadata、结构化 room metadata 和 floorplan/label 资产；默认 `/cfr` 不压缩。
 - 当前 schema 版本是 `2.3.0`；`output.profile` 只保留 `full`、
   `rt_labels_only` 和 `iq_link_library` 三种真实契约。labels-only 使用
   `sionna_measurement_rt_labels` compact HDF5 contract 并只写 `/labels/link/*`

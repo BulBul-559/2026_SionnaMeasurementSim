@@ -22,6 +22,7 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - Front3D 场景索引队列：按 small/normal 等类别比例生成 JSONL index，并按 index 顺序逐场景运行 CFR truth-only 生产模板
+- 离线 CFR scene dataset 后处理：从已完成 CFR truth-only shard run 只读构建“一个场景一个 H5”的训练底座，物化 link/room metadata、power/validity、floorplan/label 资产、全局 manifest、`link_index.pt` 以及 parquet 筛选索引
 - `benchmark rt/write/sharding/readback/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest 读取吞吐和 Bartlett 空间谱成本
 - `output.profile` 只保留三种真实输出契约：`full`、`rt_labels_only`、`iq_link_library`；`full` 可通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
 - HDF5 schema `2.3.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
@@ -120,6 +121,13 @@ uv run python -m sionna_measurement_sim.app.cli benchmark readback \
     --dataset channel/truth/cfr \
     --batch-fragments 16 \
     --no-write-hardware-samples
+
+# 离线构建 scene-level CFR truth 训练数据集；原始 shard 只读不改
+uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
+    --input-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only \
+    --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_scene_dataset \
+    --workers 16 \
+    --cfr-compression none
 ```
 
 项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
@@ -147,6 +155,7 @@ uv run python -m sionna_measurement_sim.app.cli benchmark readback \
 | `run-batch` | 批量实验（多 seed/SNR 分批） |
 | `build-scene-index` | 从 Front3D split/目录生成确定性的 JSONL 场景队列 |
 | `run-scene-index` | 按 JSONL index 顺序生成逐场景配置；可选跨场景 shard pipeline |
+| `postprocess-cfr-scenes` | 离线把已完成 CFR truth-only shard run 转成 scene-level 训练数据集 |
 | `visualize` | 从已有 HDF5 生成采样诊断图、RSS radio map 或 dataset 预览 |
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
 | `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 与 `--gzip-level`）和 schema validate |
@@ -320,6 +329,28 @@ resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json`
 run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避免在
 `outputs/` 根目录生成 sidecar 文件。
 
+离线 `postprocess-cfr-scenes` 不会改动上述原始 run 目录。它输出新的训练数据集目录：
+
+```text
+<dataset_dir>/
+  scenes/<scene_id>.h5     # 一个场景一个 H5，/cfr 为 [link,rx_ant,tx_ant,subcarrier]
+  assets/<scene_id>/       # 复制的 panel0p5 label、floorplan、label-floorplan、meta/report
+  manifest.json            # scene 级索引、shape、大小、power quantiles、source shard provenance
+  link_index.pt            # 训练快速加载入口，tensor 为主
+  link_index.parquet       # link metadata 筛选、统计、split 生成
+  room_index.pt            # room metadata tensor/list 入口
+  room_index.parquet       # room 面积/类型分布统计和均衡 split
+```
+
+scene H5 的 root 级训练字段包括 `/cfr`、`/link_id`、`/ue_id`、`/bs_id`、
+`/tx_id`、`/rx_id`、`/tx_pos`、`/rx_pos`、`/target_xy`、`/valid_mask`、
+`/source_shard_id`、`/source_local_index`、`/csi_power_db`、`/cfr_power_linear`、
+`/is_finite` 和 `/nan_count`。`/rooms/*` 会结构化保存 room id/type/area/bounds/count；
+`/link/ue_room_index`、`/link/bs_room_index`、`/link/target_room_index`、
+`/link/target_room_area_m2` 和 `/link/target_room_type_id` 让训练或 split 生成无需再解析
+label JSON。`/floorplan` 与 `/assets` 会嵌入对应的 floorplan、label 和 meta/report 字节；
+默认 `/cfr` 不压缩，以避免训练读取时被 gzip 解压 CPU 卡住。
+
 可视化入口会把普通采样诊断图写到 `figures/standard/`，RSS radio map 写到
 `figures/heatmaps/`，multi-UE SRS shared observation 图写到 `figures/multiuser/`。
 `multiuser_srs` 图集用于检查资源占用、BS 侧混合 RX grid、per-UE CFR 折线与幅度/相位
@@ -415,6 +446,7 @@ SionnaMeasurementSim/
     phy/              PHY module registry + common link + 损伤 + NR PUSCH/SRS + backend
     benchmark/        RT/write/sharding/spectrum 性能 benchmark harness
     io/               HDF5 读写、schema validator、manifest、label 解析
+    postprocess/      离线 scene-level CFR dataset 构建
     analysis/         诊断分析
     visualization/    拓扑/路径/CFR/NMSE/空间谱图
   config/defaults/    默认 YAML 配置

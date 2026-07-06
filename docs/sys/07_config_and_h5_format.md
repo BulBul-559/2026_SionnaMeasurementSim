@@ -820,6 +820,80 @@ loader 或调试脚本避免手写 HDF5 轴映射。
 | `global_tx_indices` | int64 [sum_fragment_tx] | 每个 fragment 的 resolved TX 全局 index 串接 |
 | `global_rx_indices` | int64 [sum_fragment_rx] | 每个 fragment 的 resolved RX 全局 index 串接 |
 
+### 2.4.2 离线 CFR Scene Dataset Contract
+
+`postprocess-cfr-scenes` 是仿真完成后的离线整理入口，不属于 YAML `output.profile`、
+`output.products` 或 `output.sharding.bundle`。它只读已完成 CFR truth-only shard run，
+把同一场景的多个 `results/result_xxx.h5` 汇总成新的 scene-level 训练数据集，原始 run
+目录不修改：
+
+```text
+<output_root>/
+  scenes/<scene_id>.h5
+  assets/<scene_id>/
+  manifest.json
+  link_index.pt
+  link_index.parquet
+  room_index.pt
+  room_index.parquet
+```
+
+单 scene H5 使用独立 contract：
+
+```text
+/meta/contract_name    = "sionna_cfr_scene_dataset"
+/meta/schema_version   = "0.2.0"
+/cfr                   # shape [link, rx_ant, tx_ant, subcarrier]
+```
+
+当前仅面向 CFR truth-only 数据。`/cfr` 的第一维是 scene 内 flattened link；对于 direct
+uplink SRS，source shard 中的 UE 轴和 BS 轴会展开为 `ue × bs` link。H5 还会物化训练侧常用
+索引、位置、有效性、功率和 source provenance：
+
+| Dataset | Shape | 说明 |
+|---------|-------|------|
+| `/link_id` | [link] | scene 内连续 link id |
+| `/tx_id`, `/rx_id` | [link] | resolved TX/RX 全局 id |
+| `/ue_id`, `/bs_id` | [link] | 物理 UE/BS id，便于按定位语义过滤 |
+| `/tx_pos`, `/rx_pos`, `/ue_pos`, `/bs_pos` | [link, 3] | link 两端位置 |
+| `/target_xy` | [link, 2] | 定位 target XY；当前 direct uplink 为 UE XY |
+| `/valid_mask` | [link] | source 几何信号存在且 CFR finite |
+| `/source_shard_id` | [link] | 原 shard id / fragment id |
+| `/source_shard_index` | [link] | 原计划 shard index |
+| `/source_local_index` | [link] | 原 shard 内 flattened link index |
+| `/source_local_tx_index`, `/source_local_rx_index` | [link] | 原 shard 内 TX/RX index |
+| `/csi_power_db` | [link] | `10log10(mean(abs(cfr)^2))`，带数值 floor |
+| `/cfr_power_linear`, `/cfr_norm` | [link] | CFR 线性功率和范数 |
+| `/link_power_bucket` | [link] | 粗粒度功率 bucket，用于快速分层 |
+| `/is_finite`, `/nan_count` | [link] | 数值健康检查 |
+| `/scene_id`, `/scene_metadata` | scalar/string | scene 标识和 source 摘要 |
+| `/frequency/frequencies_hz` | [subcarrier] | 频率轴 |
+| `/rooms/room_id` | [room] string | label group 中的 room id |
+| `/rooms/room_type` | [room] string | room 类型字符串 |
+| `/rooms/room_type_id` | [room] int32 | scene 内 room type 编码 |
+| `/rooms/floor_area_m2` | [room] | room 面积；缺失为 NaN |
+| `/rooms/bounds_xy` | [room, 4] | `[xmin, ymin, xmax, ymax]`；优先 label 显式 bounds，缺失时由 room 内 UE/BS 点推导 |
+| `/rooms/ue_count`, `/rooms/bs_count` | [room] | 顶层 UE/BS 点按 room_id 统计 |
+| `/link/ue_room_index`, `/link/bs_room_index` | [link] | UE/BS 所属 room 的 scene-local index，未知为 -1 |
+| `/link/target_room_index` | [link] | 当前定位 target 的 room index，direct uplink 下为 UE room |
+| `/link/target_room_area_m2` | [link] | target room 面积，未知为 NaN |
+| `/link/target_room_type_id` | [link] | target room type 编码，未知为 -1 |
+| `/floorplan/*`, `/assets/*` | bytes/meta | floorplan、label、report 等可选嵌入资产 |
+
+默认 `/cfr` 不压缩，避免大规模训练读取被 CPU 解压限制；轻量 metadata 可使用 gzip。
+复制到 `assets/<scene_id>/` 的 floorplan/label 是 sidecar 复核资产，H5 内嵌 bytes 是为了单文件
+可追溯。全局 `manifest.json` 汇总每个 scene 的 H5 路径、link 数、shape、dtype、source
+shards、valid 数、power min/max/quantile、生成命令和 schema version；`link_index.pt`
+保存 global link id、scene row、local link index、BS/UE id、位置、power、valid mask 和
+target room tensor。`link_index.parquet` 展开 scene id/H5 path、坐标、target room id/type/area，
+用于过滤查询和 split 生成；`room_index.pt`/`room_index.parquet` 保存 scene-level room 表，
+用于 room 面积分布统计和按 scene/room 粒度均衡划分。
+
+该 contract 用 `sionna_measurement_sim.postprocess.validate_cfr_scene_h5()` 校验，不走
+`sionna_measurement_sim.io.schema_validator.validate_hdf5_contract()`。下游若需要 train/val/test
+split，应基于 `manifest.json`、`room_index.parquet` 或 `link_index.parquet` 另建索引，
+不要把 split 冻结进 scene H5。
+
 ### 2.5 `/input` — 输入引用
 
 | Dataset | 类型 | 说明 |

@@ -48,6 +48,14 @@ uv run python -m sionna_measurement_sim.app.cli \
     --config config/tasks/nr_srs_64prb_cfr_truth_only.yaml \
     run-full \
     --output-dir outputs/front3d_0002_panel0p5_cfr_truth_only_srs64prb
+
+# 离线后处理：从已完成 CFR truth-only shard run 构建 scene-level 训练数据集
+# 该命令不读取 YAML、不改原始 run 目录，只在 output-root 下写新数据集。
+uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
+    --input-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only \
+    --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_scene_dataset \
+    --workers 16 \
+    --cfr-compression none
 ```
 
 ## 配置模板
@@ -91,6 +99,14 @@ uv run python -m sionna_measurement_sim.app.cli \
 > per-shard HDF5 略慢。
 
 仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
+
+`postprocess-cfr-scenes` 是独立离线后处理入口，不属于 YAML 仿真配置。它从
+`run-scene-index` 的输出根目录或显式 `--run-dir` 读取已完成的 CFR truth-only shard
+结果，输出新的 scene-level 数据集：`scenes/<scene_id>.h5`、`assets/<scene_id>/`、
+`manifest.json`、`link_index.pt`、`link_index.parquet`、`room_index.pt` 和
+`room_index.parquet`。默认 `/cfr` 不压缩，轻量 metadata 使用 gzip；可用
+`--cfr-compression gzip|lzf|none` 做空间/吞吐对照。PT 索引用于训练快速加载；
+parquet 索引用于按 room 面积/类型、功率和 valid mask 做筛选、统计和 split 生成。
 
 ## 有效配置项
 
