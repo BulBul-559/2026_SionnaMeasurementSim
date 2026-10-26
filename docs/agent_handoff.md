@@ -405,6 +405,13 @@ GPU2上的真实上行、BS重排UE子shard和下行smoke均通过HDF5实际朝�
 输出位于同目录 `smoke/`；339场景dry-run验证批量配置路径，正式批量重跑尚未启动。
 FEAT-ANT-001已归档到 [history](todo/history.md#feature)。原输出schema和频率网格保持不变。
 
+2026-10-26按用户要求只试跑大中小各一个完整test场景：front3d_4148/2508/1380，面积约
+42.55/73.34/119.21㎡，结果位于同根目录 `pilot_three/dataset/`，共6,601条原始链路。
+原m117身份映射后的5,262条测试索引已写入该目录的 `splits/m117_seed2026_scene_level/`；
+其中81条新CFR全零，仍保留原身份集合并记录valid标记。37分片及三个scene H5均验收通过，
+实际VisionRadioLoc读取和预处理输出 `[3,2,32,768]`。全量339场景保持未启动，等待测试反馈；
+详见[试跑记录](performance/dichasus_like_cfr_v1_three_scene_pilot_20261026.md)。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：

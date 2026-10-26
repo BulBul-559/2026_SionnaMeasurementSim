@@ -6,7 +6,8 @@
 
 状态：**参数已冻结，逐设备朝向、339场景输入准备和真实小规模RT已验收**。
 逐点朝向已从label接通RT，旧label沿用公共默认值；相关功能FEAT-ANT-001已归档到
-[已完成记录](../todo/history.md#feature)。339场景正式批量仿真尚未启动。
+[已完成记录](../todo/history.md#feature)。339场景全量仿真尚未启动；已按用户要求完成
+[大中小三个完整场景试跑](../performance/dichasus_like_cfr_v1_three_scene_pilot_20261026.md)，供模型测试。
 HDF5继续写既有设备朝向字段，schema版本不变。
 
 ## 实验目的和已接受的差异
