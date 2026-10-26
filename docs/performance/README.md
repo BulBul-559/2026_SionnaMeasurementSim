@@ -18,6 +18,7 @@
 | Front3D fallback stall 复现诊断与 R1 压力回归 | `docs/performance/front3d_stall_diagnostics_2026-06-21.md` |
 | CFR truth-only scene-level 离线后处理与 worker 压力探测 | `docs/performance/cfr_scene_postprocess_2026-06-29.md` |
 | DICHASUS-like CFR v1 大中小三场景测试数据与验收 | [试跑记录](dichasus_like_cfr_v1_three_scene_pilot_20261026.md) |
+| DICHASUS DC4x 空大厅0.2m label与平面图预览 | [预览记录](dichasus_dc4x_empty_lobby_label_preview_20261026.md) |
 | CFR Truth 后处理 ToA/RTT-like range 与 first-path GT pilot | `docs/performance/cfr_truth_toa_rtt_gt_pilot_2026-07-02.md` |
 | HDF5 bundle append write-only 对照 | `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md` |
 | HDF5 bundle append 真实 sharding 对照 | `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md` |

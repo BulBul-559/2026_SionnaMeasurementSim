@@ -412,6 +412,11 @@ FEAT-ANT-001已归档到 [history](todo/history.md#feature)。原输出schema和
 实际VisionRadioLoc读取和预处理输出 `[3,2,32,768]`。全量339场景保持未启动，等待测试反馈；
 详见[试跑记录](performance/dichasus_like_cfr_v1_three_scene_pilot_20261026.md)。
 
+2026-10-26另为DICHASUS DC4x `empty_lobby` 生成大厅0.2m网格label：880个UE、模型中2个BS，
+UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与预览位于
+`outputs/dichasus_dc4x_empty_lobby_panel0p2_v1/`，冻结配置已指向新label；尚未运行CFR。
+采样限于约40.25㎡中央大厅，不覆盖三条长走廊；见[预览记录](performance/dichasus_dc4x_empty_lobby_label_preview_20261026.md)。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：
