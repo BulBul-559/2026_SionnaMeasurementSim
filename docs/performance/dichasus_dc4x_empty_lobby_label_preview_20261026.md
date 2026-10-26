@@ -2,6 +2,9 @@
 
 日期：2026-10-26。状态：label和预览已生成，未启动CFR仿真。
 
+此页保留预览阶段事实；随后用户确认点位、要求改用官方阵列方向，已在独立目录完成
+[正式CFR仿真与验收](dichasus_dc4x_empty_lobby_actual_orientation_cfr_20261026.md)。原预览输入保持不变。
+
 用户要求使用 `empty_lobby` 和[已冻结DICHASUS-like v1配置](../proposals/dichasus_like_cfr_v1.md)，
 先准备大厅0.2m采样label并展示平面图叠加效果。
 

@@ -417,6 +417,14 @@ UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与�
 `outputs/dichasus_dc4x_empty_lobby_panel0p2_v1/`，冻结配置已指向新label；尚未运行CFR。
 采样限于约40.25㎡中央大厅，不覆盖三条长走廊；见[预览记录](performance/dichasus_dc4x_empty_lobby_label_preview_20261026.md)。
 
+随后用户确认上述大厅点位并要求改用官方南北阵列方向，完整880 UE×2 BS理想CFR已完成：
+输出 `outputs/dichasus_dc4x_empty_lobby_actual_orientation_v1/dataset/`，44个RT分片、
+1,760条有效链路、无全零链路，shape为[1760,32,1,768]；另有各880条BS独立索引。
+北/南yaw为108.018°/-76.598°，保留0.882°/0.195°下倾，roll=0。原导出场景把天线CAD赋为
+混凝土，导致自遮挡；正式仿真派生网格只排除四个天线CAD对象，690个建筑三角形完全保留。
+真实smoke对照、逐shard朝向/schema与VisionRadioLoc读取均通过；见
+[正式记录](performance/dichasus_dc4x_empty_lobby_actual_orientation_cfr_20261026.md)。原预览和源场景不改写。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：
