@@ -1,0 +1,264 @@
+# DICHASUS-like array / original Front3D NR SRS frequency grid, v1.
+# Frozen on 2026-10-26. Review: docs/proposals/dichasus_like_cfr_v1.md.
+#
+# STATUS: parameters frozen; per-device orientation and real RT smoke verified.
+# The 339-scene batch has NOT been started. See the review for validation details.
+#
+# Prepared-label policy (explicit point orientation_rad, no new YAML mode):
+#   map center XY = floorplan origin_xy_m + extent_xy_m / 2
+#   each BS yaw = atan2(center_y - bs_y, center_x - bs_x)
+#   each BS orientation_rad = [yaw, 0, 0]; UE stays [0, 0, 0]
+#   center-coincident BS falls back to the common orientation_rad
+#   retain all source BS/UE positions, ids, order and groups; compute before
+#   sharding, and use the exact original evaluation split, not a fresh sample.
+#   canonical membership: Front3d_2988_CFR_Only/splits/
+#   m117_seed2026_scene_level/test_scenes.txt (339 scenes)
+#
+# This v1 intentionally keeps 768 uniformly spaced 30-kHz bins (23.04 MHz).
+# Do NOT change to 50 MHz / 1024 bins or drop the center bin.
+# Only RT ideal CFR is computed. nr_srs remains reference configuration;
+# no waveform, receiver, noise, RF impairments, gain, or calibration runs.
+
+runtime:
+  seed: 42
+  device: "cuda"
+  require_gpu: false
+  precision: "single"
+  torch_deterministic: false
+
+debug:
+  enabled: false
+  hardware_interval_s: 2.0
+  link_log_interval: 250
+  torch_synchronize: false
+  write_hardware_samples: false
+
+input:
+  # First scene in the canonical 339-scene test list. Override per scene.
+  # This derived label is deliberately not the unprocessed source label.
+  label_file: "outputs/front3d_339_dichasus_like_cfr_v1/prepared/labels/front3d_0015/label_panel_0p5_bs_center_yaw.json"
+  scene_file: "data/front3d_full/small_room/front3d_0015/scene.xml"
+  scene_id: "front3d_0015"
+  map_id: ""
+  label_schema: "simplesionna_v1"
+  coordinate_system: "scene_local_xyz_m"
+  # Caps, not requested sample counts. Check each scene is not truncated.
+  max_bs: 64
+  max_ue: 20000
+
+output:
+  profile: "full"
+  products: ["cfr_truth"]
+  root_dir: "outputs/front3d_0015_dichasus_like_cfr_v1"
+  run_id_format: "{label_stem}_{timestamp}"
+  hdf5_filename: "results.h5"
+  compression: "mixed"
+  gzip_level: 1
+  save_full_paths: false
+  save_sampled_paths: false
+  save_raw_waveform: false
+  sharding:
+    enabled: true
+    axis: "ue"
+    shard_size: 20
+    filename_pattern: "result_{shard_index:03d}.h5"
+    results_dir: "results"
+    manifest_dir: "manifest"
+    # Original CFR-only execution settings, not physical model parameters.
+    # Override worker count / gpu_ids for the actual allocated machine.
+    parallel_workers: 8
+    recycle_workers: true
+    gpu_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+    visualization_mode: "none"
+    gpu_scheduler:
+      enabled: true
+      free_memory_threshold: 0.6
+      scan_interval_s: 0.2
+      cross_scene_pipeline: true
+    fallback:
+      enabled: true
+      min_shard_size: 1
+      split_factor: 2
+      retry_errors: ["cuda_oom", "drjit_array_limit"]
+      failure_policy: "fail_run"
+      isolation_mode: "on_failure"
+    postprocess:
+      async_write: false
+      max_pending_writes: 16
+    bundle:
+      enabled: false
+      max_planned_shards_per_bundle: 10
+      bundles_dir: "bundles"
+      filename_pattern: "bundle_worker{worker_index:03d}_{bundle_index:03d}.h5"
+      validate_schema: true
+
+carrier:
+  center_frequency_hz: 3438000000.0
+  bandwidth_hz: 23040000.0
+  num_subcarriers: 768
+  subcarrier_spacing_hz: 30000.0
+
+antenna:
+  bs_array:
+    type: "planar"
+    num_rows: 4
+    num_cols: 8
+    # 0.04364 m / (299792458 m/s / 3.438 GHz).
+    vertical_spacing_lambda: 0.5004606219947
+    horizontal_spacing_lambda: 0.5004606219947
+    polarization: "V"
+    pattern: "iso"
+    # Explicit label value > common > default [0,0,0]. The prepared label
+    # supplies each BS yaw; missing/null values keep this common fallback.
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+  ue_array:
+    type: "planar"
+    num_rows: 1
+    num_cols: 1
+    vertical_spacing_lambda: 0.5
+    horizontal_spacing_lambda: 0.5
+    polarization: "V"
+    pattern: "iso"
+    orientation_mode: "fixed"
+    orientation_rad: [0.0, 0.0, 0.0]
+
+array:
+  spectrum:
+    enabled: false
+    sources: ["truth_cfr"]
+
+visualization:
+  enabled: false
+  plots: []
+
+rt:
+  engine: "sionna_rt"
+  max_depth: 4
+  los: true
+  specular_reflection: true
+  diffuse_reflection: false
+  refraction: true
+  diffraction: true
+  synthetic_array: false
+  normalize_cfr: false
+  normalize_delays: false
+  merge_shapes: false
+
+link:
+  duplex_mode: "tdd"
+  phy_link_direction: "uplink"
+
+phy:
+  enabled: false
+  standard: "nr_srs"
+  # Dormant reference settings; none generates/estimates CSI in this template.
+  # fft_size is made consistent with the 768-bin grid, rather than retaining
+  # the unrelated legacy default 64. SRS itself derives its grid from carrier.
+  fft_size: 768
+  cp_length: 0
+  num_ofdm_symbols: 14
+  subcarrier_spacing_khz: 30
+  num_prb: 64
+  num_layers: 1
+  num_antenna_ports: 1
+  perfect_csi: false
+  channel_estimator: "srs_ls"
+  receiver_failure_policy: "mark_invalid"
+  snr_db: 30.0
+  tx_power_dbm: 23.0
+  power:
+    reference_tx_power_dbm: 0.0
+    apply_tx_power_to_grid: true
+    noise_mode: "absolute_thermal"
+    thermal_noise:
+      temperature_k: 290.0
+      noise_figure_db: 7.0
+      bandwidth_hz: null
+    uplink_control:
+      enabled: false
+  iq:
+    enabled: false
+    clean_output: null
+    save_frequency_observed: false
+    save_time_observed: false
+    cp_length: null
+  srs:
+    slot_length_symbols: 14
+    start_symbol: 12
+    num_srs_symbols: 2
+    comb_size: 2
+    comb_offset: 0
+    bwp_start_prb: 0
+    bwp_num_prb: 64
+    trigger_mode: "aperiodic"
+    periodicity_slots: 1
+    slot_offset: 0
+    slot_number: 0
+    sequence_type: "nr_zc"
+    sequence_id: 0
+    group_hopping: "enabled"
+    sequence_hopping: "enabled"
+    cyclic_shift_multiplexing: "cyclic_shift"
+    cyclic_shift_indices: null
+    hopping:
+      enabled: false
+      frequency_offsets_prb: []
+      bandwidth_num_prb: []
+    ports:
+      num_srs_ports: 1
+      mapping: "one_to_one"
+      port_tx_ant_map: null
+      usage: "non_codebook"
+    power_control:
+      enabled: false
+    multiuser:
+      enabled: false
+
+ranging:
+  enabled: false
+
+noncooperative:
+  enabled: false
+
+impairments:
+  awgn:
+    enabled: false
+  cfo:
+    enabled: false
+    cfo_hz: null
+  sfo:
+    enabled: false
+    sfo_ppm: null
+  phase_noise:
+    enabled: false
+    phase_offset_rad: null
+  timing_offset:
+    enabled: false
+    timing_offset_samples: null
+  agc_adc:
+    enabled: false
+    agc_gain_db: 0.0
+    clipping_threshold: null
+  impairment_seed: 142
+
+receiver:
+  estimator_type: "srs_ls"
+  channel_estimator: "srs_ls"
+  mimo_detector: "none"
+  sync_method: "ideal"
+  interpolation_method: "none"
+  failure_policy: "mark_invalid"
+  calibration_profile_id: "synthetic_default"
+
+motion:
+  enabled: false
+  mobility_mode: "static"
+  num_time_steps: 1
+  sampling_frequency_hz: 0.0
+  bs_velocity_mps: [0.0, 0.0, 0.0]
+  ue_velocity_mps: [0.0, 0.0, 0.0]
+
+calibration:
+  enabled: false
+  profile_id: "synthetic_default"

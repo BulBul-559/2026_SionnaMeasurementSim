@@ -17,6 +17,7 @@
 - 两个可插拔信道后端：`ApplyOFDMChannel` + `CIRDataset + OFDMChannel`
 - TB/CRC 语义的 BLER（transport block CRC pass/fail）
 - BS/UE role-view 配置到 TX/RX link-view 仿真的显式映射
+- BS/UE逐设备朝向：label的 `orientation_rad` 可覆盖公共值；支持整图中心朝向预处理并保留原测试split
 - NR PUSCH SU-MIMO link batching（配置项 `phy.su_mimo_link_batch_size`）
 - `run-full` UE shard 输出（`result_000.h5` 风格，多进程不共享 HDF5 写句柄）
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
@@ -295,6 +296,7 @@ uv run python scripts/compare_phy_csi_outputs.py \
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz PUSCH-DMRS 定位模板 |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | Bistro 室内 FR1 100 MHz NR SRS subset 定位模板 |
 | `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | Front3D 64 PRB NR SRS CFR truth-only 任务模板；保留 `/channel/truth/cfr` 和必要元数据 |
+| `config/tasks/nr_srs_64prb_dichasus_like_cfr_v1.yaml` | DICHASUS-like阵列对照冻结模板；4×8 BS/单天线UE、原768点网格；逐BS朝向、339场景输入和小规模RT已验收，见[审查记录](docs/proposals/dichasus_like_cfr_v1.md) |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3 BS × 3000 UE shard 性能回归模板 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6 BS × 8884 UE 4 GPU shard 验收模板 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；多个计算 shard 打包进较大的 HDF5 bundle |

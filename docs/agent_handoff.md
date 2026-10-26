@@ -384,6 +384,27 @@ CFR-only 队列。该模板开启动态 GPU 调度：候选 `gpu_ids=[0..7]`，�
 
 ## 最近重要验证
 
+### DICHASUS-like CFR v1 模板审查（2026-10-26）
+
+`config/tasks/nr_srs_64prb_dichasus_like_cfr_v1.yaml` 已冻结为3.438GHz、每BS 4×8 RX、
+单天线UE、0.04364m阵元间距，保留原NR SRS的768点/30kHz/23.04MHz频率网格。
+只输出理想CFR，PHY/损伤/噪声/运动/校准关闭；保留原场景和BS/UE位置、数量、编号。
+详见 [176项审查记录](proposals/dichasus_like_cfr_v1.md)。
+
+已核对用户指定的
+`/data/sunmeiyuan/projects/sionna/outputs/datasets/Front3d_2988_CFR_Only/splits/m117_seed2026_scene_level/`
+测试划分：339场景（52 small、287 normal）、934128原始链接、783687条m117测试链接；
+339个源scene.xml、label、CFR H5、floorplan/meta和run_config均存在。只复刻这份test名单，
+不重新抽样。模板示例改用test中的 `front3d_0015`，旧实验 `front3d_4484` 属于train。
+
+逐设备朝向已接通：label顶层点的可选 `orientation_rad` 经domain角色映射传入RT，缺省/null
+沿用公共值及原TX look-at行为。`scripts/prepare_dichasus_like_test.py` 已为339个test场景
+生成 `outputs/front3d_339_dichasus_like_cfr_v1/prepared/` 下的派生label、新index和带hash的summary；
+保留3,283个BS、85,124个UE和934,128个原始链接。模板示例指向准备后的label。
+GPU2上的真实上行、BS重排UE子shard和下行smoke均通过HDF5实际朝向/shape/finite/schema验收，
+输出位于同目录 `smoke/`；339场景dry-run验证批量配置路径，正式批量重跑尚未启动。
+FEAT-ANT-001已归档到 [history](todo/history.md#feature)。原输出schema和频率网格保持不变。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：

@@ -102,7 +102,15 @@ def load_role_topology_from_label(
         ue_labels=tuple(str(point.get("label", f"UE{i}")) for i, point in enumerate(ue_points)),
         bs_global_indices=np.asarray(selected_bs_indices, dtype=np.int64),
         ue_global_indices=np.asarray(selected_ue_indices, dtype=np.int64),
+        bs_orientation_rad=_points_to_orientations(bs_points),
+        ue_orientation_rad=_points_to_orientations(ue_points),
     )
+
+
+def _points_to_orientations(points: list[dict[str, Any]]) -> tuple | None:
+    """Selection has already fixed device order; absent/null rows use config."""
+    overrides = tuple(point.get("orientation_rad") for point in points)
+    return overrides if any(row is not None for row in overrides) else None
 
 
 def count_topology_points(label_file: str | Path) -> tuple[int, int]:

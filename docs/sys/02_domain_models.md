@@ -31,7 +31,14 @@ class Topology:
     rx_positions_m: np.ndarray   # [num_rx, 3] float32
     tx_labels: np.ndarray        # [num_tx] string
     rx_labels: np.ndarray        # [num_rx] string
+    tx_orientation_rad: tuple | None = None  # 每个TX可选[yaw,pitch,roll]或None
+    rx_orientation_rad: tuple | None = None  # 每个RX可选[yaw,pitch,roll]或None
 ```
+
+`RoleTopology` 对应字段是 `bs_orientation_rad` / `ue_orientation_rad`。
+逐设备序列长度必须与对应点数一致，非None元素必须为3个有限数；单行None表示沿用
+公共配置，不用NaN表示缺省。`resolve_role_topology()` 同位置/编号一起映射朝向；label
+解析器在相同点选择之后读取覆盖值，因此子集重排和UE分片不会改变设备对应关系。
 
 ### `AntennaSpec` (`antenna.py`)
 

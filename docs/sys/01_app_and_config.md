@@ -137,6 +137,11 @@ uv run python -m sionna_measurement_sim.app.cli \
   --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_truth_only
 ```
 
+`scripts/prepare_dichasus_like_test.py` 是既有EnvMIMO-3K测试split的准备入口：读取
+归档label/floorplan和原scene表，生成BS竖直中心yaw、固定UE方向以及新的runner JSONL，
+不使用 `build-scene-index` 重新抽样。输出必须写入新的目录，默认核对339个test场景；
+准备命令和dry-run验收见 [DICHASUS-like v1](../proposals/dichasus_like_cfr_v1.md)。
+
 ## 批处理 (`app/batch_runner.py`)
 
 文件：`sionna_measurement_sim/app/batch_runner.py`

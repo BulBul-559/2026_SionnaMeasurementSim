@@ -314,6 +314,12 @@ tests/
 
 ### 质量门
 
+逐设备朝向回归位于 `tests/unit/test_device_orientation.py`：覆盖旧label、公共回退、
+显式零角度、非法输入、上下行映射、重排/分片/fallback以及中心yaw输入准备。
+2026-10-26的真实 `front3d_0015` 上行、重排子shard和下行均验证了既有
+`/devices/*_orientation_rad`、CFR shape、finite与schema；记录见
+[DICHASUS-like v1](../proposals/dichasus_like_cfr_v1.md)。无新增HDF5字段或schema版本。
+
 ```bash
 uv run ruff check .      # lint
 uv run pytest            # 全量测试，以当前输出为准；最近结果 223 passed, 19 skipped

@@ -51,6 +51,11 @@ def run_sionna_rt_truth(
 6. 调用 `paths.cir()` 获取 CIR，通过 `cir_to_ofdm_channel` 转为 CFR
 7. 返回 `SionnaRTTruthAdapterResult`
 
+逐设备朝向来自resolved `Topology.tx_orientation_rad` / `rx_orientation_rad`。
+显式非None值优先，缺失行继续使用 `AntennaSpec` 中原有公共朝向或TX look-at模式；
+RX公共模式仍为fixed。设置后从Sionna设备读回实际角度，由既有
+`/devices/tx_orientation_rad`、`/devices/rx_orientation_rad` 写盘，不增加HDF5字段或版本。
+
 **输出数据结构：**
 
 ```python

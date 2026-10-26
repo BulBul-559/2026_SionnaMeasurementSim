@@ -9,6 +9,7 @@
 | 2026-05-19 | 实现 waveform-level ranging v1，从 `/observation/cfr_est` 输出 PDP peak 和 phase-slope ToA/range observation。 |
 | 2026-05-21 | 完成 NR SRS standards-shaped v2 subset：comb/BWP、hopping、sequence hopping、cyclic-shift multiplexing、port map、power scaling 和 resource receiver。 |
 | 2026-06-03 | 实现统一 uplink power/RSSI 模型，`phy.tx_power_dbm` 生效到 SRS/PUSCH 发射 grid，并支持 relative-SNR 与 absolute-thermal 噪声口径。 |
+| 2026-10-26 | 完成FEAT-ANT-001：逐BS/UE朝向覆盖公共默认值，准备339测试场景中心yaw label/index，并通过真实上行、重排子shard和下行RT/HDF5验收。 |
 
 ## Structure
 

@@ -33,6 +33,9 @@
 - 配置和 label 层使用 `BS/UE`；仿真和 HDF5 层使用 resolved `TX/RX`。
 - `link.phy_link_direction="uplink"` 时，`TX=UE`、`RX=BS`。
 - 当前 SRS 生产基线使用 direct uplink、`rt.synthetic_array=false`。
+- label顶层BS/UE点可用 `orientation_rad` 覆盖公共朝向，缺省/null保持旧行为；逐点值随
+  子集、分片和上下行角色映射传入RT。DICHASUS-like v1的339测试场景中心yaw输入已准备，
+  小规模RT验收完成，见[配置审查](../proposals/dichasus_like_cfr_v1.md)。
 - 本地数据在 ignored `data/` 下；场景目录应提供 `scene.xml`、标准 label `0.1.0`
   JSON 和可选 floorplan 资源。
 - 标准 label 顶层 `bs_points`/`ue_points` 是全场景默认点集，`groups` 只是房间/区域等

@@ -13,6 +13,30 @@ import numpy as np
 
 from sionna_measurement_sim.domain.validation import require_finite, require_shape
 
+OrientationOverrides = tuple[tuple[float, float, float] | None, ...]
+
+
+def _normalize_orientations(value, count: int, name: str) -> OrientationOverrides | None:
+    """Keep missing device overrides distinct from explicit zero rotations."""
+    if value is None:
+        return None
+    try:
+        length = len(value)
+    except TypeError as exc:
+        raise ValueError(f"{name} must be a sequence of device orientations") from exc
+    if length != count:
+        raise ValueError(f"{name} length must match device count {count}")
+    result = []
+    for index, row in enumerate(value):
+        if row is None:
+            result.append(None)
+            continue
+        angles = np.asarray(row, dtype=np.float64)
+        require_shape(f"{name}[{index}]", angles, (3,))
+        require_finite(f"{name}[{index}]", angles)
+        result.append(tuple(float(angle) for angle in angles))
+    return tuple(result)
+
 
 @dataclass(frozen=True)
 class Topology:
@@ -22,6 +46,8 @@ class Topology:
     rx_positions_m: np.ndarray
     tx_labels: tuple[str, ...]
     rx_labels: tuple[str, ...]
+    tx_orientation_rad: OrientationOverrides | None = None
+    rx_orientation_rad: OrientationOverrides | None = None
 
     def __post_init__(self) -> None:
         tx_positions = np.asarray(self.tx_positions_m, dtype=np.float32)
@@ -43,6 +69,10 @@ class Topology:
         object.__setattr__(self, "rx_positions_m", rx_positions)
         object.__setattr__(self, "tx_labels", tuple(self.tx_labels))
         object.__setattr__(self, "rx_labels", tuple(self.rx_labels))
+        for role, count in (("tx", len(tx_positions)), ("rx", len(rx_positions))):
+            name = f"{role}_orientation_rad"
+            normalized = _normalize_orientations(getattr(self, name), count, name)
+            object.__setattr__(self, name, normalized)
 
     @property
     def num_tx(self) -> int:
@@ -63,6 +93,8 @@ class RoleTopology:
     ue_labels: tuple[str, ...]
     bs_global_indices: np.ndarray | tuple[int, ...] | None = None
     ue_global_indices: np.ndarray | tuple[int, ...] | None = None
+    bs_orientation_rad: OrientationOverrides | None = None
+    ue_orientation_rad: OrientationOverrides | None = None
 
     def __post_init__(self) -> None:
         bs_positions = np.asarray(self.bs_positions_m, dtype=np.float32)
@@ -105,6 +137,10 @@ class RoleTopology:
         object.__setattr__(self, "ue_labels", tuple(self.ue_labels))
         object.__setattr__(self, "bs_global_indices", bs_indices)
         object.__setattr__(self, "ue_global_indices", ue_indices)
+        for role, count in (("bs", len(bs_positions)), ("ue", len(ue_positions))):
+            name = f"{role}_orientation_rad"
+            normalized = _normalize_orientations(getattr(self, name), count, name)
+            object.__setattr__(self, name, normalized)
 
     @property
     def num_bs(self) -> int:
@@ -181,6 +217,16 @@ def resolve_role_topology(
         rx_positions_m=rx_positions,
         tx_labels=tuple(tx_labels),
         rx_labels=tuple(rx_labels),
+        tx_orientation_rad=_role_value(
+            mapping.tx_role,
+            bs_value=role_topology.bs_orientation_rad,
+            ue_value=role_topology.ue_orientation_rad,
+        ),
+        rx_orientation_rad=_role_value(
+            mapping.rx_role,
+            bs_value=role_topology.bs_orientation_rad,
+            ue_value=role_topology.ue_orientation_rad,
+        ),
     )
 
 

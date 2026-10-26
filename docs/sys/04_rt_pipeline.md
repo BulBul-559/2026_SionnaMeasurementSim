@@ -228,6 +228,13 @@ transpose 只作为内部测试/兼容路径存在。
 `label_group_policy`，也不会默认取第一个 group。点坐标支持 `position: [x, y, z]`
 或显式 `x/y/z`，单位均为米。
 
+顶层每个点可选 `orientation_rad: [yaw,pitch,roll]`，rad，有限3向量；非None值覆盖该
+物理角色的公共朝向。缺省或null保留公共配置行为。解析器在相同BS/UE子集筛选后读取
+朝向，domain角色映射后由RT adapter逐设备应用；fallback子shard也按原label索引重读。
+中心朝向在 `preprocessing/orientation.py` 中预先按整张floorplan的origin/extent计算，
+不在各shard中用局部UE重新估计。`scripts/prepare_dichasus_like_test.py` 只为既有test名单
+生成新label和runner index，不修改原场景或重抽样。
+
 **PHY module 分支** (`phy/modules.py`):
 - `custom_ofdm` 适配现有 `run_awgn_ls_observation()`，作为 legacy 路径保留
 - `nr_pusch` 调用 `run_nr_pusch_observation()`，通过 common link 写统一 waveform grid、array 输出和 batching 统计

@@ -216,8 +216,13 @@ def _build_scene(
         receivers.append(receiver)
 
     # Set TX orientation based on antenna.tx_orientation_mode
-    for tx in transmitters:
-        if antenna.tx_orientation_mode == "fixed":
+    for index, tx in enumerate(transmitters):
+        override = (
+            topology.tx_orientation_rad[index] if topology.tx_orientation_rad is not None else None
+        )
+        if override is not None:
+            tx.orientation = list(override)
+        elif antenna.tx_orientation_mode == "fixed":
             tx.orientation = [float(v) for v in antenna.tx_orientation_rad]
         elif antenna.tx_orientation_mode == "look_at_first_peer":
             if receivers:
@@ -235,8 +240,14 @@ def _build_scene(
     ]
 
     # Set RX orientation from config (read back for consistency)
-    for rx in receivers:
-        rx.orientation = [float(v) for v in antenna.rx_orientation_rad]
+    for index, rx in enumerate(receivers):
+        override = (
+            topology.rx_orientation_rad[index] if topology.rx_orientation_rad is not None else None
+        )
+        rx.orientation = (
+            list(override) if override is not None
+            else [float(v) for v in antenna.rx_orientation_rad]
+        )
     rx_orientation_list: list[list[float]] = [
         np.asarray(rx.orientation, dtype=float).tolist() for rx in receivers
     ]

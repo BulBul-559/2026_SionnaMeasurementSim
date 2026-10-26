@@ -71,6 +71,7 @@ uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset uplink sounding 模板 |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 NR SRS 64 PRB direct-array 仿真任务模板；默认 panel 0p2、`shard_size=5`、23 dBm + absolute thermal noise、基础硬件损伤开启；100 MHz FR1 背景下只仿真 64 PRB occupied bandwidth（768 subcarrier） |
 | `config/tasks/nr_srs_64prb_cfr_truth_only.yaml` | 正式 64 PRB CFR truth-only 任务模板；沿用 formal carrier/RT 口径，保留 SRS 配置作参考但关闭 PHY/motion/impairments/calibration，只写 `/channel/truth/cfr` 与必要元数据，默认 panel 0p5、`shard_size=20`，启用动态 GPU 调度 |
+| `config/tasks/nr_srs_64prb_dichasus_like_cfr_v1.yaml` | DICHASUS-like阵列对照冻结模板：3.438GHz、4×8 BS/单天线UE，保留768点/30kHz/23.04MHz，只写理想CFR；逐BS中心朝向、339场景输入和真实小规模RT已验收 |
 | `config/perf/nr_pusch_3x3000_sharded.yaml` | 3×3000 NR PUSCH shard 性能回归 |
 | `config/perf/nr_pusch_6x8884_sharded.yaml` | 6×8884 NR PUSCH 4 GPU shard 验收 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke；测试多个计算 shard 写入较大 bundle HDF5 |
@@ -97,6 +98,23 @@ uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
 > 大 GPU allocation 的风险。实验性
 > `postprocess.async_write` 已实现，但该模板默认关闭；2026-06-18 smoke 中它比直接写
 > per-shard HDF5 略慢。
+
+`nr_srs_64prb_dichasus_like_cfr_v1.yaml` 的完整冻结方案和176项审查见
+[DICHASUS-like CFR v1](../docs/proposals/dichasus_like_cfr_v1.md)。该模板关闭PHY，NR SRS
+只作参考；原频率网格与DICHASUS的差异已明确接受。模板的 `fixed/[0,0,0]` 是公共回退值，
+label顶层点的 `orientation_rad` 会覆盖它，随设备筛选、上下行角色映射和分片传到RT。
+已确认输入为 `Front3d_2988_CFR_Only/splits/m117_seed2026_scene_level/test_scenes.txt`
+中的339场景，模板示例为 `front3d_0015`。准备命令为：
+
+```bash
+uv run python scripts/prepare_dichasus_like_test.py \
+  --dataset-root /data/sunmeiyuan/projects/sionna/outputs/datasets/Front3d_2988_CFR_Only \
+  --output-root outputs/front3d_339_dichasus_like_cfr_v1/prepared
+```
+
+该命令要求新的output-root，以归档label/floorplan为输入，输出派生label、
+`test_scene_index.jsonl` 和带校验和的summary；源文件不修改。此339场景输入已经准备完成。
+运行时使用新index，避免把派生label路径覆盖回原label；GPU列表按实际分配覆盖。
 
 仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
@@ -350,6 +368,11 @@ HDF5”，不会物理合并。开启 `bundle.enabled=true` 时，pipeline 改�
 | `ue_array.pattern` | str | "iso" | UE 天线方向图 |
 
 > 4x4 MIMO：设置 `bs_array.num_rows=2, bs_array.num_cols=2, ue_array.num_rows=2, ue_array.num_cols=2`，在 uplink 下得到 4 UE TX 天线 × 4 BS RX 天线。
+
+公共朝向由 `bs_array.orientation_rad` / `ue_array.orientation_rad` 设置，默认 `[0,0,0]`。
+label顶层的每个BS/UE点可选 `orientation_rad: [yaw,pitch,roll]`，单位为rad；显式值优先于
+公共值，缺省或null使用原配置（TX的look-at模式也保留）。显式 `[0,0,0]` 是有效覆盖，
+不是“缺省”。逐点值必须是3个有限数，原label没有此字段时行为不变。RX公共模式仍为fixed。
 
 ### `array.spectrum` — 空间谱输出
 

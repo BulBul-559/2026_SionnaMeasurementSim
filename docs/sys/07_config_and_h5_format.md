@@ -208,6 +208,12 @@ bundle，因此实际 fragment 数可能大于计划数。
 
 天线数 = `num_rows × num_cols`。4x4 MIMO 需 BS 和 UE 两侧均为 2×2。
 
+公共朝向按物理角色配置。label顶层BS/UE点可选 `orientation_rad: [yaw,pitch,roll]`（rad），
+非None值覆盖公共配置，缺省/null保留公共配置及既有TX look-at行为。显式零向量也覆盖
+公共值；非法shape/非有限值在RT前报错。朝向随筛选、重排和uplink/downlink角色映射一起
+传递，RT读取实际设备值后写入既有 `/devices/*_orientation_rad`，HDF5 schema仍为2.3.0。
+DICHASUS-like v1预处理和真实RT验收见[冻结配置审查](../proposals/dichasus_like_cfr_v1.md)。
+
 #### `array.spectrum` — 空间谱输出
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -531,6 +537,7 @@ AGC/ADC 与 AWGN。默认 `relative_snr` 下噪声方差按 clean `rx_grid` 每�
 | `config/defaults/nr_pusch_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz PUSCH-DMRS 定位模板 | `standard: "nr_pusch"`, 273 PRB, shard size 5；已验证 6x5 probe |
 | `config/defaults/nr_srs_indoor_positioning_fr1_100mhz.yaml` | 室内 FR1 100 MHz NR SRS subset 通用定位模板 | `standard: "nr_srs"`, direct uplink, `synthetic_array=false`；空间谱/可视化默认关闭，按需显式开启 |
 | `config/tasks/nr_srs_64prb_formal.yaml` | 正式 64 PRB NR SRS 生产任务模板 | 768 subcarrier, `shard_size=5`, `compression="mixed"`, `gzip_level=1`, 23 dBm + absolute thermal noise |
+| `config/tasks/nr_srs_64prb_dichasus_like_cfr_v1.yaml` | DICHASUS-like理想CFR阵列对照；参数、逐设备朝向和小规模RT已验收 | 3.438GHz、4×8 RX/1 TX、原768点/30kHz；339场景派生label/index已准备，PHY关闭 |
 | `config/perf/hdf5_bundle_append_smoke.yaml` | 实验性 bundle append 写盘 smoke | `products=["cfr_truth"]`, `shard_size=1`, `bundle.enabled=true` |
 | `config/perf/nr_srs_7x500_sharded.yaml` | 室内 FR1 100 MHz NR SRS shard 历史确认测试 | `7 BS x 500 UE`, `shard_size=25` 的历史实验配置，验证 `result_xxx.h5` 和 aggregate manifest；不作为当前正式任务默认值 |
 
