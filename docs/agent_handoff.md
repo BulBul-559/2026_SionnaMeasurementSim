@@ -438,6 +438,14 @@ UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与�
 逐RF通道相位差异。直接768与物理频率插值结果接近，已知频点差不是主因。详见
 [CSI偏差分析](performance/dichasus_dc40_dc41_five_position_csi_comparison_20261027.md)。
 
+2026-10-27随后补齐全套官方可用run：dc30–dc34、dc40–dc44共10个数据集，118925个位置、
+237850条双阵列理想CFR，统一根目录为
+`outputs/dichasus_dcxx_official_positions_cfr_v1/`。dc41/42复用旧结果；新增8场景5619
+shards全部完成。全部CFR finite，236570条有效、1280条全零链路按官方位置保留并标记。
+目录按sources/labels/configs/queues/raw_runs/datasets分层，每个run有双BS及南北单BS
+索引；VisionRadioLoc实际读取10个run通过。详见
+[全集记录](performance/dichasus_dcxx_official_positions_full_cfr_20261027.md)。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：
