@@ -425,6 +425,13 @@ UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与�
 真实smoke对照、逐shard朝向/schema与VisionRadioLoc读取均通过；见
 [正式记录](performance/dichasus_dc4x_empty_lobby_actual_orientation_cfr_20261026.md)。原预览和源场景不改写。
 
+2026-10-27又按官方 `dc41`/`dc42` materialized HDF5 的 `target_xyz` 分别生成两个独立
+空大厅数据集：3,282/3,308个UE、2个实际朝向BS、6,564/6,616条理想CFR，全部有效；
+重复位置保留、`ue_id=measurement_id`，原transmitter约0.924–0.936m高度不改。
+训练侧双BS和单BS计划、官方行号配对CSV与平面图/geometry资产均已验收，根目录为
+`outputs/dichasus_dc41_dc42_matching_positions_v1/dataset/`。详见
+[dc41/dc42记录](performance/dichasus_dc41_dc42_position_matching_cfr_20261027.md)。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：
