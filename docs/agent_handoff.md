@@ -432,6 +432,12 @@ UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与�
 `outputs/dichasus_dc41_dc42_matching_positions_v1/dataset/`。详见
 [dc41/dc42记录](performance/dichasus_dc41_dc42_position_matching_cfr_20261027.md)。
 
+2026-10-27对dc40/dc41各5个随机官方位置比较实测与仿真CSI。原始绝对功率差约73–76dB；
+整链路RMS增益后幅度NRMSE仍约63–66%，逐RF天线增益后约47–49%。全局相偏/线性相位校正后
+相位残差仍约93–99°，逐天线常数+线性后约40–57%，说明除增益/同步外还有显著多径结构和
+逐RF通道相位差异。直接768与物理频率插值结果接近，已知频点差不是主因。详见
+[CSI偏差分析](performance/dichasus_dc40_dc41_five_position_csi_comparison_20261027.md)。
+
 ### `median_0000 label0p2` SRS baseline
 
 输出目录：
