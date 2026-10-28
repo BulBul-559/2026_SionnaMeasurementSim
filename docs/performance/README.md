@@ -23,6 +23,7 @@
 | DICHASUS dc41/dc42 官方采样位置匹配CFR数据集 | [仿真记录](dichasus_dc41_dc42_position_matching_cfr_20261027.md) |
 | DICHASUS dcxx 官方位置理想CFR全集（10 runs） | [全集记录](dichasus_dcxx_official_positions_full_cfr_20261027.md) |
 | DICHASUS dc40/dc41 随机五位置CSI偏差分析 | [分析记录](dichasus_dc40_dc41_five_position_csi_comparison_20261027.md) |
+| DICHASUS-like CFR v1 339场景全量运行 | [运行记录](dichasus_like_cfr_v1_full_339_run_20261028.md) |
 | CFR Truth 后处理 ToA/RTT-like range 与 first-path GT pilot | `docs/performance/cfr_truth_toa_rtt_gt_pilot_2026-07-02.md` |
 | HDF5 bundle append write-only 对照 | `docs/performance/hdf5_bundle_append_benchmark_2026-06-17.md` |
 | HDF5 bundle append 真实 sharding 对照 | `docs/performance/hdf5_bundle_real_sharding_benchmark_2026-06-17.md` |
