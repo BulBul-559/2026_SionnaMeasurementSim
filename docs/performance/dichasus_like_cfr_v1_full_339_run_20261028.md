@@ -29,7 +29,7 @@
 | 场景 | 339（`m117_seed2026_scene_level` test 名单） |
 | BS / UE | 3,283 / 85,124 |
 | 原始链路 | 934,128 |
-| UE 分片（shard_size=20） | 约 4,264 |
+| UE 分片（shard_size=20） | 4,414 |
 | 预期 scene H5（complex64、不压缩） | 约 172 GiB |
 | 预期原始分片（mixed） | 约 83 GiB |
 
@@ -53,6 +53,29 @@ stage3  finalize_full.py       dataset/ 验收 + splits/m117_seed2026_scene_leve
 
 `pilot_three/` 三场景 6,601 条链路、37 分片、双卡 **184 s**（约 35.9 链路/s）。
 按此推算全量 8 卡约 2 小时计算时间，另加 stage2 的约 250 GiB 读写；实际受磁盘竞争影响。
+
+## 运行与暂停（2026-10-28 22:51–22:56）
+
+排队约 21 分钟后 GPU 放行，stage1 于 22:51:26 开始出分片；**22:56 按用户要求暂停后台任务**。
+
+| 项 | 值 |
+|---|---:|
+| 已完成场景 | 5 / 339（front3d_0015、0055、0080、0095、0119） |
+| 已完成分片 | 52（14/8/10/11/9） |
+| 已完成链路 | 7,503 |
+| 单场景耗时 | 21.9–32.3 s，合计 143.5 s（约 52 链路/s 并行） |
+| 有效输出 | `raw_runs/` 910 MB |
+
+暂停处理：
+
+- 先停 `watchdog.sh`（避免它把链条拉起），再停 `run_all.sh` 与 `run-scene-index` 进程。
+- 第 6 个场景 `front3d_0149` 的 3 个已落盘分片（HDF5 均可读但场景未 finalize）已整目录删除，
+  避免续跑时复用未完成分片；其余 5 个场景的 `manifest/manifest.json` 完整保留。
+- `console/STOP_WATCHDOG` 已清除；`console/DONE`/`FAILED` 均未产生。
+- 当前无任何 339 任务进程，GPU 全部归还给训练/评估。
+
+恢复方式：重新执行 `outputs/front3d_339_dichasus_like_cfr_v1/run_all.sh`（同样 `setsid` 常驻），
+`skip_existing` 会跳过上述 5 个场景，从 front3d_0149 继续；需要自动重启守护时再一并启动 `watchdog.sh`。
 
 ## 待补
 
