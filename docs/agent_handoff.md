@@ -451,7 +451,7 @@ shards全部完成。全部CFR finite，236570条有效、1280条全零链路按
 8卡、8 workers、`free_memory_threshold=0.85`（排队等卡，不与训练抢显存）、scan 5s、
 async_write/32 pending writes。链式脚本 `run_all.sh` 依次执行 run-scene-index →
 postprocess-cfr-scenes → `finalize_full.py`，后台常驻、按场景 manifest 断点续跑；
-规模934,128链路、约4,264分片、约172GiB scene H5 + 83GiB原始分片。结果待补，
+规模934,128链路、4,414分片、约172GiB scene H5 + 83GiB原始分片。结果待补，
 详见[运行记录](performance/dichasus_like_cfr_v1_full_339_run_20261028.md)。
 
 ### `median_0000 label0p2` SRS baseline
