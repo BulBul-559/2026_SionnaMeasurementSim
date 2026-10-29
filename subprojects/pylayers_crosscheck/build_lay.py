@@ -196,9 +196,141 @@ def merge_close_lines(lines: list[WallLine], az_tol=0.6, min_sep=0.05,
     return kept
 
 
+def _line_u_range(line: WallLine, p0, p1, p2, vi) -> tuple[float, float]:
+    n, t = line_basis(line.az_deg)
+    tri = vi[np.asarray(line.triangles)]
+    pts = np.stack([p0[tri], p1[tri], p2[tri]], axis=1)
+    u = pts[:, :, :2] @ t
+    return float(u.min()), float(u.max())
+
+
+def pair_wall_sheets(lines: list[WallLine], p0, p1, p2, vi, min_gap=0.03,
+                     max_gap=0.35, min_overlap=0.5, az_tol=0.8) -> tuple[list[WallLine], int]:
+    """Collapse the two faces of one wall into a single centreline.
+
+    Front3D models a 0.24 m wall as two separate sheets (the inner faces of the
+    two rooms). Keeping both makes PyLayers enclose a thin cavity that it counts
+    as a room, which breaks its graph build. Pairing the sheets and using the
+    area-weighted mean offset yields one zero-thickness wall line - the
+    representation PyLayers' 2.5D engine actually models (wall thickness then
+    lives in the slab stack, not in the geometry).
+    """
+    ranges = [_line_u_range(l, p0, p1, p2, vi) for l in lines]
+    used = [False] * len(lines)
+    order = sorted(range(len(lines)), key=lambda i: -lines[i].area)
+    merged: list[WallLine] = []
+    n_pairs = 0
+
+    for i in order:
+        if used[i]:
+            continue
+        a = lines[i]
+        best, best_gap = None, None
+        for j in range(len(lines)):
+            if j == i or used[j]:
+                continue
+            b = lines[j]
+            daz = abs((a.az_deg - b.az_deg + 90.0) % 180.0 - 90.0)
+            if daz > az_tol:
+                continue
+            gap = abs(b.offset - a.offset)
+            if not (min_gap < gap <= max_gap):
+                continue
+            lo = max(ranges[i][0], ranges[j][0])
+            hi = min(ranges[i][1], ranges[j][1])
+            span = min(ranges[i][1] - ranges[i][0], ranges[j][1] - ranges[j][0])
+            if span <= 0 or (hi - lo) / span < min_overlap:
+                continue
+            if best is None or gap < best_gap:
+                best, best_gap = j, gap
+        if best is None:
+            merged.append(a)
+            used[i] = True
+            continue
+        b = lines[best]
+        w = a.area + b.area
+        merged.append(WallLine(
+            az_deg=a.az_deg,
+            offset=(a.offset * a.area + b.offset * b.area) / w if w else a.offset,
+            triangles=list(a.triangles) + list(b.triangles),
+            area=w,
+        ))
+        used[i] = used[best] = True
+        n_pairs += 1
+    return merged, n_pairs
+
+
+def close_corners(nodes: dict[int, np.ndarray], segs: list[tuple], max_ext=0.5,
+                  min_angle_deg=30.0, passes=3):
+    """Returns (nodes, segs, n_moved)."""
+    """Extend wall ends to the perpendicular wall they were supposed to meet.
+
+    After the sheets are collapsed to centrelines, every corner is short by about
+    half a wall thickness on each side, so the network has small gaps. Each gap is
+    closed by moving the wall end onto the intersection with the crossing wall -
+    an extension of at most `max_ext`, which is far below any room dimension.
+    """
+    nodes = dict(nodes)
+    n_moved = 0
+    cos_min = np.cos(np.radians(min_angle_deg))
+
+    for _ in range(passes):
+        moved_this_pass = 0
+        incident: dict[int, list[int]] = {}
+        for k, (a, b, _z, _m) in enumerate(segs):
+            incident.setdefault(a, []).append(k)
+            incident.setdefault(b, []).append(k)
+        for nid, seg_ids in list(incident.items()):
+            if len(seg_ids) > 2:      # already a junction
+                continue
+            p = nodes[nid]
+            best_target, best_shift = None, None
+            for k in seg_ids:
+                a, b = segs[k][0], segs[k][1]
+                other = nodes[b] if a == nid else nodes[a]
+                d = p - other
+                ln = float(np.linalg.norm(d))
+                if ln < 1e-6:
+                    continue
+                d = d / ln
+                for k2, (c, e, _z2, _m2) in enumerate(segs):
+                    if k2 == k:
+                        continue
+                    q = nodes[c]
+                    s = nodes[e] - nodes[c]
+                    sn = float(np.linalg.norm(s))
+                    if sn < 1e-6:
+                        continue
+                    s = s / sn
+                    if abs(float(d @ s)) > cos_min:
+                        continue          # nearly parallel, not a corner
+                    den = d[0] * (-s[1]) - d[1] * (-s[0])
+                    if abs(den) < 1e-9:
+                        continue
+                    # solve p + t*d = q + u*s
+                    rhs = q - p
+                    t = (rhs[0] * (-s[1]) - rhs[1] * (-s[0])) / den
+                    u = (d[0] * rhs[1] - d[1] * rhs[0]) / den
+                    if not (0.0 < t <= max_ext):
+                        continue
+                    if not (-max_ext / sn <= u <= 1.0 + max_ext / sn):
+                        continue
+                    if best_shift is None or t < best_shift:
+                        best_target = p + t * d
+                        best_shift = t
+            if best_target is not None:
+                nodes[nid] = np.array([snap(float(best_target[0])), snap(float(best_target[1]))])
+                moved_this_pass += 1
+        n_moved += moved_this_pass
+        if moved_this_pass == 0:
+            break
+    return nodes, segs, n_moved
+
+
 def extract_segments(scene_key: str, floor_z: float | None, ceil_z: float | None,
                      include_furniture: bool = False, offset_tol: float = 0.015,
-                     node_tol: float = 0.005, merge_sep: float = 0.05) -> dict:
+                     node_tol: float = 0.005, merge_sep: float = 0.05,
+                     reconstruct: bool = True) -> dict:
     scene_file = SCENE_ROOT / scene_key / 'scene.xml'
     mesh = load_scene(scene_file, include_furniture=include_furniture)
     p0, p1, p2, nrm, nlen = triangle_geometry(mesh)
@@ -217,6 +349,9 @@ def extract_segments(scene_key: str, floor_z: float | None, ceil_z: float | None
     lines = build_wall_lines(p0[vi], p1[vi], p2[vi], nh[vi], area[vi], offset_tol=offset_tol)
     n_lines_raw = len(lines)
     lines = merge_close_lines(lines, min_sep=merge_sep)
+    n_pairs = 0
+    if reconstruct:
+        lines, n_pairs = pair_wall_sheets(lines, p0, p1, p2, vi)
 
     segments: list[Segment] = []
     line_reports = []
@@ -288,6 +423,7 @@ def extract_segments(scene_key: str, floor_z: float | None, ceil_z: float | None
         ceil_z=float(ceil_z),
         n_wall_lines=len(lines),
         n_wall_lines_raw=n_lines_raw,
+        n_sheet_pairs=n_pairs,
         lines=line_reports,
         segments=segments,
     )
@@ -477,32 +613,30 @@ def clean_planar(nodes: dict[int, np.ndarray], segs: list[tuple], max_iter=50,
     segs = list(segs)
     info = dict(iterations=0, removed=0, rooms=0)
 
-    def half_edges(seg_list):
-        he = {}
-        for i, (a, b, _z, _m) in enumerate(seg_list):
-            he[(a, b)] = i
-            he[(b, a)] = i
-        return he
-
     for _ in range(max_iter):
-        he = half_edges(segs)
+        # work on unique endpoint pairs: iso segments (same pair, different z)
+        # must stay together, and a half-edge map keyed by ids would collide
+        pair_of = [(min(a, b), max(a, b)) for a, b, _z, _m in segs]
+        pairs = sorted(set(pair_of))
         out: dict[int, list[int]] = {}
-        for (u, v) in he:
+        for (u, v) in pairs:
             out.setdefault(u, []).append(v)
+            out.setdefault(v, []).append(u)
         for u, vs in out.items():
             vs.sort(key=lambda v: np.arctan2(nodes[v][1] - nodes[u][1],
                                              nodes[v][0] - nodes[u][0]))
 
-        pos_in = {(u, v): out[u].index(v) for (u, v) in he}
+        pos_in = {(u, v): out[u].index(v) for (u, v) in
+                  [(a, b) for a, b in pairs] + [(b, a) for a, b in pairs]}
         seen = set()
         faces = []
-        for start in he:
-            if start in seen:
+        for (u, v) in [(a, b) for a, b in pairs] + [(b, a) for a, b in pairs]:
+            if (u, v) in seen:
                 continue
             face = []
-            cur = start
+            cur = (u, v)
             guard = 0
-            while cur not in seen and guard < 4 * len(segs) + 10:
+            while cur not in seen and guard < 4 * len(pairs) + 10:
                 seen.add(cur)
                 face.append(cur)
                 r = (cur[1], cur[0])
@@ -511,18 +645,18 @@ def clean_planar(nodes: dict[int, np.ndarray], segs: list[tuple], max_iter=50,
                 cur = (cur[1], nxt)
                 guard += 1
             if len(face) >= 3:
-                xy = np.array([nodes[u] for (u, _v) in face], float)
+                xy = np.array([nodes[a] for (a, _b) in face], float)
                 area = 0.5 * float(np.sum(xy[:, 0] * np.roll(xy[:, 1], -1)
                                            - np.roll(xy[:, 0], -1) * xy[:, 1]))
                 faces.append((area, face))
 
         inner = [f for a, f in faces if abs(a) > min_face_area and a > 0]
-        inner_segs = set()
+        keep_pairs = set()
         for face in inner:
-            for (u, v) in face:
-                inner_segs.add(he[(u, v)])
+            for (a, b) in face:
+                keep_pairs.add((min(a, b), max(a, b)))
 
-        keep = [s for i, s in enumerate(segs) if i in inner_segs]
+        keep = [s for s, pr in zip(segs, pair_of) if pr in keep_pairs]
         info['iterations'] += 1
         info['rooms'] = len(inner)
         if len(keep) == len(segs):
@@ -537,14 +671,139 @@ def clean_planar(nodes: dict[int, np.ndarray], segs: list[tuple], max_iter=50,
     return segs, info
 
 
+def resolve_collinear_overlaps(nodes: dict[int, np.ndarray], segs: list[tuple],
+                               tol=0.005, max_iter=50):
+    """Split collinear overlapping segments so they only ever share endpoints.
+
+    Wall panels from the architecture can overlap along the same line (corner
+    panels, exterior vs interior walls, AIR bridges over a wall piece). A
+    constrained triangulation rejects that, so the overlapping parts are split
+    at the overlap boundaries; the duplicated piece then collapses in
+    `merge_coincident_nodes`.
+    """
+    nodes = dict(nodes)
+    segs = list(segs)
+    nxt = min(nodes) - 1 if nodes else -1
+
+    def nid_at(p):
+        nonlocal nxt
+        key = np.array([snap(float(p[0])), snap(float(p[1]))], float)
+        best, bd = None, None
+        for nid, q in nodes.items():
+            d = float(np.linalg.norm(q - key))
+            if d <= tol and (bd is None or d < bd):
+                best, bd = nid, d
+        if best is not None:
+            return best
+        nid = nxt
+        nxt -= 1
+        nodes[nid] = key
+        return nid
+
+    for _ in range(max_iter):
+        changed = False
+        for i in range(len(segs)):
+            a1, b1 = segs[i][0], segs[i][1]
+            p, r = nodes[a1], nodes[b1] - nodes[a1]
+            rn = float(np.linalg.norm(r))
+            if rn < 1e-9:
+                continue
+            u = r / rn
+            for j in range(i + 1, len(segs)):
+                a2, b2 = segs[j][0], segs[j][1]
+                if {a1, b1} & {a2, b2}:
+                    continue
+                q, s = nodes[a2], nodes[b2] - nodes[a2]
+                sn = float(np.linalg.norm(s))
+                if sn < 1e-9:
+                    continue
+                if abs(float(u @ (s / sn))) < 0.9995:
+                    continue
+                dist = abs((q - p)[0] * u[1] - (q - p)[1] * u[0])
+                if dist > tol:
+                    continue
+                t2 = np.sort([float((nodes[a2] - p) @ u), float((nodes[b2] - p) @ u)])
+                lo, hi = max(0.0, t2[0]), min(rn, t2[1])
+                if hi - lo <= tol:
+                    continue
+                for cut in (lo, hi):
+                    if tol < cut < rn - tol:
+                        nid = nid_at(p + cut * u)
+                        a, b, z, m = segs[i]
+                        segs[i:i + 1] = [(a, nid, z, m)]
+                        segs.insert(i + 1, (nid, b, z, m))
+                        changed = True
+                        break
+                if changed:
+                    break
+                for cut in (lo, hi):
+                    if t2[0] + tol < cut < t2[1] - tol:
+                        nid = nid_at(p + cut * u)
+                        a, b, z, m = segs[j]
+                        segs[j:j + 1] = [(a, nid, z, m)]
+                        segs.insert(j + 1, (nid, b, z, m))
+                        changed = True
+                        break
+                if changed:
+                    break
+            if changed:
+                break
+        if not changed:
+            break
+    return nodes, segs
+
+
+def merge_coincident_nodes(nodes: dict[int, np.ndarray], segs: list[tuple],
+                          ) -> tuple[dict[int, np.ndarray], list[tuple]]:
+    """Merge nodes that landed on the same snapped position, remapping segments.
+
+    Corner closing can push a wall end onto an existing node; without this the
+    layout would carry two coincident points and the written file loses one of
+    them (PyLayers then fails to find the segment's endpoint).
+    """
+    by_key: dict[tuple[float, float], int] = {}
+    remap: dict[int, int] = {}
+    for nid, p in nodes.items():
+        key = (snap(float(p[0])), snap(float(p[1])))
+        if key in by_key:
+            remap[nid] = by_key[key]
+        else:
+            by_key[key] = nid
+            remap[nid] = nid
+    out_nodes = {nid: np.array(k, float) for k, nid in by_key.items()}
+    out_segs, seen = [], set()
+    for a, b, z, m in segs:
+        a2, b2 = remap.get(a, a), remap.get(b, b)
+        if a2 == b2:
+            continue
+        key = (min(a2, b2), max(a2, b2), z)
+        if key in seen:
+            continue
+        seen.add(key)
+        out_segs.append((a2, b2, z, m))
+    return out_nodes, out_segs
+
+
 def write_lay(result: dict, out_path: Path, wall_thickness: float, wall_eps: float,
               wall_sigma: float, roughness: float = 0.0,
-              node_tol: float = 0.005) -> dict:
+              node_tol: float = 0.005, clean: bool = True) -> dict:
     registry, rows = dedupe_and_split(result['segments'], node_tol=node_tol)
     node_pos = {n: np.array(p, float) for p, n in registry.items()}
     node_pos, rows = planarize(node_pos, rows, tol=node_tol)
-    rows, n_pruned = prune_dangling(node_pos, rows)
-    rows, plan_info = clean_planar(node_pos, rows)
+    if clean:
+        node_pos, rows, n_corners = close_corners(node_pos, rows)
+        node_pos, rows = planarize(node_pos, rows, tol=node_tol)
+        rows, n_pruned = prune_dangling(node_pos, rows)
+        rows, plan_info = clean_planar(node_pos, rows)
+    else:
+        n_corners, n_pruned = 0, 0
+        plan_info = dict(rooms=-1, removed=0, iterations=0)
+    node_pos, rows = resolve_collinear_overlaps(node_pos, rows)
+    node_pos, rows = merge_coincident_nodes(node_pos, rows)
+    # final consistency filter: every written segment must reference written points
+    rows = [r for r in rows if r[0] in node_pos and r[1] in node_pos]
+    used_final = {n for r in rows for n in r[:2]}
+    node_pos = {n: p for n, p in node_pos.items() if n in used_final}
     registry = {(round(float(p[0]), 3), round(float(p[1]), 3)): n
                 for n, p in node_pos.items()}
 
@@ -577,6 +836,7 @@ def write_lay(result: dict, out_path: Path, wall_thickness: float, wall_eps: flo
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text('\n'.join(lines))
     return dict(points=len(registry), segments=len(rows), pruned_segments=n_pruned,
+                corners_closed=n_corners,
                 rooms=plan_info["rooms"], plan_iterations=plan_info["iterations"],
                 removed_open_walls=plan_info["removed"])
 
@@ -594,13 +854,16 @@ def main() -> int:
     ap.add_argument('--offset-tol', type=float, default=0.015)
     ap.add_argument('--merge-sep', type=float, default=0.05,
                     help='drop one of two parallel wall sheets closer than this (m)')
+    ap.add_argument('--no-reconstruct', action='store_true',
+                    help='keep the mesh two-sheet walls instead of collapsing to centrelines')
     ap.add_argument('--node-tol', type=float, default=0.005)
     ap.add_argument('--report', default=None)
     args = ap.parse_args()
 
     result = extract_segments(args.scene, args.floor_z, args.ceil_z,
                               include_furniture=args.include_furniture,
-                              offset_tol=args.offset_tol, merge_sep=args.merge_sep)
+                              offset_tol=args.offset_tol, merge_sep=args.merge_sep,
+                              reconstruct=not args.no_reconstruct)
     eps, sigma = itu_eps_sigma('concrete', 3.438)
     out_path = Path(args.out) if args.out else (SUBROOT / 'outputs' / 'layouts'
                                                 / f'{args.scene}.lay')
@@ -628,6 +891,8 @@ def main() -> int:
     print(f'{"segments":16s}: {stats["segments"]} (pruned dangling: {stats.get("pruned_segments", 0)}, '
           f'dropped open walls: {stats.get("removed_open_walls", 0)})')
     print(f'{"rooms":16s}: {stats.get("rooms", 0)}')
+    print(f'{"sheet pairs":16s}: {result.get("n_sheet_pairs", 0)}')
+    print(f'{"corners closed":16s}: {stats.get("corners_closed", 0)}')
     print(f'{"report":16s}: {rpath}')
     return 0
 
