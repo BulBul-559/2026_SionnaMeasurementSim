@@ -1,0 +1,102 @@
+# DiffeRT 交叉验证子项目
+
+用 **DiffeRT**（JAX 可微射线追踪，0.12.0）作为**独立第二引擎**，在与 Sionna RT 完全相同的
+场景、材质、阵列和频率契约下生成理想 CFR，用来量化"换一个传播引擎"时下游模型的鲁棒性。
+
+本子项目**不接入** `sionna_measurement_sim` 的仿真系统：不导入其任何模块，只读取它的产物
+（`scene.xml`、prepared label、339 CFR 数据集）做对比。
+
+## 为什么是 DiffeRT
+
+| 维度 | DiffeRT | 说明 |
+|---|---|---|
+| 场景导入 | `Scene.load_xml()` 直接读 Sionna/Mitsuba `scene.xml` | 339 场景零转换，实测 46k 三角面 0.1–0.3 s |
+| 材质 | ITU-R P.2040-4 全表，别名 `itu_concrete/itu_wood/...` | 与 339 场景四种材质逐字对应 |
+| 求解器 | `sbr` / `hybrid` / `exhaustive` | exhaustive 在 46k 面上内存爆炸（实测 70 GB 被 kill），SBR 2–4 s |
+| 极化/方向图 | `tx/rx_polarization="V"` = 单位幅度、θ̂ 方向 | 等价于 Sionna `pattern="iso", polarization="V"`，LoS 幅度对 Friis 比值 0.9993 |
+| 输出 | 每径 `(τ, 复增益)` | CFR 自己合成 `Σ a_k e^{-j2πf τ_k}`，与 Sionna 契约一致 |
+
+## 目录
+
+```
+subprojects/differt_crosscheck/
+├── differt_crosscheck/        # 库代码
+│   ├── config.py              # 冻结契约（频率网格、阵列、求解器）
+│   ├── antenna.py             # iso+V 说明与显式实现
+│   ├── scene.py               # 场景加载 + 阵列按 Sionna 公式布放
+│   ├── solver.py              # SBR 追迹 + 分块 vmap + CFR 合成
+│   ├── io.py                  # HDF5 写出（镜像 Sionna 数据集布局）
+│   ├── metrics.py             # 相似度指标
+│   └── select.py              # 大/中/小场景 × 1 BS × 10 UE 选取
+├── scripts/
+│   ├── bootstrap_env.sh       # 建隔离 venv（不碰仓库根 .venv）
+│   ├── select_links.py        # 生成 links/selection.json
+│   ├── run_links.py           # 跑 DiffeRT，写 cfr/<scene>.h5
+│   └── compare_with_sionna.py # 与 339 结果逐链路对比
+└── tests/                     # 阵列几何、天线等价性
+```
+
+数据落在数据盘，与 Sionna 输出同级、目录名自带区分：
+
+```
+/data/sunmeiyuan/projects/sionna/outputs/
+├── front3d_339_dichasus_like_cfr_v1/     # Sionna 参考（只读）
+└── differt_rt_crosscheck_v1/             # 本子项目产出
+    ├── links/selection.json
+    ├── cfr/<scene>.h5, run_summary.json
+    └── compare/metrics_per_link.csv, summary.json, figures/
+```
+
+## 快速开始
+
+```bash
+cd subprojects/differt_crosscheck
+
+./scripts/bootstrap_env.sh                 # 一次性：建 .venv-differt
+PYTHONPATH=. .venv-differt/bin/python tests/test_geometry.py
+PYTHONPATH=. .venv-differt/bin/python tests/test_antenna.py
+
+PYTHONPATH=. .venv-differt/bin/python scripts/select_links.py
+PYTHONPATH=. .venv-differt/bin/python scripts/run_links.py            # 3 场景 / 30 链路
+PYTHONPATH=. .venv-differt/bin/python scripts/compare_with_sionna.py
+```
+
+常用参数：
+
+```bash
+# 只跑一个场景（先验证链路）
+... run_links.py --scene front3d_3682
+
+# 打开绕射 / 透射（更贴近 Sionna 的 max_depth=4 + diffraction + refraction）
+... run_links.py --diffraction --transmission
+
+# 换后端
+... run_links.py --tracer hybrid --order 3 --num-rays 200000
+```
+
+## 契约对齐（与 `docs/proposals/dichasus_like_cfr_v1.md`）
+
+| 项 | 值 |
+|---|---|
+| 中心频率 | 3.438 GHz |
+| 子载波 | 768 × 30 kHz，3,426,495,000 – 3,449,505,000 Hz |
+| BS 面板 | 4×8 平面阵，0.04364 m（0.5005λ），iso + V，逐 BS yaw |
+| UE | 1×1，iso + V |
+| CFR | `[link, 32, 1, 768] complex64`，不加功率、不做归一化 |
+| 时延 | 绝对传播时延，不消除公共时延 |
+
+阵列布放严格按 Sionna `PlanarArray` 公式：`y = d·j − (C−1)d/2`、`z = −d·i + (R−1)d/2`、
+`x = 0`，扁平序号 `k = i·C + j`，再按 yaw 绕 +z 旋转。`tests/test_geometry.py` 钉住了这一点。
+
+## 已知差异（这是"对照组"的一部分，不是 bug）
+
+1. **SBR 非穷举**：候选由有限射线发现（默认 40 万条），不保证覆盖小立体角路径。
+2. **绕射默认关闭**：Front3D 网格普遍非流形，DiffeRT 会把非流形边排除在绕射之外；开启后
+   与 Sionna 的绕射集仍不会完全一致。
+3. **透射模型**：DiffeRT 走 Fresnel/slab 转移矩阵，与 Sionna 的实现细节不同。
+4. 因此不追求逐比特一致，只比较统计意义上的相似度（见 `metrics.py`）。
+
+## 与 PyLayers 路线的关系
+
+`subprojects/pylayers_crosscheck/` 是另一条（2.5D `.lay`）对照路线，两者的场景表达方式不同，
+不要混用产物。
