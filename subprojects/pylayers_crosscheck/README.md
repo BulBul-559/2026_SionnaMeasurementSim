@@ -1,5 +1,18 @@
 # PyLayers cross-check subproject
 
+> **STATUS: PAUSED (2026-10-29).** The owner stopped this line of work: the
+> reproduction cost is too high relative to the payoff. Keep this directory as
+> the evidence trail; do not extend it without a new decision.
+>
+> What stands: the semantic wall reconstruction now matches the SceneGen
+> floorplan (92.5 % of wall pixels within 15 cm, median deviation ~5 cm) after
+> fixing a y-flip in the normalized->scene frame mapping. What blocks: PyLayers'
+> own `Layout.build()` still fails on this plan (Mikado cycle merge raises
+> `MultiPolygon are not allowed`), and getting past it needs an engine port, not
+> a shim. Two engine-side compatibility patches were already needed to reach
+> that point (see `patches/pylayers_local_fixes.md`), which by itself weakens the
+> "independent implementation" argument for a cross-check.
+
 Purpose: decide, with evidence, whether PyLayers can act as an **independent
 second ray-tracing engine** to cross-check the ideal-CSI (CFR) that the Sionna
 pipeline produces for the Front3D test scenes.

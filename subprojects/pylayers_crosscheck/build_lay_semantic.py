@@ -127,13 +127,21 @@ def main() -> int:
     counts = arch['scene']['mesh_type_counts']
     print(f"type counts: {counts}")
 
+    # normalized frame -> scene frame used by scene.xml and the labels.
+    # The normalization flips y (front3d_y_up_to_scenegen_z_up), so a plain
+    # translation is wrong: verified by floorplan coverage, mirroring y lifts
+    # wall-pixel coverage at 15 cm from 47 % to 95 %.
     bbox = arch['geometry']['bbox']
-    offset = np.array([-bbox['min'][0], -bbox['min'][1], 0.0], float)
-    print(f'frame offset (normalized -> scene): {np.round(offset, 4)}')
+    x_min = float(bbox['min'][0])
+    y_max = float(bbox['max'][1])
+    print(f'frame map (normalized -> scene): x-{x_min:.4f}, y -> {y_max:.4f} - y')
 
     panels = parse_obj_groups(obj_path)
     for pnl in panels:
-        pnl.verts = pnl.verts + offset
+        v = pnl.verts.copy()
+        v[:, 0] = v[:, 0] - x_min
+        v[:, 1] = y_max - v[:, 1]
+        pnl.verts = v
     by_type = defaultdict(list)
     for p in panels:
         by_type[p.kind].append(p)
