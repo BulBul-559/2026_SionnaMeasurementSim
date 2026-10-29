@@ -96,6 +96,18 @@ PYTHONPATH=. .venv-differt/bin/python scripts/compare_with_sionna.py
 3. **透射模型**：DiffeRT 走 Fresnel/slab 转移矩阵，与 Sionna 的实现细节不同。
 4. 因此不追求逐比特一致，只比较统计意义上的相似度（见 `metrics.py`）。
 
+## 实现坑位（都已踩过并写进代码注释）
+
+| 坑 | 现象 | 处理 |
+|---|---|---|
+| 传播相位重复计入 | 逐频 `fields` 已含 `exp(-j2πf·d/c)`，再乘 `exp(-j2πfτ)` 会让不同长度路径的相对相位错乱（|H| 和 PDP 仍然对，但复相关≈0） | 直接对逐径复数场求和，不再乘延迟相位（`solver.py`） |
+| 候选未被裁剪 | order 2 时 4.3k 有效但保留 32k 槽位，order 4 更多 | 求解前按 `mask.any()` 裁剪候选轴 |
+| 频繁小批调用 | 768 频点 / chunk=8 × 10 tx ≈ 960 次 dispatch，单场景卡数分钟 | `freq_chunk=128`、`tx_chunk=2` |
+| 一次请求多阶 | `order=(0,1,2,3,4)` 会按 `max_num_candidates` 补齐，曾触发 1 TB 分配 | 逐阶追迹后按 CFR 线性叠加 |
+| `max_num_candidates` 偏小 | 触发内部 `Invalid indexing in slice` FFI 错误 | 保持 ≥2e5 |
+| JAX 常量捕获 | 把 paths 闭包进 jit 会捕获 7.2 GB 常量 | paths 作为实参、mesh 保持静态（绕射几何需要具体值） |
+| 图样 API 以位置为方向 | `polarization_vectors` 收到的是 `T + r̂`，隐含天线在原点 | 多发射机场景使用 `"V"` 快捷方式；显式天线类仅用于单发射机/测试 |
+
 ## 与 PyLayers 路线的关系
 
 `subprojects/pylayers_crosscheck/` 是另一条（2.5D `.lay`）对照路线，两者的场景表达方式不同，
