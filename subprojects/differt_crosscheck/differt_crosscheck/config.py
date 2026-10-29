@@ -37,7 +37,8 @@ def output_paths(root: Path | None = None) -> dict[str, Path]:
     return {
         "root": root,
         "links": root / "links",
-        "cfr": root / "cfr",
+        "dataset": root / "dataset",
+        "scenes": root / "dataset" / "scenes",
         "compare": root / "compare",
         "figures": root / "compare" / "figures",
         "logs": root / "logs",
@@ -179,6 +180,9 @@ class SolverSpec:
     #: Field solver defaults to V polarisation on both sides.
     tx_polarization: str = "V"
     rx_polarization: str = "V"
+    #: Wall thickness used for transmission. Sionna's ``DEFAULT_THICKNESS`` is 0.1 m and
+    #: our scene XMLs carry no per-material thickness, so 0.1 m keeps the two engines aligned.
+    material_thickness_m: float = 0.1
 
     def interactions(self) -> frozenset[str]:
         names = []
@@ -205,6 +209,7 @@ class SolverSpec:
             "interactions": sorted(self.interactions()),
             "tx_polarization": self.tx_polarization,
             "rx_polarization": self.rx_polarization,
+            "material_thickness_m": self.material_thickness_m,
         }
 
 

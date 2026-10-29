@@ -60,7 +60,7 @@ def main() -> int:
 
     for scene in selection["scenes"]:
         key = scene["scene_key"]
-        differt_path = paths["cfr"] / f"{key}.h5"
+        differt_path = paths["scenes"] / f"{key}.h5"
         sionna_path = Path(scene["sionna_h5"])
         if not differt_path.is_file():
             print(f"[skip] {key}: {differt_path} missing (run run_links.py first)")

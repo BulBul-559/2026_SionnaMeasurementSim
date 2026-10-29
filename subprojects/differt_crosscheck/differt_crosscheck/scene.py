@@ -24,6 +24,7 @@ from .config import AntennaSpec, PlanarArraySpec
 
 __all__ = [
     "load_front3d_scene",
+    "subset_link_scene",
     "panel_element_positions",
     "rotation_z",
     "build_link_scene",
@@ -121,3 +122,29 @@ def mesh_stats(scene) -> dict[str, object]:  # noqa: ANN001
         "num_vertices": int(mesh.vertices.shape[0]),
         "material_names": list(mesh.material_names),
     }
+
+
+def subset_link_scene(link_scene: LinkScene, indices) -> LinkScene:
+    """A copy of ``link_scene`` restricted to the given transmitter indices.
+
+    Graph-based tracers (``hybrid``/``exhaustive``) enumerate candidates for every
+    transmitter at once, so ten simultaneous UEs multiply both the candidate array and
+    the memory by ten. Tracing one transmitter at a time keeps the peak bounded.
+    """
+    import jax.numpy as jnp  # noqa: PLC0415
+    from differt.geometry import Scene  # noqa: PLC0415
+
+    idx = list(indices)
+    tx = link_scene.tx_positions[idx]
+    scene = Scene(
+        transmitters=jnp.asarray(tx),
+        receivers=jnp.asarray(link_scene.rx_positions),
+        mesh=link_scene.scene.mesh,
+    )
+    return LinkScene(
+        scene=scene,
+        tx_positions=tx,
+        rx_positions=link_scene.rx_positions,
+        bs_center=link_scene.bs_center,
+        bs_yaw_rad=link_scene.bs_yaw_rad,
+    )

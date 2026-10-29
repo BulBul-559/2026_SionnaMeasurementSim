@@ -32,9 +32,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .config import SolverSpec
-from .scene import LinkScene
+from .scene import LinkScene, subset_link_scene
 
-__all__ = ["CfrResult", "trace_paths", "compute_cfr"]
+__all__ = ["CfrResult", "trace_paths", "compute_cfr", "compute_cfr_per_tx"]
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,13 @@ def trace_paths(link_scene: LinkScene, spec: SolverSpec, order: int):
     return paths, time.time() - t0
 
 
-def _fields_vmap(traced_paths, mesh, tx_pol, rx_pol):
+#: Compiled field solvers, keyed by (mesh identity, polarisation, material thickness).
+#: Rebuilding ``jax.jit`` per transmitter defeats JAX's own shape cache, which costs a
+#: full recompile per UE (tens of seconds each) in per-transmitter tracing.
+_JIT_CACHE: dict = {}
+
+
+def _fields_vmap(traced_paths, mesh, tx_pol, rx_pol, radio_materials=None):
     """Frequency-batched field evaluation for one traced path set."""
     import jax  # noqa: PLC0415
     from differt.em import TracedFields  # noqa: PLC0415
@@ -92,9 +98,36 @@ def _fields_vmap(traced_paths, mesh, tx_pol, rx_pol):
             frequency=frequency,
             tx_polarization=tx_pol,
             rx_polarization=rx_pol,
+            radio_materials=radio_materials,
         )
 
-    return jax.jit(jax.vmap(fields_at, in_axes=(None, 0)))
+    key = (id(mesh), repr(tx_pol), repr(rx_pol), len(radio_materials) if radio_materials else 0)
+    cached = _JIT_CACHE.get(key)
+    if cached is None:
+        cached = jax.jit(jax.vmap(fields_at, in_axes=(None, 0)))
+        _JIT_CACHE[key] = cached
+    return cached
+
+
+def build_radio_materials(thickness_m: float = 0.1) -> dict:
+    """ITU material table with a finite slab thickness.
+
+    Transmission is only physically meaningful for a finite-thickness slab; DiffeRT
+    refuses ``thickness=None`` (infinite half-space). Sionna defaults to 0.1 m, so that
+    is what we use to keep the two engines on the same model.
+    """
+    import equinox as eqx  # noqa: PLC0415
+    from differt.em import MaterialsDict, materials  # noqa: PLC0415
+
+    # Must stay a MaterialsDict: the mesh stores Sionna-style aliases such as
+    # "itu_concrete", and only MaterialsDict resolves those to the primary names.
+    out = MaterialsDict()
+    for name, mat in materials.items():
+        try:
+            out[name] = eqx.tree_at(lambda m: m.thickness, mat, thickness_m)
+        except Exception:  # noqa: BLE001 - non-slab materials keep their definition
+            out[name] = mat
+    return out
 
 
 def _slice_paths(traced_paths, index):
@@ -163,6 +196,7 @@ def _cfr_for_paths(
     num_tx: int,
     num_el: int,
     tx_chunk: int = 1,
+    radio_materials=None,
 ) -> tuple[np.ndarray, int]:
     import jax  # noqa: PLC0415
     import jax.numpy as jnp  # noqa: PLC0415
@@ -174,7 +208,7 @@ def _cfr_for_paths(
         return cfr, 0
 
     traced_paths, kept_slots = _prune_paths(traced_paths)
-    batched = _fields_vmap(traced_paths, mesh, tx_pol, rx_pol)
+    batched = _fields_vmap(traced_paths, mesh, tx_pol, rx_pol, radio_materials)
 
     # Evaluate transmitter-by-transmitter: the XLA graph of a 10-UE x 32-port x 4-bounce
     # unrolled field solve reached ~86 GB RSS and had to be killed. Slicing the traced
@@ -207,6 +241,91 @@ def _cfr_for_paths(
     return cfr, num_valid
 
 
+def compute_cfr_per_tx(
+    link_scene: LinkScene,
+    frequencies_hz: np.ndarray,
+    spec: SolverSpec,
+    antenna_spec,
+    *,
+    tx_polarization=None,
+    rx_polarization=None,
+    freq_chunk: int = 16,
+    tx_chunk: int = 1,
+) -> CfrResult:
+    """Like :func:`compute_cfr`, but traces one transmitter at a time.
+
+    Required for the graph-based tracers: they enumerate candidates over *all*
+    transmitters jointly, so ten UEs at once multiply the candidate array by ten.
+    """
+
+    frequencies_hz = np.asarray(frequencies_hz, dtype=float)
+    mesh = link_scene.scene.mesh
+    tx_pol = tx_polarization if tx_polarization is not None else antenna_spec[0]
+    rx_pol = rx_polarization if rx_polarization is not None else antenna_spec[1]
+    mats = build_radio_materials(spec.material_thickness_m)
+
+    num_tx = link_scene.num_tx
+    num_el = link_scene.num_elements
+    cfr = np.zeros((num_tx, num_el, frequencies_hz.size), dtype=np.complex64)
+
+    paths_per_order: dict[int, int] = {}
+    candidates: dict[int, int] = {}
+    trace_seconds: dict[int, float] = {}
+    fields_seconds = 0.0
+
+    for order in spec.orders():
+        per_tx_valid = 0
+        per_tx_candidates = 0
+        t_trace_total = 0.0
+        for i in range(num_tx):
+            one = subset_link_scene(link_scene, [i])
+            traced, t_trace = trace_paths(one, spec, order)
+            t_trace_total += t_trace
+            per_tx_candidates += int(np.asarray(traced.mask).shape[-1])
+
+            t0 = time.time()
+            part, num_valid = _cfr_for_paths(
+                traced,
+                mesh,
+                frequencies_hz,
+                tx_pol,
+                rx_pol,
+                freq_chunk=freq_chunk,
+                num_tx=1,
+                num_el=num_el,
+                tx_chunk=tx_chunk,
+                radio_materials=mats,
+            )
+            fields_seconds += time.time() - t0
+            per_tx_valid += num_valid
+            cfr[i] += part[0]
+        paths_per_order[order] = per_tx_valid
+        candidates[order] = per_tx_candidates
+        trace_seconds[order] = t_trace_total
+        print(
+            f"    [order {order}] candidates={per_tx_candidates} valid={per_tx_valid} "
+            f"trace={t_trace_total:.1f}s fields={fields_seconds:.1f}s (per-tx tracing)",
+            flush=True,
+        )
+
+    diagnostics = {
+        "tracer": spec.tracer,
+        "interactions": sorted(spec.interactions()),
+        "orders": list(spec.orders()),
+        "per_tx_tracing": True,
+        "paths_per_order": paths_per_order,
+        "candidates_per_order": candidates,
+        "trace_seconds_per_order": trace_seconds,
+        "trace_seconds_total": float(sum(trace_seconds.values())),
+        "fields_seconds_total": fields_seconds,
+        "num_valid_paths_total": int(sum(paths_per_order.values())),
+        "freq_chunk": freq_chunk,
+        "num_rays": spec.num_rays,
+        "max_num_candidates": spec.max_num_candidates,
+    }
+    return CfrResult(cfr=cfr, paths_per_order=paths_per_order, diagnostics=diagnostics)
+
+
 def compute_cfr(
     link_scene: LinkScene,
     frequencies_hz: np.ndarray,
@@ -223,6 +342,7 @@ def compute_cfr(
     mesh = link_scene.scene.mesh
     tx_pol = tx_polarization if tx_polarization is not None else antenna_spec[0]
     rx_pol = rx_polarization if rx_polarization is not None else antenna_spec[1]
+    mats = build_radio_materials(spec.material_thickness_m)
 
     num_tx = link_scene.num_tx
     num_el = link_scene.num_elements
@@ -249,6 +369,7 @@ def compute_cfr(
             num_tx=num_tx,
             num_el=num_el,
             tx_chunk=tx_chunk,
+            radio_materials=mats,
         )
         fields_seconds += time.time() - t0
         paths_per_order[order] = num_valid

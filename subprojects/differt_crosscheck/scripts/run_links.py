@@ -14,6 +14,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
 
+from datetime import UTC
+
 from differt_crosscheck.config import (  # noqa: E402
     DEFAULT_ANTENNA,
     DEFAULT_GRID,
@@ -29,7 +31,7 @@ from differt_crosscheck.scene import (  # noqa: E402
     load_front3d_scene,
     mesh_stats,
 )
-from differt_crosscheck.solver import compute_cfr  # noqa: E402
+from differt_crosscheck.solver import compute_cfr, compute_cfr_per_tx  # noqa: E402
 
 
 def _parse_solver(args: argparse.Namespace) -> SolverSpec:
@@ -62,6 +64,12 @@ def main() -> int:
     parser.add_argument("--freq-chunk", type=int, default=128)
     parser.add_argument("--tx-chunk", type=int, default=2)
     parser.add_argument("--explicit-antenna", action="store_true", default=False)
+    parser.add_argument(
+        "--per-tx",
+        action="store_true",
+        default=None,
+        help="trace one transmitter at a time (forced for hybrid/exhaustive)",
+    )
     parser.add_argument("--shortcut-antenna", dest="explicit_antenna", action="store_false")
     args = parser.parse_args()
 
@@ -107,7 +115,11 @@ def main() -> int:
             antenna,
         )
 
-        result = compute_cfr(
+        per_tx = (
+            args.per_tx if args.per_tx is not None else solver.tracer in ("hybrid", "exhaustive")
+        )
+        runner = compute_cfr_per_tx if per_tx else compute_cfr
+        result = runner(
             link_scene,
             frequencies,
             solver,
@@ -120,7 +132,7 @@ def main() -> int:
         num_links, ports, num_freq = cfr.shape
         cfr_contract = cfr.reshape(num_links, ports, 1, num_freq)
 
-        out_path = paths["cfr"] / f"{key}.h5"
+        out_path = paths["scenes"] / f"{key}.h5"
         write_scene_h5(
             out_path,
             scene_key=key,
@@ -167,10 +179,77 @@ def main() -> int:
             }
         )
 
-    out_summary = paths["cfr"] / "run_summary.json"
+    _write_manifest(paths, summary, selection)
+
+    out_summary = paths["dataset"] / "run_summary.json"
     out_summary.write_text(json.dumps(summary, indent=2))
     print(f"summary -> {out_summary}")
     return 0
+
+
+def _write_manifest(paths: dict, summary: dict, selection: dict) -> None:
+    """Write a Sionna-style manifest.json plus a human-readable run_config.yaml."""
+    from datetime import datetime
+
+    import h5py
+
+    scenes = []
+    total_links = 0
+    for entry in summary["scenes"]:
+        h5 = Path(entry["h5"])
+        with h5py.File(h5, "r") as f:
+            shape = list(f["cfr"].shape)
+            dtype = str(f["cfr"].dtype)
+        total_links += shape[0]
+        scenes.append(
+            {
+                "scene_key": entry["scene_key"],
+                "size_label": entry["size_label"],
+                "h5": str(h5),
+                "shape": shape,
+                "dtype": dtype,
+                "num_links": shape[0],
+                "size_bytes": h5.stat().st_size,
+                "elapsed_seconds": entry["elapsed_seconds"],
+                "mesh": entry["mesh"],
+                "diagnostics": entry["diagnostics"],
+            }
+        )
+
+    manifest = {
+        "contract_name": "differt_crosscheck_scene_dataset_manifest",
+        "schema_version": "v1",
+        "producer": "differt_crosscheck",
+        "engine": "differt",
+        "created_at": datetime.now(UTC).isoformat(),
+        "num_scenes": len(scenes),
+        "num_links": total_links,
+        "solver": summary["solver"],
+        "grid": summary["grid"],
+        "antenna": summary["antenna"],
+        "policy": selection.get("policy"),
+        "scenes": scenes,
+    }
+    (paths["dataset"] / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    cfg = [
+        "# DiffeRT cross-check run configuration (mirrors the Sionna run_config style)",
+        "engine: differt",
+        f"tracer: {summary['solver']['tracer']}",
+        f"order: {summary['solver']['order']}",
+        f"interactions: {summary['solver']['interactions']}",
+        f"num_rays: {summary['solver']['num_rays']}",
+        f"max_num_candidates: {summary['solver']['max_num_candidates']}",
+        f"center_frequency_hz: {summary['grid']['center_frequency_hz']}",
+        f"bandwidth_hz: {summary['grid']['bandwidth_hz']}",
+        f"num_subcarriers: {summary['grid']['num_subcarriers']}",
+        f"subcarrier_spacing_hz: {summary['grid']['subcarrier_spacing_hz']}",
+        f"bs_array: {summary['antenna']['bs']}",
+        f"ue_array: {summary['antenna']['ue']}",
+        f"scenes: {[sc['scene_key'] for sc in scenes]}",
+        f"links: {total_links}",
+    ]
+    (paths["root"] / "run_config.yaml").write_text("\n".join(cfg) + "\n")
 
 
 if __name__ == "__main__":
