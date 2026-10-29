@@ -133,9 +133,7 @@ def score_pair(
     p_ref = pdp(ref2)
     p_dut = pdp(dut2)
     pdp_corr = (
-        float(np.corrcoef(p_ref, p_dut)[0, 1])
-        if p_ref.std() > 0 and p_dut.std() > 0
-        else 0.0
+        float(np.corrcoef(p_ref, p_dut)[0, 1]) if p_ref.std() > 0 and p_dut.std() > 0 else 0.0
     )
     pdp_l1 = float(np.abs(p_ref - p_dut).sum() / 2.0)
 

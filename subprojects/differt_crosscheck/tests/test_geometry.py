@@ -10,7 +10,6 @@ against the formula rather than against our own implementation.
 from __future__ import annotations
 
 import numpy as np
-
 from differt_crosscheck.config import PlanarArraySpec
 from differt_crosscheck.scene import panel_element_positions, rotation_z
 

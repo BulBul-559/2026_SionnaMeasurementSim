@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from differt_crosscheck.antenna import IsotropicVerticalAntenna, spherical_basis
 
 F0 = 3_438_000_000.0
@@ -36,7 +35,6 @@ def test_polarization_vectors_are_transverse() -> None:
 
 def _los_scene(direction_scale: float):
     import jax.numpy as jnp
-
     from differt.geometry import Mesh, Scene
 
     # DiffeRT's radiation-pattern API treats (T + r_hat) as a direction, i.e. it assumes
@@ -53,7 +51,6 @@ def _los_scene(direction_scale: float):
 
 def _los_gain(polarization) -> complex:  # noqa: ANN001
     import jax.numpy as jnp
-
     from differt.em import TracedFields
 
     scene = _los_scene(3.0)

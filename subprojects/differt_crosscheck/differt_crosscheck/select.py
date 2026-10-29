@@ -98,7 +98,9 @@ def build_selection(case: CaseSpec | None = None, index_path: Path | None = None
 
         row_idx, dist = _nearest(links["bs_pos"], bs_center)
         if dist > 1e-2:
-            raise ValueError(f"{scene_key}: BS position not found in Sionna dataset (d={dist:.3f} m)")
+            raise ValueError(
+                f"{scene_key}: BS position not found in Sionna dataset (d={dist:.3f} m)"
+            )
 
         same_bs = np.where(np.linalg.norm(links["bs_pos"] - bs_center[None, :], axis=1) < 1e-3)[0]
         selectable = [i for i in same_bs if bool(links["valid"][i])]

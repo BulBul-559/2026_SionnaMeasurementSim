@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from differt_crosscheck.config import DEFAULT_GRID
 from differt_crosscheck.io import SCHEMA_VERSION, write_scene_h5
 from differt_crosscheck.metrics import (
@@ -16,13 +15,17 @@ from differt_crosscheck.metrics import (
 
 def _fake_cfr(num_links=2, ports=32, freqs=64, seed=0):
     rng = np.random.default_rng(seed)
-    return (rng.normal(size=(num_links, ports, 1, freqs)) + 1j * rng.normal(size=(num_links, ports, 1, freqs))).astype(np.complex64)
+    return (
+        rng.normal(size=(num_links, ports, 1, freqs))
+        + 1j * rng.normal(size=(num_links, ports, 1, freqs))
+    ).astype(np.complex64)
 
 
 def test_h5_roundtrip(tmp_path=None) -> None:
-    import h5py
     import tempfile
     from pathlib import Path
+
+    import h5py
 
     grid = DEFAULT_GRID
     freqs = grid.frequencies_hz()
@@ -43,10 +46,24 @@ def test_h5_roundtrip(tmp_path=None) -> None:
             frequencies_hz=freqs,
             grid=grid.as_dict(),
             antenna={
-                "tx": {"num_rows": 1, "num_cols": 1, "num_elements": 1, "spacing_m": 0.0,
-                       "spacing_lambda": 0.5, "pattern": "iso", "polarization": "V"},
-                "rx": {"num_rows": 4, "num_cols": 8, "num_elements": 32, "spacing_m": 0.04364,
-                       "spacing_lambda": 0.5005, "pattern": "iso", "polarization": "V"},
+                "tx": {
+                    "num_rows": 1,
+                    "num_cols": 1,
+                    "num_elements": 1,
+                    "spacing_m": 0.0,
+                    "spacing_lambda": 0.5,
+                    "pattern": "iso",
+                    "polarization": "V",
+                },
+                "rx": {
+                    "num_rows": 4,
+                    "num_cols": 8,
+                    "num_elements": 32,
+                    "spacing_m": 0.04364,
+                    "spacing_lambda": 0.5005,
+                    "pattern": "iso",
+                    "polarization": "V",
+                },
             },
             solver={"tracer": "sbr"},
             mesh={"num_triangles": 1},
@@ -64,7 +81,9 @@ def test_identical_links_score_perfectly() -> None:
     grid = DEFAULT_GRID
     freqs = grid.frequencies_hz()
     h = _fake_cfr(num_links=1, freqs=freqs.size)[0, :, 0, :]
-    score = score_pair(h, h.copy(), bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers)
+    score = score_pair(
+        h, h.copy(), bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers
+    )
     assert abs(score["cos_sim"] - 1.0) < 1e-6
     assert score["nmse_complex_db"] < -30
     assert abs(score["power_offset_db"]) < 1e-6
@@ -75,7 +94,9 @@ def test_scale_and_phase_invariance() -> None:
     freqs = grid.frequencies_hz()
     h = _fake_cfr(num_links=1, freqs=freqs.size)[0, :, 0, :]
     shifted = 3.5 * h * np.exp(1j * 0.7)
-    score = score_pair(h, shifted, bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers)
+    score = score_pair(
+        h, shifted, bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers
+    )
     assert score["cos_sim"] > 0.999
     assert abs(score["power_offset_db"] - 20 * np.log10(3.5)) < 1e-3
 
@@ -86,7 +107,9 @@ def test_noise_degrades_scores() -> None:
     h = _fake_cfr(num_links=1, freqs=freqs.size)[0, :, 0, :]
     rng = np.random.default_rng(7)
     noisy = h + 0.5 * (rng.normal(size=h.shape) + 1j * rng.normal(size=h.shape))
-    score = score_pair(h, noisy, bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers)
+    score = score_pair(
+        h, noisy, bandwidth_hz=grid.bandwidth_hz, num_subcarriers=grid.num_subcarriers
+    )
     assert score["cos_sim"] < 0.999
     assert score["nmse_complex_db"] > -30
 

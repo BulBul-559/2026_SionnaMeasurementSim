@@ -48,8 +48,8 @@ def spherical_basis(r: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _build_antenna_class():  # noqa: ANN202 - lazily imported to keep numpy-only imports cheap
-    from differt.em import AbstractRadiationPattern  # noqa: PLC0415
     import jax.numpy as jnp  # noqa: PLC0415
+    from differt.em import AbstractRadiationPattern  # noqa: PLC0415
 
     class IsotropicVerticalAntenna(AbstractRadiationPattern):
         """Isotropic element, vertical polarisation.

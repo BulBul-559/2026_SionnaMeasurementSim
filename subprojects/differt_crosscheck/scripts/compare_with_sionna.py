@@ -93,8 +93,8 @@ def main() -> int:
             rows_out.append(row)
             scores.append(score)
 
-        def _mean(name: str) -> float:
-            return float(np.mean([s[name] for s in scores]))
+        def _mean(name: str, _scores=scores) -> float:
+            return float(np.mean([s[name] for s in _scores]))
 
         per_scene.append(
             {
@@ -119,7 +119,9 @@ def main() -> int:
 
     csv_path = paths["compare"] / "metrics_per_link.csv"
     with csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows_out[0].keys()) if rows_out else ["scene_key"])
+        writer = csv.DictWriter(
+            handle, fieldnames=list(rows_out[0].keys()) if rows_out else ["scene_key"]
+        )
         writer.writeheader()
         writer.writerows(rows_out)
 

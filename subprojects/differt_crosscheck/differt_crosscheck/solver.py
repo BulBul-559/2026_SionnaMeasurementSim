@@ -83,7 +83,6 @@ def trace_paths(link_scene: LinkScene, spec: SolverSpec, order: int):
 def _fields_vmap(traced_paths, mesh, tx_pol, rx_pol):
     """Frequency-batched field evaluation for one traced path set."""
     import jax  # noqa: PLC0415
-
     from differt.em import TracedFields  # noqa: PLC0415
 
     def fields_at(paths_arg, frequency):  # noqa: ANN001
@@ -197,10 +196,14 @@ def _cfr_for_paths(
             # (verified: the phase slope of a LoS-only field equals exp(-j 2 pi f d/c)).
             # Multiplying by another exp(-j 2 pi f tau) double-counts the delay and
             # destroys the phase relationship between paths of different length.
-            cfr[t_start:t_stop, :, start:stop] = np.sum(
-                np.where(mask, gain, 0.0),
-                axis=-1,
-            ).transpose(1, 2, 0).astype(np.complex64)
+            cfr[t_start:t_stop, :, start:stop] = (
+                np.sum(
+                    np.where(mask, gain, 0.0),
+                    axis=-1,
+                )
+                .transpose(1, 2, 0)
+                .astype(np.complex64)
+            )
     return cfr, num_valid
 
 

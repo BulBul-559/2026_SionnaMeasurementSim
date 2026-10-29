@@ -46,7 +46,7 @@ def output_paths(root: Path | None = None) -> dict[str, Path]:
 
 def ensure_output_dirs(root: Path | None = None) -> dict[str, Path]:
     paths = output_paths(root)
-    for key, path in paths.items():
+    for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
     return paths
 
@@ -90,7 +90,8 @@ class FrequencyGrid:
         expected = self.num_subcarriers * self.subcarrier_spacing_hz
         if abs(expected - self.bandwidth_hz) > 1.0:
             raise ValueError(
-                f"grid inconsistent: N*dF={expected:.1f} Hz but bandwidth={self.bandwidth_hz:.1f} Hz"
+                "grid inconsistent: "
+                f"N*dF={expected:.1f} Hz but bandwidth={self.bandwidth_hz:.1f} Hz"
             )
 
     def frequencies_hz(self) -> np.ndarray:
@@ -144,7 +145,9 @@ class PlanarArraySpec:
 class AntennaSpec:
     bs: PlanarArraySpec = field(default_factory=PlanarArraySpec)
     ue: PlanarArraySpec = field(
-        default_factory=lambda: PlanarArraySpec(num_rows=1, num_cols=1, spacing_m=0.0, spacing_lambda=0.5)
+        default_factory=lambda: PlanarArraySpec(
+            num_rows=1, num_cols=1, spacing_m=0.0, spacing_lambda=0.5
+        )
     )
     #: yaw (rotation about +z, radians) applied to the BS panel from the prepared label.
     bs_orientation_source: str = "label.bs_points[i].orientation_rad[0]"

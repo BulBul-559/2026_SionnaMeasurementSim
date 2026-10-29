@@ -50,7 +50,9 @@ def main() -> int:
     parser.add_argument("--output-root", type=Path, default=None)
     parser.add_argument("--selection", type=Path, default=None)
     parser.add_argument("--scene", action="append", help="restrict to these scene keys")
-    parser.add_argument("--tracer", default=DEFAULT_SOLVER.tracer, choices=["sbr", "hybrid", "exhaustive"])
+    parser.add_argument(
+        "--tracer", default=DEFAULT_SOLVER.tracer, choices=["sbr", "hybrid", "exhaustive"]
+    )
     parser.add_argument("--order", type=int, default=DEFAULT_SOLVER.order)
     parser.add_argument("--num-rays", type=int, default=DEFAULT_SOLVER.num_rays)
     parser.add_argument("--max-num-candidates", type=int, default=DEFAULT_SOLVER.max_num_candidates)

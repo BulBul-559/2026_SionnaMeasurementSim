@@ -91,7 +91,6 @@ def build_link_scene(
 ) -> LinkScene:
     """Attach ``num_tx`` UE transmitters and one BS panel to ``base_scene``."""
     import jax.numpy as jnp  # noqa: PLC0415
-
     from differt.geometry import Scene  # noqa: PLC0415
 
     tx_positions = np.asarray(tx_positions, dtype=float).reshape(-1, 3)

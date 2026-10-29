@@ -18,7 +18,7 @@ DiffeRT-specific information (solver configuration, path counts, timings) lives 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -126,7 +126,7 @@ def write_scene_h5(
         gm = f.create_group("meta")
         _str_ds(gm, "producer", "differt_crosscheck")
         _str_ds(gm, "schema_version", SCHEMA_VERSION)
-        _str_ds(gm, "created_at", datetime.now(timezone.utc).isoformat())
+        _str_ds(gm, "created_at", datetime.now(UTC).isoformat())
         _str_ds(gm, "engine", "differt")
         if extra_meta:
             _str_ds(gm, "extra_json", json.dumps(extra_meta, sort_keys=True, default=str))
