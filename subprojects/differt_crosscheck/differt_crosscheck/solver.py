@@ -193,10 +193,12 @@ def _cfr_for_paths(
 
             mask = np.asarray(out.mask)
             gain = np.asarray(out.fields)
-            delay = np.asarray(out.delay)
-            omega = -2j * np.pi * frequencies_hz[start:stop][:, None, None, None]
+            # DiffeRT's per-frequency fields already contain the propagation phase
+            # (verified: the phase slope of a LoS-only field equals exp(-j 2 pi f d/c)).
+            # Multiplying by another exp(-j 2 pi f tau) double-counts the delay and
+            # destroys the phase relationship between paths of different length.
             cfr[t_start:t_stop, :, start:stop] = np.sum(
-                np.where(mask, gain * np.exp(omega * delay), 0.0),
+                np.where(mask, gain, 0.0),
                 axis=-1,
             ).transpose(1, 2, 0).astype(np.complex64)
     return cfr, num_valid
