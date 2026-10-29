@@ -1,0 +1,4 @@
+iter 0: AssertionError: Some segments are connected to LESS than 2 cycles[ 60  61 126 127 223 276 279 288 292 293] ids=[60, 61, 126, 127, 223, 276, 279, 288, 292, 293]
+   removed lay segment 60 {'name': 'WALL', 'connect': [-65, -66], 'z': (0.0, 2.8)}
+   removed lay segment 61 {'name': 'WALL', 'connect': [-66, -167], 'z': (2.45, 2.8)}
+iter 1: KeyError: 38 ids=[]
