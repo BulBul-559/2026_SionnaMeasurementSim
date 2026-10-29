@@ -129,6 +129,34 @@ PYTHONPATH=. .venv-differt/bin/python scripts/compare_with_sionna.py
   并把 `max_diffractions` / `max_transmissions` 限制为 1，否则图式候选生成不可用。
 * 大场景（front3d_5704，约 50 万面）在 order=4 下未跑完（order=1 已 196 s），需要 GPU 或简化几何。
 
+## 2 跳 + 反射 + 透射：实测（2026-10-29）
+
+配置：`tracer=exhaustive`、`order=2`、`reflection + transmission`、材料厚度 0.1 m
+（对齐 Sionna `DEFAULT_THICKNESS`）、建筑-only 几何、BS 4×8、768×30 kHz。
+
+| 场景 | 几何 | 链路 | 耗时 | 峰值内存 | 输出 |
+|---|---|---:|---:|---:|---:|
+| front3d_3682（小，18.8 m²） | 建筑-only 1,030 面 | 10 | 233 s | 26 GB | 1.91 MiB |
+| front3d_2508（中，73.3 m²） | 建筑-only 1,934 面 | 10 | 进行中 | ~48 GB | — |
+
+关键结论：
+
+1. **小房间可用**。相对 Sionna：`cos_sim=0.103`、功率偏差 `+1.0 dB`、PDP 相关 `0.999`，
+   与纯反射 4 跳（0.103 / +0.9 dB）一致——该场景 10 条链路都是 LoS 主导，透射没有增量。
+2. **order=2 的候选浪费极大**：3682 单场景生成 15,774,804 个候选，最终有效 7,867（2005:1），
+   时间和内存基本都花在候选生成上。
+3. **多房间场景下 ≤2 跳覆盖不到深 NLoS 链路**。front3d_2508 里 4 条 LoS 链路在 order=0 就
+   有 32 条有效路径，另 6 条（Sionna 功率 < -80 dB）在 order 0/1/2 的有效路径都是 **0** ——
+   它们至少需要 3 次相互作用（两次穿墙等），而 order=3 在当前实现下不可行。
+4. **`hybrid` 在 2508 上会触发 DiffeRT 内部 Warp 切片 bug**（`Invalid indexing in slice:
+   8214:8192:1`，固定 8192 缓冲越界），改用 `exhaustive` 并把 32 个端口分块
+   （`--rx-chunk 8`）后内存可控（约 43 GB/组）。
+
+### 因此这套配置的适用范围
+
+能覆盖 LoS + 一次穿墙 + 两次反射这一档，对"同房间 / 隔一道墙"的链路与 Sionna 基本对得上；
+跨多个房间的深 NLoS 链路对不上，且不是调参能解决的（需要更高阶，而高阶不可行）。
+
 ## 实现坑位（都已踩过并写进代码注释）
 
 | 坑 | 现象 | 处理 |

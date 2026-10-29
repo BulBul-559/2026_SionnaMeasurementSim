@@ -251,8 +251,10 @@ def compute_cfr_per_tx(
     rx_polarization=None,
     freq_chunk: int = 16,
     tx_chunk: int = 1,
+    rx_chunk: int | None = None,
 ) -> CfrResult:
-    """Like :func:`compute_cfr`, but traces one transmitter at a time.
+    """Like :func:`compute_cfr`, but traces one transmitter (and optionally one port group)
+    at a time.
 
     Required for the graph-based tracers: they enumerate candidates over *all*
     transmitters jointly, so ten UEs at once multiply the candidate array by ten.
@@ -278,27 +280,35 @@ def compute_cfr_per_tx(
         per_tx_candidates = 0
         t_trace_total = 0.0
         for i in range(num_tx):
-            one = subset_link_scene(link_scene, [i])
-            traced, t_trace = trace_paths(one, spec, order)
-            t_trace_total += t_trace
-            per_tx_candidates += int(np.asarray(traced.mask).shape[-1])
-
-            t0 = time.time()
-            part, num_valid = _cfr_for_paths(
-                traced,
-                mesh,
-                frequencies_hz,
-                tx_pol,
-                rx_pol,
-                freq_chunk=freq_chunk,
-                num_tx=1,
-                num_el=num_el,
-                tx_chunk=tx_chunk,
-                radio_materials=mats,
+            rxs = (
+                [list(range(0, num_el))]
+                if not rx_chunk
+                else [
+                    list(range(r0, min(r0 + rx_chunk, num_el))) for r0 in range(0, num_el, rx_chunk)
+                ]
             )
-            fields_seconds += time.time() - t0
-            per_tx_valid += num_valid
-            cfr[i] += part[0]
+            for ports in rxs:
+                one = subset_link_scene(link_scene, [i], ports)
+                traced, t_trace = trace_paths(one, spec, order)
+                t_trace_total += t_trace
+                per_tx_candidates += int(np.asarray(traced.mask).shape[-1])
+
+                t0 = time.time()
+                part, num_valid = _cfr_for_paths(
+                    traced,
+                    mesh,
+                    frequencies_hz,
+                    tx_pol,
+                    rx_pol,
+                    freq_chunk=freq_chunk,
+                    num_tx=1,
+                    num_el=len(ports),
+                    tx_chunk=tx_chunk,
+                    radio_materials=mats,
+                )
+                fields_seconds += time.time() - t0
+                per_tx_valid += num_valid
+                cfr[i, ports, :] += part[0]
         paths_per_order[order] = per_tx_valid
         candidates[order] = per_tx_candidates
         trace_seconds[order] = t_trace_total
@@ -313,6 +323,7 @@ def compute_cfr_per_tx(
         "interactions": sorted(spec.interactions()),
         "orders": list(spec.orders()),
         "per_tx_tracing": True,
+        "rx_chunk": rx_chunk,
         "paths_per_order": paths_per_order,
         "candidates_per_order": candidates,
         "trace_seconds_per_order": trace_seconds,

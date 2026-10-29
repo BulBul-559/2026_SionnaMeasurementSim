@@ -124,7 +124,7 @@ def mesh_stats(scene) -> dict[str, object]:  # noqa: ANN001
     }
 
 
-def subset_link_scene(link_scene: LinkScene, indices) -> LinkScene:
+def subset_link_scene(link_scene: LinkScene, indices, ports=None) -> LinkScene:
     """A copy of ``link_scene`` restricted to the given transmitter indices.
 
     Graph-based tracers (``hybrid``/``exhaustive``) enumerate candidates for every
@@ -136,15 +136,16 @@ def subset_link_scene(link_scene: LinkScene, indices) -> LinkScene:
 
     idx = list(indices)
     tx = link_scene.tx_positions[idx]
+    rx = link_scene.rx_positions if ports is None else link_scene.rx_positions[list(ports)]
     scene = Scene(
         transmitters=jnp.asarray(tx),
-        receivers=jnp.asarray(link_scene.rx_positions),
+        receivers=jnp.asarray(rx),
         mesh=link_scene.scene.mesh,
     )
     return LinkScene(
         scene=scene,
         tx_positions=tx,
-        rx_positions=link_scene.rx_positions,
+        rx_positions=rx,
         bs_center=link_scene.bs_center,
         bs_yaw_rad=link_scene.bs_yaw_rad,
     )

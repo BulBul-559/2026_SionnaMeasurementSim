@@ -63,6 +63,7 @@ def main() -> int:
     parser.add_argument("--no-los", action="store_true")
     parser.add_argument("--freq-chunk", type=int, default=128)
     parser.add_argument("--tx-chunk", type=int, default=2)
+    parser.add_argument("--rx-chunk", type=int, default=0, help="ports per trace (0 = all)")
     parser.add_argument("--explicit-antenna", action="store_true", default=False)
     parser.add_argument(
         "--per-tx",
@@ -126,6 +127,7 @@ def main() -> int:
             (tx_pol, rx_pol),
             freq_chunk=args.freq_chunk,
             tx_chunk=args.tx_chunk,
+            **({"rx_chunk": args.rx_chunk} if per_tx else {}),
         )
 
         cfr = result.cfr  # (num_tx, ports, freq)
