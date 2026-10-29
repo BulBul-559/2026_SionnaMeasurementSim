@@ -14,7 +14,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
 
-from datetime import UTC
+from datetime import UTC  # noqa: E402
 
 from differt_crosscheck.config import (  # noqa: E402
     DEFAULT_ANTENNA,
