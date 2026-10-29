@@ -45,12 +45,31 @@ def pdp(h: np.ndarray) -> np.ndarray:
 
 
 def rms_delay_spread_ns(h: np.ndarray, bandwidth_hz: float, num_subcarriers: int) -> float:
+    """RMS delay spread, computed *circularly*.
+
+    The delay axis of an N-point IFFT is circular: a channel whose energy sits at bin 0
+    leaks a little energy into the last bins, so a plain linear first/second moment puts
+    the mean in the middle of the window and reports a delay spread of microseconds for a
+    single-tap channel. Using the circular mean (angle of the first Fourier moment) and
+    angle-wrapped deviations keeps the metric bounded by the window/2 and correct.
+    """
     prof = pdp(h)
+    n = prof.size
+    if n == 0 or prof.sum() <= 0:
+        return 0.0
+
     dt = 1.0 / (num_subcarriers * (bandwidth_hz / (num_subcarriers - 1)))
-    tau = np.arange(prof.size) * dt
-    mean_tau = float(np.sum(tau * prof))
-    var = float(np.sum((tau - mean_tau) ** 2 * prof))
-    return 1e9 * float(np.sqrt(max(var, 0.0)))
+    phases = 2.0 * np.pi * np.arange(n) / n
+
+    moment = np.sum(prof * np.exp(1j * phases))
+    if np.abs(moment) <= 0:
+        return float(1e9 * dt * n / 2.0)
+
+    mean_phase = np.angle(moment) % (2.0 * np.pi)
+    # wrapped deviation in bins, in [-n/2, n/2)
+    dev = np.angle(np.exp(1j * (phases - mean_phase))) * n / (2.0 * np.pi)
+    var_bins = float(np.sum(prof * dev**2))
+    return float(1e9 * dt * np.sqrt(max(var_bins, 0.0)))
 
 
 def freq_selectivity_db(h: np.ndarray) -> float:
