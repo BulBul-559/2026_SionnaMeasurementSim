@@ -24,6 +24,7 @@ from .config import AntennaSpec, PlanarArraySpec
 
 __all__ = [
     "load_front3d_scene",
+    "ue_element_positions",
     "subset_link_scene",
     "panel_element_positions",
     "rotation_z",
@@ -41,10 +42,11 @@ def panel_element_positions(
     center: np.ndarray,
     yaw_rad: float,
     spec: PlanarArraySpec,
+    center_frequency_hz: float = 3_438_000_000.0,
 ) -> np.ndarray:
     """Global coordinates of the panel elements, in Sionna element order."""
     rows, cols = spec.num_rows, spec.num_cols
-    d_v = d_h = spec.spacing_m
+    d_v = d_h = spec.element_spacing_m(center_frequency_hz)
 
     ii, jj = np.meshgrid(np.arange(rows), np.arange(cols), indexing="ij")
     y = d_h * jj - (cols - 1) * d_h / 2.0
@@ -52,6 +54,18 @@ def panel_element_positions(
     local = np.stack([np.zeros_like(y), y, z], axis=-1).reshape(-1, 3)
 
     return (rotation_z(yaw_rad) @ local.T).T + np.asarray(center, dtype=float)[None, :]
+
+
+def ue_element_positions(
+    center: np.ndarray,
+    spec: PlanarArraySpec,
+    center_frequency_hz: float,
+    yaw_rad: float = 0.0,
+) -> np.ndarray:
+    """Global coordinates of the UE array elements (UE orientation is fixed at 0)."""
+    if spec.num_elements == 1:
+        return np.asarray(center, dtype=float).reshape(1, 3)
+    return panel_element_positions(center, yaw_rad, spec, center_frequency_hz)
 
 
 def load_front3d_scene(scene_xml: str | Path):

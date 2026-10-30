@@ -121,14 +121,21 @@ class PlanarArraySpec:
 
     num_rows: int = 4
     num_cols: int = 8
-    spacing_m: float = 0.04364
-    spacing_lambda: float = 0.5004606219947
+    #: Physical spacing; 0 means "derive from spacing_lambda at the contract frequency".
+    spacing_m: float = 0.0
+    spacing_lambda: float = 0.5
     pattern: str = "iso"
     polarization: str = "V"
 
     @property
     def num_elements(self) -> int:
         return self.num_rows * self.num_cols
+
+    def element_spacing_m(self, center_frequency_hz: float) -> float:
+        """Physical element spacing at ``center_frequency_hz`` (Sionna specifies 0.5 lambda)."""
+        if self.spacing_m:
+            return self.spacing_m
+        return self.spacing_lambda * C0 / center_frequency_hz
 
     def as_dict(self) -> dict[str, float | int | str]:
         return {
@@ -213,7 +220,70 @@ class SolverSpec:
         }
 
 
+C0 = 299_792_458.0
+
 DEFAULT_GRID = FrequencyGrid()
 DEFAULT_CASE = CaseSpec()
 DEFAULT_ANTENNA = AntennaSpec()
 DEFAULT_SOLVER = SolverSpec()
+
+# --------------------------------------------------------------------------------------
+# Contract profiles
+# --------------------------------------------------------------------------------------
+#
+# Two antenna/carrier contracts exist in this workspace:
+#
+#   "2988"  the original Front3d_2988_CFR_Only dataset: 3.5 GHz, BS 4x4 (16 ports),
+#           UE 1x2 (2 ports), BS orientation fixed at [0, 0, 0] (the dataset predates
+#           per-device orientation), CFR shape [link, 16, 2, 768].
+#   "339"   the DICHASUS-like regeneration: 3.438 GHz, BS 4x8 (32 ports), UE 1x1,
+#           per-BS yaw from the prepared label, CFR shape [link, 32, 1, 768].
+#
+# Everything downstream (grid, arrays, link building, HDF5 shape) is derived from the
+# selected profile so the two can never be mixed silently.
+
+
+@dataclass(frozen=True)
+class ContractProfile:
+    name: str
+    grid: FrequencyGrid
+    bs: PlanarArraySpec
+    ue: PlanarArraySpec
+    #: false for the 2988 contract: the BS array kept its global orientation.
+    use_label_bs_yaw: bool
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "grid": self.grid.as_dict(),
+            "bs_array": self.bs.as_dict(),
+            "ue_array": self.ue.as_dict(),
+            "use_label_bs_yaw": self.use_label_bs_yaw,
+            "cfr_shape": ["num_links", self.bs.num_elements, self.ue.num_elements, self.grid.num_subcarriers],
+        }
+
+
+PROFILE_2988 = ContractProfile(
+    name="2988",
+    grid=FrequencyGrid(center_frequency_hz=3_500_000_000.0),
+    bs=PlanarArraySpec(num_rows=4, num_cols=4),
+    ue=PlanarArraySpec(num_rows=1, num_cols=2, spacing_m=0.0),
+    use_label_bs_yaw=False,
+)
+
+PROFILE_339 = ContractProfile(
+    name="339",
+    grid=FrequencyGrid(),
+    bs=PlanarArraySpec(),
+    ue=PlanarArraySpec(num_rows=1, num_cols=1, spacing_m=0.0),
+    use_label_bs_yaw=True,
+)
+
+PROFILES = {"2988": PROFILE_2988, "339": PROFILE_339}
+
+
+def get_profile(name: str) -> ContractProfile:
+    try:
+        return PROFILES[name]
+    except KeyError:
+        raise ValueError(f"unknown contract profile {name!r}; choose from {sorted(PROFILES)}") from None

@@ -34,12 +34,17 @@ def _db(x: float) -> float:
 
 
 def pdp(h: np.ndarray) -> np.ndarray:
-    """Power delay profile from the CFR (one-sided, normalised to unit energy)."""
+    """Power delay profile from the CFR (normalised to unit energy).
+
+    Accepts any leading batch shape (e.g. ``(ports, tx_ant, subcarriers)``) and averages
+    over every axis except the last.
+    """
     h = np.asarray(h, dtype=np.complex128)
     if h.ndim == 1:
         h = h[None, :]
     ir = np.fft.ifft(h, axis=-1)
-    prof = np.mean(np.abs(ir) ** 2, axis=0)
+    power = np.abs(ir) ** 2
+    prof = power.reshape(-1, power.shape[-1]).mean(axis=0)
     total = prof.sum()
     return prof / total if total > 0 else prof
 
