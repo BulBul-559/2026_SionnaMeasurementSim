@@ -89,8 +89,8 @@ fragment，并提供 `iter_manifest_dataset_batches()` 按 resolved UE 轴拼接
 `read_bundle_fragment_dataset()` 按 fragment index/id 读取 root append dataset 或 sidecar
 覆盖值。bundle 模式当前用于写盘和读取效率探索，不替代默认生产路径；涉及 schema/reader/manifest
 时要同时覆盖 bundle contract。
-离线训练底座另走 `postprocess-cfr-scenes`，不属于 `output.sharding.bundle`，
-也不接入仿真阶段 writer。它只读已完成的 CFR truth-only shard run，输出新的
+离线训练底座另走 scene postprocess，不属于 `output.sharding.bundle`，也不接入仿真阶段
+writer。`postprocess-cfr-scenes` 只读已完成的 CFR truth-only shard run，输出新的
 scene-level 数据集目录：`scenes/<scene_id>.h5`、`assets/<scene_id>/`、`manifest.json`、
 `link_index.pt`/parquet 和 `room_index.pt`/parquet，原始 `results/result_xxx.h5`
 与原 run manifest 不修改。单 scene H5 使用独立 contract
@@ -101,9 +101,13 @@ flatten 后的 link，当前 shape 为 `[link, rx_ant, tx_ant, subcarrier]`；�
 `/cfr_power_linear`、`/is_finite`、`/nan_count`、`/rooms/*`、
 `/link/ue_room_index`、`/link/bs_room_index`、`/link/target_room_index`、
 `/link/target_room_area_m2`、`/link/target_room_type_id`、`/floorplan/*` 和
-label/floorplan 资产。
-默认 `/cfr` 不压缩，以避免训练读取被 CPU 解压限制；轻量 metadata 可 gzip。该 contract
-由 `sionna_measurement_sim.postprocess.validate_cfr_scene_h5()` 校验，不走 full HDF5
+label/floorplan 资产。默认 `/cfr` 不压缩，以避免训练读取被 CPU 解压限制；轻量 metadata
+可 gzip。`postprocess-rt-label-scenes` 只读 `rt_labels_only` shard run，输出独立
+`sionna_rt_label_scene_dataset` / schema `0.1.0`，保留 scene H5 的 `/labels/link/*`
+flattened link 表，并物化 `/link_id`、`/bs_id`、`/ue_id`、`/target_xy`、`/valid_mask`、
+source shard provenance、`/rooms/*`、target room 索引以及包含 first-path/range、
+distance、path power、LoS/NLoS 字段的 `link_index.pt/parquet`。这两个离线 contract
+分别由 `validate_cfr_scene_h5()` 和 `validate_rt_label_scene_h5()` 校验，不走 full HDF5
 `validate_hdf5_contract()`。
 历史 `rt_lite` 和 `custom` profile 已在 schema `2.3.0` 破坏式移除：轻量 full-contract
 输出统一用 `profile: "full"` + `products` 表达。
@@ -432,12 +436,6 @@ UE高度1.6m、墙体/区域退让0.2m，BS沿用整图中心朝向。输出与�
 `outputs/dichasus_dc41_dc42_matching_positions_v1/dataset/`。详见
 [dc41/dc42记录](performance/dichasus_dc41_dc42_position_matching_cfr_20261027.md)。
 
-2026-10-27对dc40/dc41各5个随机官方位置比较实测与仿真CSI。原始绝对功率差约73–76dB；
-整链路RMS增益后幅度NRMSE仍约63–66%，逐RF天线增益后约47–49%。全局相偏/线性相位校正后
-相位残差仍约93–99°，逐天线常数+线性后约40–57%，说明除增益/同步外还有显著多径结构和
-逐RF通道相位差异。直接768与物理频率插值结果接近，已知频点差不是主因。详见
-[CSI偏差分析](performance/dichasus_dc40_dc41_five_position_csi_comparison_20261027.md)。
-
 2026-10-27随后补齐全套官方可用run：dc30–dc34、dc40–dc44共10个数据集，118925个位置、
 237850条双阵列理想CFR，统一根目录为
 `outputs/dichasus_dcxx_official_positions_cfr_v1/`。dc41/42复用旧结果；新增8场景5619
@@ -445,6 +443,12 @@ shards全部完成。全部CFR finite，236570条有效、1280条全零链路按
 目录按sources/labels/configs/queues/raw_runs/datasets分层，每个run有双BS及南北单BS
 索引；VisionRadioLoc实际读取10个run通过。详见
 [全集记录](performance/dichasus_dcxx_official_positions_full_cfr_20261027.md)。
+
+2026-10-27对dc40/dc41各5个随机官方位置比较实测与仿真CSI。原始绝对功率差约73–76dB；
+整链路RMS增益后幅度NRMSE仍约63–66%，逐RF天线增益后约47–49%。全局相偏/线性相位校正后
+相位残差仍约93–99°，逐天线常数+线性后约40–57%，说明除增益/同步外还有显著多径结构和
+逐RF通道相位差异。直接768与物理频率插值结果接近，已知频点差不是主因。详见
+[CSI偏差分析](performance/dichasus_dc40_dc41_five_position_csi_comparison_20261027.md)。
 
 2026-10-28按用户要求启动339场景全量。新配置
 `outputs/front3d_339_dichasus_like_cfr_v1/full_config.yaml` 相对试跑只改6个部署键：

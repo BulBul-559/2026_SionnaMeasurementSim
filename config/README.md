@@ -56,6 +56,13 @@ uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
     --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_scene_dataset \
     --workers 16 \
     --cfr-compression none
+
+# 离线后处理：从已完成 rt_labels_only shard run 构建 scene-level RT/RTT 标签数据集
+uv run python -m sionna_measurement_sim.app.cli postprocess-rt-label-scenes \
+    --input-root outputs/front3d_400_panel0p5_rtt_truth_only \
+    --output-root outputs/front3d_400_panel0p5_rt_label_scene_dataset \
+    --workers 16 \
+    --label-compression gzip
 ```
 
 ## 配置模板
@@ -118,13 +125,16 @@ uv run python scripts/prepare_dichasus_like_test.py \
 
 仓库里的 `data/` 与 `outputs/` 一样是 gitignore 的本地运行路径。生产场景、floor-plan、label 和 HDF5 不进入 git；可以把 `data` 本身做成本地 symlink 指向共享场景目录，也可以在 YAML 中直接使用共享存储的绝对路径。测试用的小场景固定放在 `tests/fixtures/scenes/test/`。
 
-`postprocess-cfr-scenes` 是独立离线后处理入口，不属于 YAML 仿真配置。它从
-`run-scene-index` 的输出根目录或显式 `--run-dir` 读取已完成的 CFR truth-only shard
-结果，输出新的 scene-level 数据集：`scenes/<scene_id>.h5`、`assets/<scene_id>/`、
-`manifest.json`、`link_index.pt`、`link_index.parquet`、`room_index.pt` 和
-`room_index.parquet`。默认 `/cfr` 不压缩，轻量 metadata 使用 gzip；可用
-`--cfr-compression gzip|lzf|none` 做空间/吞吐对照。PT 索引用于训练快速加载；
-parquet 索引用于按 room 面积/类型、功率和 valid mask 做筛选、统计和 split 生成。
+`postprocess-cfr-scenes` 和 `postprocess-rt-label-scenes` 是独立离线后处理入口，
+不属于 YAML 仿真配置。它们从 `run-scene-index` 的输出根目录或显式 `--run-dir`
+读取已完成 shard 结果，输出新的 scene-level 数据集：`scenes/<scene_id>.h5`、
+`assets/<scene_id>/`、`manifest.json`、`link_index.pt`、`link_index.parquet`、
+`room_index.pt` 和 `room_index.parquet`。CFR 路径读取 CFR truth-only shard，默认
+`/cfr` 不压缩，可用 `--cfr-compression gzip|lzf|none` 做空间/吞吐对照。RT labels
+路径读取 `rt_labels_only` shard，保留 scene H5 中的 `/labels/link/*`，并在索引中物化
+`first_path_delay_s`、`first_path_propagation_range_m`、`geometric_distance_m`、
+`path_power_db` 和 LoS/NLoS 标签。PT 索引用于训练快速加载；parquet 索引用于按 room
+面积/类型、功率、valid mask 或 ranging truth 字段做筛选、统计和 split 生成。
 
 ## 有效配置项
 

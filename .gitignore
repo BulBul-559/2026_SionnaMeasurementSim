@@ -26,3 +26,6 @@ old
 old/
 
 /legacy/
+
+# Local temporary experiments
+/tmp/

@@ -200,6 +200,56 @@ def build_parser() -> argparse.ArgumentParser:
     )
     postprocess_cfr.add_argument("--gzip-level", type=int, default=1)
 
+    postprocess_rt_labels = subparsers.add_parser(
+        "postprocess-rt-label-scenes",
+        help=(
+            "Build an offline scene-level RT labels dataset from completed "
+            "sharded rt_labels_only runs."
+        ),
+    )
+    postprocess_rt_labels.add_argument(
+        "--input-root",
+        default=None,
+        help=(
+            "Source scene-index output root or single run dir. If omitted, "
+            "--run-dir must be provided."
+        ),
+    )
+    postprocess_rt_labels.add_argument(
+        "--run-dir",
+        action="append",
+        default=[],
+        help="Explicit source run dir. May be provided multiple times.",
+    )
+    postprocess_rt_labels.add_argument("--output-root", required=True)
+    postprocess_rt_labels.add_argument("--start-index", type=int, default=0)
+    postprocess_rt_labels.add_argument("--limit", type=int, default=None)
+    postprocess_rt_labels.add_argument(
+        "--scene-id",
+        action="append",
+        default=[],
+        help="Optional scene id filter. May be provided multiple times.",
+    )
+    postprocess_rt_labels.add_argument("--workers", type=int, default=1)
+    postprocess_rt_labels.add_argument("--overwrite", action="store_true")
+    postprocess_rt_labels.add_argument("--no-skip-existing", action="store_true")
+    postprocess_rt_labels.add_argument("--no-validate", action="store_true")
+    postprocess_rt_labels.add_argument("--no-copy-assets", action="store_true")
+    postprocess_rt_labels.add_argument("--no-embed-assets", action="store_true")
+    postprocess_rt_labels.add_argument("--label-name", default="label_panel_0p5.json")
+    postprocess_rt_labels.add_argument(
+        "--label-compression",
+        default="gzip",
+        choices=["none", "gzip", "lzf"],
+        help="Compression for /labels/link datasets in the new scene H5.",
+    )
+    postprocess_rt_labels.add_argument(
+        "--metadata-compression",
+        default="gzip",
+        choices=["none", "gzip", "lzf"],
+    )
+    postprocess_rt_labels.add_argument("--gzip-level", type=int, default=1)
+
     full = subparsers.add_parser(
         "run-full",
         help="Full e2e: RT truth + paths + impairments + observation + motion + calibration.",
@@ -376,6 +426,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(
             "CFR scene postprocess complete: "
+            f"{result.completed} completed, {result.skipped} skipped, "
+            f"{result.failed} failed"
+        )
+        print(f"Manifest: {result.manifest_path}")
+        if result.link_index_path:
+            print(f"Link index PT: {result.link_index_path}")
+        if result.link_index_parquet_path:
+            print(f"Link index Parquet: {result.link_index_parquet_path}")
+        if result.room_index_path:
+            print(f"Room index PT: {result.room_index_path}")
+        if result.room_index_parquet_path:
+            print(f"Room index Parquet: {result.room_index_parquet_path}")
+        return 0 if result.failed == 0 else 1
+
+    if args.command == "postprocess-rt-label-scenes":
+        from pathlib import Path
+
+        from sionna_measurement_sim.postprocess import (
+            RTLabelSceneBuildConfig,
+            build_rt_label_scene_dataset,
+        )
+
+        result = build_rt_label_scene_dataset(
+            RTLabelSceneBuildConfig(
+                input_root=Path(args.input_root) if args.input_root else None,
+                output_root=Path(args.output_root),
+                run_dirs=tuple(Path(path) for path in args.run_dir),
+                start_index=args.start_index,
+                limit=args.limit,
+                scene_ids=tuple(args.scene_id),
+                workers=args.workers,
+                overwrite=args.overwrite,
+                skip_existing=not args.no_skip_existing,
+                validate=not args.no_validate,
+                copy_assets=not args.no_copy_assets,
+                embed_assets=not args.no_embed_assets,
+                label_name=args.label_name,
+                label_compression=args.label_compression,
+                gzip_level=args.gzip_level,
+                metadata_compression=args.metadata_compression,
+                command=tuple(sys.argv if argv is None else ["sionna-measurement-sim", *argv]),
+            )
+        )
+        print(
+            "RT label scene postprocess complete: "
             f"{result.completed} completed, {result.skipped} skipped, "
             f"{result.failed} failed"
         )

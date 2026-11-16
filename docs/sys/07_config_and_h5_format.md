@@ -901,6 +901,63 @@ target room tensor。`link_index.parquet` 展开 scene id/H5 path、坐标、tar
 split，应基于 `manifest.json`、`room_index.parquet` 或 `link_index.parquet` 另建索引，
 不要把 split 冻结进 scene H5。
 
+### 2.4.3 离线 RT Label Scene Dataset Contract
+
+`postprocess-rt-label-scenes` 是 `rt_labels_only` 输出完成后的离线整理入口。它只读
+`sionna_measurement_rt_labels` shard run，把同一场景的多个 `results/result_xxx.h5`
+汇总为 scene-level 标签数据集，原始 run 目录不修改：
+
+```text
+<output_root>/
+  scenes/<scene_id>.h5
+  assets/<scene_id>/
+  manifest.json
+  link_index.pt
+  link_index.parquet
+  room_index.pt
+  room_index.parquet
+```
+
+单 scene H5 使用独立 contract：
+
+```text
+/meta/contract_name    = "sionna_rt_label_scene_dataset"
+/meta/schema_version   = "0.1.0"
+/labels/link/*         # shape [link] or [link,2]
+```
+
+它不写 `/cfr`。核心保留 source shard 的 `/labels/link/*` 表，并把多个 shard 沿 link 维
+拼接。额外物化的训练/筛选字段包括：
+
+| Dataset | Shape | 说明 |
+|---------|-------|------|
+| `/link_id` | [link] | scene 内连续 link id |
+| `/tx_id`, `/rx_id` | [link] | resolved TX/RX 全局 id |
+| `/ue_id`, `/bs_id` | [link] | 物理 UE/BS id；direct uplink 下 UE=TX、BS=RX |
+| `/target_xy` | [link, 2] | 定位 target XY；direct uplink 下为 UE XY |
+| `/valid_mask` | [link] | 直接镜像 `/labels/link/link_valid_mask` |
+| `/source_shard_id` | [link] | 原 shard id |
+| `/source_shard_index` | [link] | 原计划 shard index |
+| `/source_local_index` | [link] | 原 shard 内 flattened link index |
+| `/source_local_tx_index`, `/source_local_rx_index` | [link] | 原 shard 内 TX/RX index |
+| `/labels/link/first_path_delay_s` | [link] | first-path one-way delay truth |
+| `/labels/link/first_path_propagation_range_m` | [link] | first-path propagation range truth |
+| `/labels/link/geometric_distance_m` | [link] | TX/RX 几何距离 |
+| `/labels/link/path_power_db` | [link] | 路径功率标签 |
+| `/labels/link/los_flag`, `/labels/link/nlos_flag` | [link] | LoS/NLoS 标记 |
+| `/rooms/*` | varies | 与 CFR scene dataset 相同的结构化 room metadata |
+| `/link/target_room_index` | [link] | target room index，未知为 -1 |
+| `/link/target_room_area_m2` | [link] | target room 面积，未知为 NaN |
+| `/link/target_room_type_id` | [link] | target room type 编码，未知为 -1 |
+| `/floorplan/*`, `/assets/*` | bytes/meta | floorplan、label、report 等可选嵌入资产 |
+
+`link_index.pt` 和 `link_index.parquet` 会包含 scene/H5 path、global/local link id、BS/UE id、
+target XY、valid mask、first-path delay/range、geometric distance、strongest-path delay、
+path power、LoS/NLoS、path count 和 target room metadata；`room_index.pt/parquet` 与 CFR
+scene dataset 保持同一 room 表口径。该 contract 用
+`sionna_measurement_sim.postprocess.validate_rt_label_scene_h5()` 校验，不走
+`sionna_measurement_sim.io.schema_validator.validate_hdf5_contract()`。
+
 ### 2.5 `/input` — 输入引用
 
 | Dataset | 类型 | 说明 |

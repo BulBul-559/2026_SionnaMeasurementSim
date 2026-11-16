@@ -16,6 +16,8 @@
 | `run-batch` | 批量实验 | `run_batch_experiment()` |
 | `build-scene-index` | 按类别比例构建 Front3D JSONL 场景队列 | `build_scene_index()` |
 | `run-scene-index` | 按 JSONL index 顺序生成逐场景配置；默认逐场景调用 `run-full`，可选跨场景 shard pipeline | `run_scene_index()` |
+| `postprocess-cfr-scenes` | 离线合并 CFR truth-only shard run 为 scene-level CFR 数据集 | `build_cfr_scene_dataset()` |
+| `postprocess-rt-label-scenes` | 离线合并 `rt_labels_only` shard run 为 scene-level RT 标签数据集 | `build_rt_label_scene_dataset()` |
 | `visualize` | 从已有 HDF5 输出诊断图或 dataset 预览 | `generate_visualization_report()` |
 | `benchmark rt/write/sharding/readback/spectrum` | 隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest batch 读取、Bartlett 空间谱成本 | `benchmark.runner` |
 

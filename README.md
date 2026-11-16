@@ -23,7 +23,7 @@
 - 配置驱动 debug profiling（阶段耗时、GPU/CPU/RSS 采样、HDF5 dataset 写入聚合、失败运行 summary、每 shard summary）
 - RSS radio map 可视化：按 BS 聚合 `/observation/rssi_dbm`，在 floorplan 上输出插值或原始采样点热力图
 - Front3D 场景索引队列：按 small/normal 等类别比例生成 JSONL index，并按 index 顺序逐场景运行 CFR truth-only 生产模板
-- 离线 CFR scene dataset 后处理：从已完成 CFR truth-only shard run 只读构建“一个场景一个 H5”的训练底座，物化 link/room metadata、power/validity、floorplan/label 资产、全局 manifest、`link_index.pt` 以及 parquet 筛选索引
+- 离线 scene dataset 后处理：从已完成 CFR truth-only 或 `rt_labels_only` shard run 只读构建“一个场景一个 H5”的训练底座，物化 link/room metadata、power/ranging/validity、floorplan/label 资产、全局 manifest、`link_index.pt` 以及 parquet 筛选索引
 - `benchmark rt/write/sharding/readback/spectrum` 性能工程入口，用于隔离 RT solve、HDF5 writer/schema validate、真实 shard/bundle 写盘、manifest 读取吞吐和 Bartlett 空间谱成本
 - `output.profile` 只保留三种真实输出契约：`full`、`rt_labels_only`、`iq_link_library`；`full` 可通过 `output.products` 选择关键产物并裁剪 RT/PHY/下游链路
 - HDF5 schema `2.3.0` 强校验（full contract、RT labels-only contract、clean IQ link-library contract、product-aware full contract、NR SRS v2 resource/port/power datasets、multi-UE SRS `/multiuser` 输出、协议无关 `/iq` 输出、统一 waveform/power 字段、array 旧别名移除、ranging 与 truth range 语义拆开）
@@ -129,6 +129,13 @@ uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
     --output-root outputs/front3d_small_normal_3000_panel0p5_cfr_scene_dataset \
     --workers 16 \
     --cfr-compression none
+
+# 离线构建 scene-level RT labels-only 数据集；保留 /labels/link/*，原始 shard 只读不改
+uv run python -m sionna_measurement_sim.app.cli postprocess-rt-label-scenes \
+    --input-root outputs/front3d_400_panel0p5_rtt_truth_only \
+    --output-root outputs/front3d_400_panel0p5_rt_label_scene_dataset \
+    --workers 16 \
+    --label-compression gzip
 ```
 
 项目默认锁定 PyTorch `2.10.0+cu128`，通过官方 PyTorch CUDA 12.8 wheel 源安装；在 NVIDIA driver 支持 CUDA 12.8 的机器上，`uv sync` 后即可使用 GPU。需要启用 NR PUSCH GPU 执行时，将 YAML 中 `runtime.device` 改为 `"cuda"` 或 `"cuda:0"`。
@@ -157,6 +164,7 @@ uv run python -m sionna_measurement_sim.app.cli postprocess-cfr-scenes \
 | `build-scene-index` | 从 Front3D split/目录生成确定性的 JSONL 场景队列 |
 | `run-scene-index` | 按 JSONL index 顺序生成逐场景配置；可选跨场景 shard pipeline |
 | `postprocess-cfr-scenes` | 离线把已完成 CFR truth-only shard run 转成 scene-level 训练数据集 |
+| `postprocess-rt-label-scenes` | 离线把已完成 `rt_labels_only` shard run 转成 scene-level 标签数据集 |
 | `visualize` | 从已有 HDF5 生成采样诊断图、RSS radio map 或 dataset 预览 |
 | `benchmark rt` | 仅测 RT solve，不跑 PHY/HDF5/可视化 |
 | `benchmark write` | 合成 `MeasurementSimulationResult`，仅测 HDF5 writer、compression（含 `mixed` 与 `--gzip-level`）和 schema validate |
@@ -331,7 +339,9 @@ resolved TX/RX 索引、fallback 拆分记录和 `manifest/config_snapshot.json`
 run 目录，例如 `logs/run.log`、`logs/heatmap.log` 和 `summary.json`，避免在
 `outputs/` 根目录生成 sidecar 文件。
 
-离线 `postprocess-cfr-scenes` 不会改动上述原始 run 目录。它输出新的训练数据集目录：
+离线 scene postprocess 不会改动上述原始 run 目录。CFR truth 使用
+`postprocess-cfr-scenes`；RT/RTT truth labels-only 使用 `postprocess-rt-label-scenes`。
+二者都会输出新的训练数据集目录：
 
 ```text
 <dataset_dir>/
@@ -352,6 +362,14 @@ scene H5 的 root 级训练字段包括 `/cfr`、`/link_id`、`/ue_id`、`/bs_id
 `/link/target_room_area_m2` 和 `/link/target_room_type_id` 让训练或 split 生成无需再解析
 label JSON。`/floorplan` 与 `/assets` 会嵌入对应的 floorplan、label 和 meta/report 字节；
 默认 `/cfr` 不压缩，以避免训练读取时被 gzip 解压 CPU 卡住。
+
+RT labels scene H5 使用独立 contract `sionna_rt_label_scene_dataset`，核心保留
+`/labels/link/*` 的 flattened link 表，并额外物化 `/link_id`、`/ue_id`、`/bs_id`、
+`/target_xy`、`/valid_mask`、source shard provenance、`/rooms/*` 和 target room 索引。
+全局 `link_index.pt/parquet` 会包含 `first_path_delay_s`、
+`first_path_propagation_range_m`、`geometric_distance_m`、`path_power_db`、LoS/NLoS
+标记等 RTT/first-path 标签字段，适合只需要 ranging truth 或 floorplan+ranging baseline
+筛选的后处理任务。
 
 可视化入口会把普通采样诊断图写到 `figures/standard/`，RSS radio map 写到
 `figures/heatmaps/`，multi-UE SRS shared observation 图写到 `figures/multiuser/`。

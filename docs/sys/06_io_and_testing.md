@@ -215,6 +215,54 @@ scene-level room 表，可直接统计 room 面积分布并按 room/scene 粒度
 scene，一个 worker 写一个 scene H5；不要把它和仿真阶段
 `output.sharding.bundle.enabled` 混用。
 
+### `postprocess/rt_label_scene_dataset.py` — 离线 scene-level RT labels 数据集
+
+`postprocess-rt-label-scenes` 是 `rt_labels_only` shard run 的离线合并入口。它同样只读
+`manifest/manifest.json` 和 `results/result_xxx.h5`，输出一个新的 scene-level 数据集目录，
+不修改原始 run。目录结构与 CFR scene dataset 一致：
+
+```text
+<output_root>/
+  scenes/<scene_id>.h5
+  assets/<scene_id>/
+  manifest.json
+  link_index.pt
+  link_index.parquet
+  room_index.pt
+  room_index.parquet
+```
+
+单 scene H5 使用独立 contract `sionna_rt_label_scene_dataset` / schema `0.1.0`。它不写
+`/cfr`，核心保留 source shard 中的 `/labels/link/*` flattened link 标签表，并额外物化：
+
+```text
+/link_id                         [link]
+/bs_id / ue_id                   [link]
+/tx_id / rx_id                   [link]
+/target_xy                       [link, 2]
+/valid_mask                      [link]
+/source_shard_id                 [link]
+/source_shard_index              [link]
+/source_local_index              [link]
+/source_local_tx_index           [link]
+/source_local_rx_index           [link]
+/labels/link/first_path_delay_s  [link]
+/labels/link/first_path_propagation_range_m [link]
+/labels/link/geometric_distance_m [link]
+/labels/link/path_power_db       [link]
+/labels/link/los_flag            [link]
+/labels/link/nlos_flag           [link]
+/rooms/*
+/link/target_room_*
+/floorplan/*
+/assets/*
+```
+
+全局 `link_index.pt/parquet` 面向筛选和 split 生成，包含 scene/H5 path、local/global link id、
+BS/UE id、target XY、valid mask、first-path delay/range、geometric distance、path power、
+LoS/NLoS、path count 和 target room metadata。该 contract 由
+`validate_rt_label_scene_h5()` 校验，不走 full HDF5 `validate_hdf5_contract()`。
+
 ### `manifest.py`
 
 ```python
